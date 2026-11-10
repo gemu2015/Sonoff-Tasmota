@@ -141,6 +141,7 @@ powerwall.tcb
 powerwall_fast.tcb
 rgb_led.tcb
 rgb_selftest.tcb
+rover.tcb
 rsa_test.tcb
 scd30.tcb
 sensor_log87.tcb

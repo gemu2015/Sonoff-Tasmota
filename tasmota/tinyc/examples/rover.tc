@@ -1,0 +1,502 @@
+// @name: WAVE ROVER
+// ONE program for the whole WAVE ROVER driver board (ESP32-WROOM-32UE, no PSRAM): motors, battery, IMU, compass, four floor
+// sensors against a staircase, the touch joystick page and the display. One slot instead of several, because every TinyC
+// slot costs about 9 KB of RAM on its own (measured on a classic ESP32, see docs/WAVE_ROVER.md).
+//
+//   http://<ip>/rover        joystick page (touch or mouse; arrow keys / WASD)
+//   http://<ip>/rover_cmd?d=<-100..100>&t=<-100..100>&m=<10..100>   one drive command, answers a small JSON
+//   console:  RoverCalGyro, RoverYaw0, RoverCalMag 1|0, RoverCliff [0|1|<min> <max>], RoverTof <ch> <mm> (-1 = silent sensor), RoverVbat <mV>
+//
+// SAFETY, in the order it matters:
+//  1. STAIRCASE: four VL53L0X floor sensors (TCA9548A channels 0..3 = front left, front right, rear left, rear right, looking
+//     outward / down about 45 degrees). A sensor sees the floor when its distance is inside the window cl_min..cl_max (mm). A reading
+//     outside it (nothing returned = a drop) or a sensor that is missing / silent for CLIFF_STALE_MS counts as a CLIFF. Then:
+//     front cliff -> only straight reverse, rear cliff -> only straight forward, both (or a sensor fault) -> no movement at all.
+//     This runs in this program, independent of anything that sends commands. RoverCliff 0 switches the protection off (log warning).
+//  2. DEAD-MAN: a drive command must be renewed within WD_MS (300 ms), else the motors stop. The page sends one every 100 ms.
+//  3. Battery guard: below VBAT_MIN_MV the motors are refused (3S Li-ion, INA219 at 0x42).
+//  4. A slot stop (CleanUp) and the start of the program switch all motor pins off.
+// Motor side A = LEFT, B = RIGHT. Forward = IN1 high, IN2 low. Below PWM 23 the N20 motors do not turn.
+//
+// DISPLAY: the first 4 lines (21 characters, font 6x8, 128x32 pixel block) are what the Waveshare firmware shows on its OLED
+// (title, IP address, state, battery); the same code works on the SSD1306 of the rover. DSP_EXTRA 1 adds a larger panel with the rest
+// on a TFT.
+//
+// TEST WITHOUT THE ROVER: ROVER_SIM 1 does not touch the motor pins, takes the battery voltage from RoverVbat and the four distances
+// from RoverTof (default 60 mm), so the display, the web page and the safety logic can be tried on any ESP32.
+// NOT yet tested on the rover (the I2C drivers' decoding is covered by wave_sensors_test.tc).
+
+#define ROVER_SIM   0            // 1 = simulated battery / floor sensors, no motor pins
+#define DSP_EXTRA   1            // 1 = extra panel below the 4 OLED lines (TFT)
+
+#include "ina219.tc"
+#include "qmi8658.tc"
+#include "ak09918.tc"
+#include "vl53l0x_mux.tc"
+
+#define OUTPUT      3
+
+#define PIN_PWMA    25
+#define PIN_AIN1    21
+#define PIN_AIN2    17
+#define PIN_BIN1    22
+#define PIN_BIN2    23
+#define PIN_PWMB    26
+
+#define DIR_L       1            // -1 turns the left side around
+#define DIR_R       1
+#define PWM_MIN     23
+#define WD_MS       300
+#define VMAX_START  40
+#define INA_ADDR    0x42
+#define I2C_BUS     0
+#define VBAT_MIN_MV 9300
+#define CLIFF_MIN   25           // floor window (mm along the beam); set to your mounting with RoverCliff <min> <max>
+#define CLIFF_MAX   110
+#define CLIFF_STALE_MS 600       // a sensor that did not answer for this long is a fault
+
+int drive   = 0;
+int turn    = 0;
+int vmax    = VMAX_START;
+int lastcmd = 0;
+int motL    = 0;
+int motR    = 0;
+int stops   = 0;
+int vbat_mv = 0;
+int low     = 0;
+int why     = 0;                 // why the motors are held: 0 free, 1 battery, 2 sensor fault, 3 front cliff, 4 rear cliff, 5 both
+int cl_on   = 1;
+int cl_min  = CLIFF_MIN;
+int cl_max  = CLIFF_MAX;
+int cl_flag[4];                  // 1 = no floor in the window
+int cl_front = 0;
+int cl_rear  = 0;
+int cl_fault = 1;                // 1 until all four sensors answered
+int tof_ch   = 0;
+int sim_tof[4];
+int sim_vbat = 11800;
+int ina_next = 0;
+int dsp_n    = 0;
+char ob[160];
+char cb[24];
+char ip[20];
+char dl[40];
+
+int rover_clamp(int v, int lo, int hi) {
+    if (v < lo) { return lo; }
+    if (v > hi) { return hi; }
+    return v;
+}
+
+int rover_pwm(int pct) {
+    int a = pct;
+    int p = 0;
+    if (a < 0) { a = 0 - a; }
+    if (a == 0) { return 0; }
+    p = PWM_MIN + ((255 - PWM_MIN) * a) / 100;
+    if (pct < 0) { p = 0 - p; }
+    return p;
+}
+
+void rover_side(int pwm, int pin_pwm, int pin_in1, int pin_in2) {
+    int a = pwm;
+    if (ROVER_SIM == 1) { return; }
+    if (a < 0) { a = 0 - a; }
+    if (pwm == 0) {
+        digitalWrite(pin_in1, 0);
+        digitalWrite(pin_in2, 0);
+        analogWrite(pin_pwm, 0);
+    } else if (pwm > 0) {
+        digitalWrite(pin_in1, 1);
+        digitalWrite(pin_in2, 0);
+        analogWrite(pin_pwm, a);
+    } else {
+        digitalWrite(pin_in1, 0);
+        digitalWrite(pin_in2, 1);
+        analogWrite(pin_pwm, a);
+    }
+}
+
+// the one place where commands become motor values; every safety rule is applied here
+void rover_apply() {
+    int d = drive;
+    int t = turn;
+    int l = 0;
+    int r = 0;
+    int pl = 0;
+    int pr = 0;
+    why = 0;
+    if (low == 1) { d = 0; t = 0; why = 1; }
+    if (cl_on == 1) {
+        if (cl_fault == 1) {
+            d = 0; t = 0; why = 2;
+        } else if (cl_front == 1 && cl_rear == 1) {
+            d = 0; t = 0; why = 5;
+        } else if (cl_front == 1) {
+            if (d > 0) { d = 0; }
+            t = 0; why = 3;
+        } else if (cl_rear == 1) {
+            if (d < 0) { d = 0; }
+            t = 0; why = 4;
+        }
+    }
+    l = rover_clamp(d + t, -100, 100);
+    r = rover_clamp(d - t, -100, 100);
+    pl = rover_pwm((l * vmax) / 100) * DIR_L;
+    pr = rover_pwm((r * vmax) / 100) * DIR_R;
+    if (pl != motL) {
+        rover_side(pl, PIN_PWMA, PIN_AIN1, PIN_AIN2);
+        motL = pl;
+    }
+    if (pr != motR) {
+        rover_side(pr, PIN_PWMB, PIN_BIN1, PIN_BIN2);
+        motR = pr;
+    }
+}
+
+void rover_off() {
+    drive = 0;
+    turn = 0;
+    motL = 1;
+    motR = 1;
+    rover_apply();
+}
+
+// evaluate the four floor sensors; returns 1 when the picture changed (then the motors must be re-evaluated)
+int cliff_eval() {
+    int ch = 0;
+    int d = 0;
+    int up = 0;
+    int age = 0;
+    int f = 0;
+    int fr = 0;
+    int re = 0;
+    int fault = 0;
+    int changed = 0;
+    while (ch < 4) {
+        up = vl_up[ch];
+        if (ROVER_SIM == 1) { up = 1; }
+        age = millis() - vl_age[ch];
+        d = vl_dist[ch];
+        f = 0;
+        if (up == 0 || age > CLIFF_STALE_MS || age < 0) {
+            fault = 1;
+            f = 1;
+        } else if (d < cl_min || d > cl_max) {
+            f = 1;
+        }
+        if (f != cl_flag[ch]) { changed = 1; }
+        cl_flag[ch] = f;
+        if (f == 1) {
+            if (ch < 2) { fr = 1; } else { re = 1; }
+        }
+        ch = ch + 1;
+    }
+    if (fault != cl_fault || fr != cl_front || re != cl_rear) { changed = 1; }
+    cl_fault = fault;
+    cl_front = fr;
+    cl_rear = re;
+    return changed;
+}
+
+// one floor sensor per call (about 35 ms each on the real sensor)
+void tof_step() {
+    int ch = tof_ch;
+    if (ROVER_SIM == 1) {
+        if (sim_tof[ch] >= 0) {              // a negative value simulates a silent sensor (RoverTof <ch> -1)
+            vl_dist[ch] = sim_tof[ch];
+            vl_age[ch] = millis();
+        }
+    } else {
+        vl_poll(ch);
+    }
+    tof_ch = (ch + 1) & 3;
+}
+
+void TaskLoop() {
+    int ch = 0;
+    tof_step();
+    if (cliff_eval() == 1) {
+        if (cl_fault == 0 && cl_on == 1) { addLog("ROVER: cliff F%d%d R%d%d", cl_flag[0], cl_flag[1], cl_flag[2], cl_flag[3]); }
+        rover_apply();
+    }
+    qmi_poll();
+    ak_poll();
+    if (millis() >= ina_next) {
+        ina_next = millis() + 1000;
+        if (ROVER_SIM == 1) {
+            vbat_mv = sim_vbat;
+        } else {
+            ina_poll();
+            vbat_mv = 0;
+            if (ina_ok == 1) { vbat_mv = ina_mv; }
+        }
+        if (vbat_mv > 0 && vbat_mv < VBAT_MIN_MV) {
+            if (low == 0) { addLog("ROVER: battery low (%d mV), motors off", vbat_mv); }
+            low = 1;
+            rover_apply();
+        } else if (vbat_mv >= VBAT_MIN_MV + 300) {
+            if (low == 1) { low = 0; rover_apply(); }
+        }
+    }
+    delay(5);
+}
+
+// ---- display: the 4 OLED lines of the Waveshare firmware, then the extra panel -----------------------------------------
+
+void dsp_line(int x, int y, int n, char t[]) {
+    dspPos(x, y);
+    dspPad(n);
+    dspDraw(t);
+}
+
+void dsp_state(char t[]) {
+    if (why == 1) { strcpy(t, "LOW BATTERY"); }
+    else if (why == 2) { strcpy(t, "FLOOR SENSOR FAULT"); }
+    else if (why == 3) { strcpy(t, "CLIFF AHEAD"); }
+    else if (why == 4) { strcpy(t, "CLIFF BEHIND"); }
+    else if (why == 5) { strcpy(t, "CLIFF F+R"); }
+    else if (motL == 0 && motR == 0) { strcpy(t, "STOP"); }
+    else { sprintf(t, "L%d R%d", motL, motR); }
+}
+
+void display_update() {
+    dspFont(0);
+    dspSize(1);
+    dspColor(0xFFFF, 0x0000);
+    dsp_line(2, 1, 21, "WAVE ROVER");
+    sprintf(dl, "IP:%s", ip);
+    dsp_line(2, 9, 21, dl);
+    dsp_state(dl);
+    dsp_line(2, 17, 21, dl);
+    if (vbat_mv > 0) {
+        sprintf(dl, "V:%d.%02d  I:%d mA", vbat_mv / 1000, (vbat_mv % 1000) / 10, ina_ma);
+    } else {
+        strcpy(dl, "V:--");
+    }
+    dsp_line(2, 25, 21, dl);
+    if (DSP_EXTRA == 1) {
+        dspFont(0);
+        dspSize(2);
+        dspColor(0xFFFF, 0x0000);
+        sprintf(dl, "Yaw %.0f  Hdg %.0f", qmi_yaw, ak_heading());
+        dsp_line(2, 40, 20, dl);
+        sprintf(dl, "Gz %.1f  T %.1f C", qmi_gz, qmi_temp);
+        dsp_line(2, 58, 20, dl);
+        dspColor(0xFFE0, 0x0000);
+        dsp_line(2, 82, 20, "Floor sensors (mm)");
+        dspColor(0xFFFF, 0x0000);
+        sprintf(dl, "FL %d  FR %d", vl_dist[0], vl_dist[1]);
+        dsp_line(2, 100, 20, dl);
+        sprintf(dl, "RL %d  RR %d", vl_dist[2], vl_dist[3]);
+        dsp_line(2, 118, 20, dl);
+        if (cl_on == 0) {
+            dspColor(0xFFE0, 0x0000);
+            dsp_line(2, 142, 20, "CLIFF GUARD OFF");
+        } else if (why >= 2 && why <= 5) {
+            dspColor(0xF800, 0x0000);
+            dsp_state(dl);
+            dsp_line(2, 142, 20, dl);
+        } else {
+            dspColor(0x07E0, 0x0000);
+            dsp_line(2, 142, 20, "floor ok");
+        }
+    }
+}
+
+void display_first() {
+    dspClear();
+    dspColor(0x7BEF, 0x0000);
+    dspPos(0, 0);
+    dspRect(128, 32);
+    display_update();
+}
+
+void Every50ms() {
+    if (millis() - lastcmd > WD_MS) {
+        if (motL != 0 || motR != 0) {
+            if (drive != 0 || turn != 0) { stops = stops + 1; }
+        }
+        drive = 0;
+        turn = 0;
+        rover_apply();
+    }
+    dsp_n = dsp_n + 1;
+    if (dsp_n >= 10) {
+        dsp_n = 0;
+        display_update();
+    }
+}
+
+// ---- web ---------------------------------------------------------------------------------------------------------------
+
+int cliff_mask() {
+    return cl_flag[0] + cl_flag[1] * 2 + cl_flag[2] * 4 + cl_flag[3] * 8;
+}
+
+void WebCall() {
+    dsp_state(dl);
+    sprintf(ob, "{s}Rover{m}%s   motors L / R %d / %d  (watchdog stops %d){e}", dl, motL, motR, stops);
+    webSend(ob);
+    if (vbat_mv > 0) {
+        sprintf(ob, "{s}Battery{m}%d.%02d V   %d mA{e}", vbat_mv / 1000, (vbat_mv % 1000) / 10, ina_ma);
+        webSend(ob);
+    } else {
+        webSend("{s}Battery (INA219){m}no data{e}");
+    }
+    sprintf(ob, "{s}Floor sensors FL FR RL RR{m}%d  %d  %d  %d mm   window %d..%d{e}", vl_dist[0], vl_dist[1], vl_dist[2], vl_dist[3], cl_min, cl_max);
+    webSend(ob);
+    if (qmi_ok == 1) {
+        sprintf(ob, "{s}IMU yaw / gyro z{m}%.1f deg  %.2f dps  %.1f C{e}", qmi_yaw, qmi_gz, qmi_temp);
+        webSend(ob);
+    }
+    if (ak_addr != 0) {
+        sprintf(ob, "{s}Compass{m}heading %.0f{e}", ak_heading());
+        webSend(ob);
+    }
+    webSend("{s}Rover page{m}<a href='/rover'>/rover</a>{e}");
+}
+
+void JsonCall() {
+    sprintf(ob, ",\"Rover\":{\"Vbat\":%d.%03d,\"Cliff\":%d,\"Why\":%d", vbat_mv / 1000, vbat_mv % 1000, cliff_mask(), why);
+    responseAppend(ob);
+    if (qmi_ok == 1) {
+        sprintf(ob, ",\"Yaw\":%.1f", qmi_yaw);
+        responseAppend(ob);
+    }
+    responseAppend("}");
+}
+
+void rover_page() {
+    webSend("<!DOCTYPE html><meta name=viewport content='width=device-width,initial-scale=1'><title>WAVE ROVER</title>");
+    webSend("<style>body{font-family:sans-serif;margin:12px;text-align:center}");
+    webSend("#pad{width:280px;height:280px;margin:10px auto;border:2px solid #888;border-radius:50%;touch-action:none;position:relative}");
+    webSend("#dot{width:40px;height:40px;border-radius:50%;background:#2a7;position:absolute;left:120px;top:120px}</style>");
+    webSend("<h3>WAVE ROVER</h3><div id=st>-</div><div id=pad><div id=dot></div></div>");
+    webSend("<p>Speed limit <input type=range id=mx min=10 max=100 value=40 oninput='mxv.textContent=this.value'> <span id=mxv>40</span> %</p>");
+    webSend("<button onclick='halt()'>STOP</button><p>Arrow keys / WASD also work. Motors stop 0.3 s after the last command.</p>");
+    webSend("<script>var d=0,t=0,act=0,tm=null,ks={},p=document.getElementById('pad'),dot=document.getElementById('dot');");
+    webSend("function send(){fetch('rover_cmd?d='+d+'&t='+t+'&m='+mx.value).then(function(r){return r.json()}).then(function(j){");
+    webSend("st.textContent=j.v+' V   L '+j.l+'   R '+j.r+'   stops '+j.wd+(j.lo?'   LOW BATTERY':'')+(j.cl?'   CLIFF '+j.cl:'')}).catch(function(){st.textContent='no link'})}");
+    webSend("function go(){if(!tm){tm=setInterval(send,100)}send()}");
+    webSend("function halt(){d=0;t=0;dot.style.left='120px';dot.style.top='120px';send();clearInterval(tm);tm=null}");
+    webSend("function mv(e){var r=p.getBoundingClientRect(),x=(e.clientX-r.left-140)/140,y=(e.clientY-r.top-140)/140,n=Math.hypot(x,y);");
+    webSend("if(n>1){x/=n;y/=n}t=Math.round(x*100);d=Math.round(-y*100);dot.style.left=(120+x*120)+'px';dot.style.top=(120+y*120)+'px'}");
+    webSend("p.onpointerdown=function(e){p.setPointerCapture(e.pointerId);act=1;mv(e);go()};");
+    webSend("p.onpointermove=function(e){if(act)mv(e)};p.onpointerup=function(e){act=0;halt()};p.onpointercancel=p.onpointerup;");
+    webSend("function kk(){d=(ks.ArrowUp||ks.w?100:0)-(ks.ArrowDown||ks.s?100:0);t=(ks.ArrowRight||ks.d?60:0)-(ks.ArrowLeft||ks.a?60:0);if(d||t){go()}else{halt()}}");
+    webSend("document.onkeydown=function(e){if(!ks[e.key]){ks[e.key]=1;kk()}};document.onkeyup=function(e){ks[e.key]=0;kk()};");
+    webSend("window.onblur=function(){ks={};act=0;halt()};document.onvisibilitychange=function(){if(document.hidden){ks={};act=0;halt()}};");
+    webSend("</script>");
+}
+
+void WebOn() {
+    int h = webHandler();
+    if (h == 1) {
+        rover_page();
+    }
+    if (h == 2) {
+        if (webArg("d", cb) > 0) { drive = rover_clamp(strToInt(cb), -100, 100); }
+        if (webArg("t", cb) > 0) { turn = rover_clamp(strToInt(cb), -100, 100); }
+        if (webArg("m", cb) > 0) { vmax = rover_clamp(strToInt(cb), 10, 100); }
+        lastcmd = millis();
+        rover_apply();
+        sprintf(ob, "{\"v\":%d.%02d,\"l\":%d,\"r\":%d,\"wd\":%d,\"lo\":%d,\"cl\":%d}", vbat_mv / 1000, (vbat_mv % 1000) / 10, motL, motR, stops, low, cliff_mask());
+        webSend(ob);
+    }
+}
+
+void Command(char cmd[]) {
+    char a[12];
+    char b[12];
+    int ch = 0;
+    if (strcmp(cmd, "CALGYRO") == 0) {
+        qmi_cal_gyro(200);
+        responseCmnd("gyro bias set");
+    } else if (strcmp(cmd, "YAW0") == 0) {
+        qmi_yaw_reset();
+        responseCmnd("yaw 0");
+    } else if (strStartsWith(cmd, "CALMAG")) {
+        if (strFind(cmd, "1") > 0) {
+            ak_cal_begin();
+            responseCmnd("turn the rover slowly through a full circle, then RoverCalMag 0");
+        } else {
+            ak_cal_end();
+            responseCmnd("compass offsets set");
+        }
+    } else if (strStartsWith(cmd, "CLIFF")) {
+        strToken(a, cmd, ' ', 2);
+        strToken(b, cmd, ' ', 3);
+        if (strlen(a) == 0) {
+            sprintf(ob, "guard %d, window %d..%d mm, F%d%d R%d%d fault %d", cl_on, cl_min, cl_max, cl_flag[0], cl_flag[1], cl_flag[2], cl_flag[3], cl_fault);
+            responseCmnd(ob);
+        } else if (strlen(b) == 0) {
+            cl_on = strToInt(a);
+            if (cl_on == 0) { addLog("ROVER: CLIFF GUARD OFF - the rover can drive off an edge"); }
+            rover_apply();
+            responseCmnd("ok");
+        } else {
+            cl_min = strToInt(a);
+            cl_max = strToInt(b);
+            responseCmnd("window set");
+        }
+    } else if (strStartsWith(cmd, "TOF")) {
+        strToken(a, cmd, ' ', 2);
+        strToken(b, cmd, ' ', 3);
+        ch = strToInt(a);
+        if (ch >= 0 && ch < 4 && strlen(b) > 0) { sim_tof[ch] = strToInt(b); }
+        responseCmnd("ok");
+    } else if (strStartsWith(cmd, "VBAT")) {
+        strToken(a, cmd, ' ', 2);
+        if (strlen(a) > 0) { sim_vbat = strToInt(a); }
+        responseCmnd("ok");
+    } else {
+        responseCmnd("unknown");
+    }
+}
+
+void CleanUp() {
+    rover_off();
+    ina_release();
+    qmi_release();
+    ak_release();
+    vl_release();
+}
+
+int main() {
+    int i = 0;
+    while (i < 4) { sim_tof[i] = 60; cl_flag[i] = 1; i = i + 1; }
+    addCommand("Rover");
+    if (ROVER_SIM == 0) {
+        pinMode(PIN_PWMA, OUTPUT);
+        pinMode(PIN_AIN1, OUTPUT);
+        pinMode(PIN_AIN2, OUTPUT);
+        pinMode(PIN_PWMB, OUTPUT);
+        pinMode(PIN_BIN1, OUTPUT);
+        pinMode(PIN_BIN2, OUTPUT);
+    }
+    rover_off();
+    lastcmd = millis();
+    ina_init(INA_ADDR, I2C_BUS);
+    qmi_init(I2C_BUS, 2, 5, 3);
+    ak_init(I2C_BUS, 8);
+    if (qmi_ok == 1) { qmi_cal_gyro(200); }
+    if (ROVER_SIM == 0) {
+        if (vl_mux_init(I2C_BUS) == 1) {
+            vl_timeout = 60;
+            i = 0;
+            while (i < 4) {
+                if (vl_start(i) == 0) { addLog("ROVER: floor sensor %d not found", i); }
+                i = i + 1;
+            }
+        } else {
+            addLog("ROVER: TCA9548A not found, the cliff guard keeps the motors off (RoverCliff 0 to override)");
+        }
+    }
+    tasmInfo(2, ip);
+    webOn(1, "/rover");
+    webOn(2, "/rover_cmd");
+    display_first();
+    addLog("ROVER: ready (sim %d), page /rover, watchdog %d ms, cliff window %d..%d mm", ROVER_SIM, WD_MS, cl_min, cl_max);
+    return 0;
+}

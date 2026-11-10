@@ -120,3 +120,12 @@ Selbsttest mit synthetischen Paketen: `examples/wave_lidar_test.tc` (35 Pruefung
   (die Befehle sind einfach, sie lassen sich bei Bedarf in TinyC ergaenzen).
 - Kamera, Lidar und Arm der Waveshare-Reihe gehoeren nicht dazu.
 - Ein Abstandssensor: Ein VL53L0X/VL53L1X kommt an den I2C-Erweiterungsanschluss (Adresse 0x29, keine Kollision mit 0x3C, 0x42, 0x0C und dem IMU).
+
+## Ein Programm fuer alles: `examples/rover.tc`
+
+`rover.tc` fasst alles in **einem TinyC-Slot** zusammen: Motoren mit Totmann-Watchdog, Batterieschutz, IMU und Kompass, **vier VL53L0X-Bodensensoren hinter einem TCA9548A gegen die Treppe**, die Joystick-Seite und das Display. Ein Slot, weil auf einem klassischen ESP32 mit WLAN (`tinyc32-4M-plain`, gemessen an einem Board ohne Rover) jeder Slot allein etwa **9 KB RAM** kostet, egal was er tut; das ganze Programm (13 KB Bytecode) kostet rund 49 KB (30 KB intern plus Bytecode und Konstanten, die ein PSRAM-Board verdeckt). Frei bleiben nach dem Laden auf dem Rover etwa 60 KB Heap.
+
+- **Treppenschutz:** Kanal 0..3 = vorn links, vorn rechts, hinten links, hinten rechts, schraeg nach aussen und unten (etwa 45 Grad). Ein Wert ausserhalb des Bodenfensters `RoverCliff <min> <max>` (Standard 25..110 mm) oder ein stummer Sensor gilt als Kante. Kante vorn: nur gerade rueckwaerts. Kante hinten: nur gerade vorwaerts. Beides oder ein Sensorfehler: gar keine Bewegung. `RoverCliff 0` schaltet den Schutz ab (wird protokolliert). Er laeuft in diesem Programm, egal wer die Befehle schickt. Treiber: `common/vl53l0x_mux.tc` (vom Ein-Sensor-Treiber abgeleitet, Zustand je Kanal).
+- **Display:** die vier 21-Zeichen-Zeilen des Waveshare-OLED (Titel, IP, Zustand, Batterie), 128x32 Pixel oben links; `DSP_EXTRA 1` fuegt auf einem TFT ein groesseres Feld dazu.
+- **Test ohne den Rover:** `ROVER_SIM 1` laesst die Motorpins in Ruhe und nimmt Batterie und Bodenabstaende aus `RoverVbat <mV>` / `RoverTof <Kanal> <mm>` (`-1` = stummer Sensor). So an einem ESP32 mit ILI9341 durchgespielt: vorwaerts / rueckwaerts / drehen wurden bei jeder Kombination aus vorn / hinten / beides / zu nah / stumm / Batterie leer / Schutz aus wie oben erlaubt oder verweigert, der Watchdog stoppte die Motoren.
+- Noch nicht am Rover selbst und nicht mit echten VL53L0X-Sensoren getestet.

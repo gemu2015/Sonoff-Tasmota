@@ -27,7 +27,7 @@ const GROUPS = [
   ['Web pages and buttons', 'Custom web UI, REST endpoints, widgets.',
     /^(web_.*|webcall_demo|webui_.*|multipage_demo|clock_header|filemanager)$/],
   ['Sensors and measuring', 'I2C, 1-Wire, SPI and analog sensors.',
-    /^(wave_rover|wave_rover_sensors|wave_sensors_test|wave_lidar|wave_lidar_test|lidar_scope|bme280|bmp280|bmx280|sht31|sht31_publisher|sht31_th|scd30|sgp30|sps30|vl53l0x|mlx90614|tcs34725|veml6075|ltr308|ads1115|ccs811|max30102|max31855|ld2410|onewire|sensor_read|heating_ds2484|sensor_log87|wd_logger|weather)$/],
+    /^(rover|wave_rover|wave_rover_sensors|wave_sensors_test|wave_lidar|wave_lidar_test|lidar_scope|bme280|bmp280|bmx280|sht31|sht31_publisher|sht31_th|scd30|sgp30|sps30|vl53l0x|mlx90614|tcs34725|veml6075|ltr308|ads1115|ccs811|max30102|max31855|ld2410|onewire|sensor_read|heating_ds2484|sensor_log87|wd_logger|weather)$/],
   ['Displays, charts and touch', 'LCD, e-paper, LVGL, TinyUI, charts, gauges, clocks.',
     /^(display_demo|sunton_display|guiton_display|epaper.*|epd_.*|m5_epd47|text_on_image|analog_clock|clock_7seg|lcd_chart|lcd_i2c|live_chart|chart|chart_types|gchart_demo|small_chart|lvgl_.*|tinyui_.*|touch_.*|voltmeter.*|jpg_.*|watch_renaissance|solar_dashboard|ledbar|rgb_.*)$/],
   ['Camera', 'Camera capture, streaming, snapshots.', /^(camera|cam_view.*|webcam.*|snap_with_timestamp)$/],

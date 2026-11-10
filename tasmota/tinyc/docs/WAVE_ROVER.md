@@ -120,3 +120,12 @@ Self test with synthetic packets: `examples/wave_lidar_test.tc` (35 checks, nine
   (the commands are simple, they can be added in TinyC when needed).
 - The camera, lidar and arm of the Waveshare line are not part of this.
 - A distance sensor: a VL53L0X/VL53L1X goes on the I2C expansion port (address 0x29, no clash with 0x3C, 0x42, 0x0C and the IMU).
+
+## One program for everything: `examples/rover.tc`
+
+`rover.tc` puts all of it into **one TinyC slot**: motors with dead-man watchdog, battery guard, IMU and compass, **four VL53L0X floor sensors behind a TCA9548A against the staircase**, the joystick page and the display. One slot, because on a classic ESP32 with WiFi (`tinyc32-4M-plain`, measured on a board without the rover) every slot costs about **9 KB of RAM on its own**, whatever its code does; the whole program (13 KB bytecode) costs about 49 KB (30 KB internal plus the bytecode and constants, which a PSRAM board hides). The free heap after loading it is about 60 KB on the rover.
+
+- **Staircase guard:** channels 0..3 = front left, front right, rear left, rear right, looking outward and down about 45 degrees. A reading outside the floor window `RoverCliff <min> <max>` (default 25..110 mm) or a silent sensor is a cliff. Front cliff: only straight reverse. Rear cliff: only straight forward. Both, or a sensor fault: no movement at all. `RoverCliff 0` switches the guard off (logged). It runs in this program, whoever sends the commands. Driver: `common/vl53l0x_mux.tc` (derived from the single-sensor driver, state per channel).
+- **Display:** the four 21-character lines of the Waveshare OLED (title, IP, state, battery), 128x32 pixels in the top left corner; `DSP_EXTRA 1` adds a larger panel on a TFT.
+- **Test without the rover:** `ROVER_SIM 1` leaves the motor pins alone and takes battery and floor distances from `RoverVbat <mV>` / `RoverTof <ch> <mm>` (`-1` = silent sensor). Done this way on an ESP32 with an ILI9341: forward / reverse / turn were allowed or refused as listed above for every combination of front / rear / both / too-close / silent sensor / low battery / guard off, and the watchdog stopped the motors.
+- Not tested on the rover itself and not with real VL53L0X sensors yet.
