@@ -18,7 +18,7 @@
 // Packet (LDROBOT LD19 data sheet): 0x54 header, 0x2C = 12 points, speed (u16, deg/s), start angle (u16, 0.01 deg), 12 x { distance (u16, mm),
 // intensity (u8) }, end angle (u16, 0.01 deg), timestamp (u16, ms), CRC8 (polynomial 0x4D, initial value 0, over the first 46 bytes). All 16 bit
 // values little endian. The angles of the 12 points are interpolated between start and end (the end may be smaller than the start: wrap at 360).
-// Wiring: LD19 pins are TX, PWM, GND, 5 V (290 mA). The PWM pin is only for speed control (20..50 kHz, 40 % duty = 10 Hz): see the data sheet for
+// Wiring: LD19 pins are TX, PWM, GND, 5 V (290 mA in the data sheet, about 230 mA measured by gemu 10.11.2026). The PWM pin is only for speed control (20..50 kHz, 40 % duty = 10 Hz): see the data sheet for
 // what the lidar does without it. NOTE: on the WAVE ROVER board the lidar socket is wired to a CP2102 USB bridge, NOT to the ESP32: the TX line
 // has to go to a free GPIO of the ESP32 that reads it (an S3 board, for instance).
 //
