@@ -36,7 +36,9 @@
 
 // On by default for the ESP32 family (about 2 KB RAM for the receive ring and some flash); -DTINYC_NO_ESPNOW leaves it out. Set here, in a
 // tracked file, so a build from this repository has it without a private user_config_override.h.
-#if defined(ESP32) && !defined(TINYC_NO_ESPNOW) && !defined(USE_TINYC_ESPNOW)
+// NOT on the ESP32-P4: it has no WiFi radio of its own (esp_wifi_remote), the esp_now_* functions are not linked and the build stops with
+// "undefined reference to esp_now_init" (found building tinyc32-p4-full for 1.6.78).
+#if defined(ESP32) && !defined(CONFIG_IDF_TARGET_ESP32P4) && !defined(TINYC_NO_ESPNOW) && !defined(USE_TINYC_ESPNOW)
 #define USE_TINYC_ESPNOW
 #endif
 
