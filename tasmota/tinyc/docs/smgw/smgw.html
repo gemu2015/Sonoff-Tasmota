@@ -46,6 +46,14 @@ h1{font-size:22px;margin:0;font-weight:650}
 .tabs{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 14px;border-bottom:1px solid var(--ring);padding-bottom:8px;position:sticky;top:0;background:var(--page);z-index:5;padding-top:6px}
 .tabs button{background:var(--surface);color:var(--ink-2);border:1px solid var(--ring);border-radius:8px;padding:6px 12px;font:inherit;font-size:13px;cursor:pointer}
 .tabs button[aria-selected="true"]{background:#FFEB9C;color:#9C5700;border-color:#FFEB9C;font-weight:600}
+/* v057 10.11.2026: Seitenwahl nur, wenn Slot 2 (slot2-smgwkosten) geladen ist - /smgwb?n=status antwortet; sonst wie ohne Kostenrechnung (Andreas) */
+/* v056 10.11.2026: Seitenwahl mittig in der Reiterzeile: SMGW-Leser | Stromkosten, offene Seite hellgruen (Andreas) */
+.seitenwahl{margin-left:auto;display:inline-flex;gap:6px;align-self:center}
+.seitenwahl a{background:var(--surface);color:var(--ink-2);border:1px solid var(--ring);border-radius:8px;padding:6px 14px;font-size:13px;text-decoration:none}
+.seitenwahl a.on{background:#a5e8a8;color:#14531a;border-color:#a5e8a8;font-weight:600}
+/* v055 10.11.2026: Knopf "Stromkosten" aus dem Kopf in die Reiterzeile, mittig zwischen den Reitergruppen (Andreas) */
+.tabs a.kosten{margin-left:auto;background:#FFEB9C;color:#9C5700;border:0;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600;text-decoration:none;align-self:center}
+/* v054 10.11.2026: Knopf "Stromkosten" im Kopf -> /smgwkosten (Slot 2 slot2-smgwkosten, Seite smgw_kosten.html) */
 /* v053 09.11.2026: "jetzt abrufen" zeigt Ergebnis und ob neue Werte kamen (Andreas) */
 /* v052 09.11.2026: Chart.js mit Pruefsumme (integrity sha512, crossorigin) wie node-forge (gemu); ohne Chart.js nur Diagramm weg, Tabellen bleiben */
 /* v051 08.11.2026: Hinweis Konsole: SYNC/RESTORE Schreibweise egal (slot0-smgw v014) */
@@ -165,6 +173,7 @@ footer a{color:var(--ink-2)}
   <button role="tab" data-t="monat">Monat</button>
   <button role="tab" data-t="jahr">Jahr</button>
   <button role="tab" data-t="jahre">Jahre</button>
+  <span class="seitenwahl" id="seitenwahl" style="display:none"><a class="on" href="/smgw">SMGW-Leser</a><a href="/smgwkosten" title="Stromkosten aus den Viertelstunden (Slot 2)">Stromkosten</a></span>
   <button role="tab" data-t="einst" class="rechts">Einstellungen</button>   <!-- v030: rechtsbuendig -->
   <button role="tab" data-t="status">Status</button>
   <button role="tab" data-t="taf">TAF</button>
@@ -1247,7 +1256,7 @@ async function cmJson(c){
   try { const r = await fetch('/cm?cmnd=' + encodeURIComponent(c), {cache:'no-store'}); return await r.json(); }
   catch(e){ return null; }
 }
-const SEITE_VERSION = 'v053';
+const SEITE_VERSION = 'v056';
 const gb = kb => (kb / 1048576).toLocaleString('de-DE', {maximumFractionDigits: 1}) + ' GB';
 const mb = kb => (kb / 1024).toLocaleString('de-DE', {maximumFractionDigits: 1}) + ' MB';
 const gr = kb => kb >= 1048576 ? gb(kb) : (kb >= 1024 ? mb(kb) : kb.toLocaleString('de-DE') + ' KB');   // passende Einheit
@@ -1469,6 +1478,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const b = document.getElementById('pqCopy'); if (b) b.addEventListener('click', pqKopieren);
   setTimeout(pqBauen, 3000);   // nach dem ersten Status: Startmonat aus "start"
 });
+// v057: Seitenwahl SMGW-Leser | Stromkosten nur zeigen, wenn Slot 2 (Kostenrechnung, freiwillig) antwortet
+fetch('/smgwb?n=status', { cache: 'no-store' }).then(r => r.ok ? r.json() : null)
+  .then(j => { if (j && j.version) document.getElementById('seitenwahl').style.display = ''; }).catch(() => { });
 </script>
 </body>
 </html>
