@@ -23,7 +23,7 @@ const check = process.argv.includes('--check');
 // [group title, one-line intro, regex over the file name without .tc]; the first matching rule wins
 const GROUPS = [
   ['Getting started and language features', 'Small programs that show one language or runtime feature at a time.',
-    /^(blink|fibonacci|file_io|cfg_test|define_string_arg_test|strings|sort|sizeof_demo|editor|benchmark|callbacks|spawn_tasks|c_extensions_demo|structs_demo|share_.*|slot\d_test|byte_.*|int16_.*|persist_.*|watch_demo|worker_arrays_test|crypto_test|rsa_test|tls_test|blib_crc_demo|gpio_sweep|gpio_toggle_test|fast_mux|uart_tx_test|udp)$/],
+    /^(blink|fibonacci|file_io|cfg_test|define_string_arg_test|const_ref_elem_test|strings|sort|sizeof_demo|editor|benchmark|callbacks|spawn_tasks|c_extensions_demo|structs_demo|share_.*|slot\d_test|byte_.*|int16_.*|persist_.*|watch_demo|worker_arrays_test|crypto_test|rsa_test|tls_test|blib_crc_demo|gpio_sweep|gpio_toggle_test|fast_mux|uart_tx_test|udp)$/],
   ['Web pages and buttons', 'Custom web UI, REST endpoints, widgets.',
     /^(web_.*|webcall_demo|webui_.*|multipage_demo|clock_header|filemanager)$/],
   ['Sensors and measuring', 'I2C, 1-Wire, SPI and analog sensors.',
@@ -40,7 +40,7 @@ const GROUPS = [
     /^(sml_.*|deye|growatt.*|powerwall.*|power_meter|energy_.*|core2_energy|ecotracker.*|sma_speedwire|marstek_venus|wallbox_charge|pool_pump|tuya_pool_heater|house_monitor|steuve|meter_pin_unlock|ebus_clock_write|heatpump_.*|daikin_control|moritz_dash|eqmax_alarm|dyson_tp02|hyundai_.*|zeitschaltuhr)$/],
   ['Radio, buses and adapters', '2.4 GHz and 868 MHz radios, CAN, DMX, USB serial.',
     /^(a7105_.*|gm24g_lamp|lt8900_lamp|bresser_chart|can_sniffer|slcan_.*|dmx_dimmer_panel|usb_variolab_tcp)$/],
-  ['Network, mail and storage', 'FTP, NAS, mail, fleet tools.', /^(ftp_.*|nas_log_upload|mail_test|device_scanner)$/],
+  ['Network, mail and storage', 'FTP, NAS, mail, fleet tools, ESP-NOW.', /^(ftp_.*|nas_log_upload|mail_test|device_scanner|espnow_.*)$/],
 ];
 const OTHER = ['Other', 'Examples that fit no group yet.'];
 

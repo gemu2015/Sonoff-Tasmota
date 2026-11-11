@@ -3343,6 +3343,21 @@ export class VM {
                 this.push(new Int32Array(buf)[0]);
                 break;
             }
+            case 569: case 570: case 571: { // ESPNOW_BEGIN / KEY / PEER (1 argument): the simulator has no radio
+                this.pop();
+                this.onOutput('[ESPNOW] not available in the simulator\n');
+                this.push(0);
+                break;
+            }
+            case 572: case 574: { // ESPNOW_SEND / RECV (3 arguments)
+                this.pop(); this.pop(); this.pop();
+                this.push(0);
+                break;
+            }
+            case 573: case 575: case 576: { // ESPNOW_AVAIL / RSSI / END
+                this.push(0);
+                break;
+            }
             case 568: { // IS_NAN
                 const buf = new ArrayBuffer(4);
                 new Int32Array(buf)[0] = this.pop();

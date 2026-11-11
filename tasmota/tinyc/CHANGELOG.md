@@ -22,6 +22,7 @@ running.
 
 | ABI | Firmware | Change |
 |---|---|---|
+| 34 | unreleased | ESP-NOW: `espnowBegin`, `espnowKey`, `espnowPeer`, `espnowSend`, `espnowAvailable`, `espnowRecv`, `espnowRssi`, `espnowEnd` (569–576) |
 | 33 | 1.6.76 | `sensorGetNaN`, `isNan` (567–568) |
 | 32 | 1.6.68 | FTP client (syscalls 556–566) |
 | 31 | 1.6.67 | `serialReadArray` (555) |
@@ -59,6 +60,7 @@ with total size and `abi_rev`) arrived in 1.6.35; v2–v5 files still load.
 
 ## Unreleased
 
+- **ESP-NOW in TinyC** (ABI 34, `USE_TINYC_ESPNOW`, on by default on ESP32 TinyC builds, `-DTINYC_NO_ESPNOW` leaves it out): `espnowBegin(channel)`, `espnowKey(key16)`, `espnowPeer(mac)`, `espnowSend(mac, data, len)`, `espnowAvailable()`, `espnowRecv(mac_out, data_out, max)`, `espnowRssi()`, `espnowEnd()` - connectionless 2.4 GHz packets of up to 250 bytes between ESPs by MAC address, without a router. A battery node (`WiFi 0`, `deepSleepGpio`) wakes on a key, sends one packet and sleeps again; the receiver (WiFi on, any channel) polls a ring that the WiFi-task callback fills. Idea and use case: gemu's battery wall buttons for the radio-controlled lamps (controller .156). Examples `espnow_receiver.tc`, `espnow_sender_test.tc` (round trip), `espnow_button_node.tc`. Not together with WizMote (xdrv_77) or TasMesh. Needs a firmware flash; new in the IDE compiler and the simulator (stubs). Header `include/xdrv_124_tinyc_espnow.h`. **Tested** (11.11.2026) between an ESP32-C3 and an ESP32-S3 on the home WiFi (channel 11): 74 of 74 packets delivered and answered, mean round trip 9 ms, RSSI -52...-62 dBm, with the receiver on Tasmota's default WiFi sleep; and a node with `WiFi 0` (no connection): `espnowBegin(11)` 19 ms, 20 of 20 packets delivered, 3 ms per send. Not yet tested: the deep-sleep wake on a key (`espnow_button_node.tc`) and encryption (`espnowKey`).
 - **⚠️ Fixed: element read `pat[k]` of a string literal / `#define` string passed to a `char[]` parameter returned 0 on the device** (Andreas, 10.11.2026, found in his SMGW cost reader: `sucheText("unix_seconds")` found nothing on the device, the IDE simulator was right). `strlen` / `sprintf("%s")` already worked; only the element load through a const-pool reference was missing, in BOTH dispatch paths (`OP_LOAD_REF_ARR` in the switch and the direct-threaded loop; new helper `tc_const_ref_char`). Reads are served from the constant pool, the NUL is element `len`, beyond that 0; writes still fault. Test: `examples/const_ref_elem_test.tc` (8 of 8 on an ESP32-S3; on the old firmware 5 of 8 failed). **Needs a firmware flash**; until then pass a global `char[]` as Andreas did.
 - **IDE simulator: `secsToTime` / `timeToSecs` use UTC like the firmware** (the simulator used the time zone of the PC, so absolute test values were off by 1-2 hours). Takes effect with the next IDE build.
 - **`rover.tc` park mode** (`RoverPark 1|0`, `/rover_cmd?p=`, optional `PARK_AUTO_S`): motors refused, floor sensors / IMU / compass / display idle, loop sleeps, battery read every 5 s; a drive command wakes it and the floor sensors are tested again first. Tried in the simulation (ESP32-S3); the display switch-off was not seen on a display.

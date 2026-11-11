@@ -62,6 +62,9 @@ eqmax_alarm.tcb
 esf37_probe.tcb
 esf37_scale.tcb
 esf37_speak.tcb
+espnow_button_node.tcb
+espnow_receiver.tcb
+espnow_sender_test.tcb
 fast_mux.tcb
 fibonacci.tcb
 file_io.tcb

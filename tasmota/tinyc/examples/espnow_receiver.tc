@@ -1,0 +1,41 @@
+// @name: ESP-NOW receiver
+// Receives ESP-NOW packets (up to 250 bytes) and writes them to the log, and answers each one with "ACK<first byte>" to the sender, so
+// espnow_sender_test.tc can measure the round trip. This is the shape of the lamp controller's side: read the packet, look at the
+// button id, switch something.
+//
+// Needs a firmware built with USE_TINYC_ESPNOW (the default on ESP32 TinyC builds, see tasmota/include/xdrv_124_tinyc_espnow.h).
+// The device is connected to the WiFi as usual; ESP-NOW then uses the channel of the access point (a sender has to use the same one).
+// Your own MAC is shown on the Tasmota main page and by `Status 5`.
+//
+// Try it: load this on one ESP32, espnow_sender_test.tc (with this device's MAC in RECEIVER) on another.
+
+char mac[20];
+char data[64];
+char back[8];
+int rx = 0;
+
+void TaskLoop() {
+    int n = 0;
+    while (espnowAvailable() > 0) {
+        n = espnowRecv(mac, data, 64);
+        if (n > 0) {
+            rx = rx + 1;
+            addLog("ESPNOW: %d bytes from %s, first byte %d, RSSI %d dBm", n, mac, data[0], espnowRssi());
+            back[0] = 'A'; back[1] = 'C'; back[2] = 'K'; back[3] = data[0];
+            espnowSend(mac, back, 4);                // the sender is a peer from its first packet on (added on the fly)
+        }
+    }
+    delay(5);
+}
+
+void WebCall() {
+    char ob[64];
+    sprintf(ob, "{s}ESP-NOW packets received{m}%d{e}", rx);
+    webSend(ob);
+}
+
+int main() {
+    int ok = espnowBegin(0);                         // 0 = keep the channel of the WiFi link
+    addLog("ESPNOW receiver: begin %d", ok);
+    return 0;
+}

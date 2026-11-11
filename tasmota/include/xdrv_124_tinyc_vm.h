@@ -381,8 +381,9 @@ extern uint16_t tc_vm_stack_bytes;
 // this firmware (since V21); an older abi_rev is normal and loads.
 #include "xdrv_124_tinyc_spp.h"
 #include "xdrv_124_tinyc_usb.h"
+#include "xdrv_124_tinyc_espnow.h"   // ESP-NOW (USE_TINYC_ESPNOW): espnowBegin/Key/Peer/Send/Available/Recv/Rssi/End
 
-#define TC_SYSCALL_ABI     33    // V33: sensorGetNaN/isNan (567-568). V32: FTP client (556-566). Every ABI step is listed in tasmota/tinyc/CHANGELOG.md
+#define TC_SYSCALL_ABI     34    // V34: ESP-NOW (569-576). V33: sensorGetNaN/isNan (567-568). V32: FTP client (556-566). Every ABI step is listed in tasmota/tinyc/CHANGELOG.md
 extern uint32_t Touch_Status(int32_t sel);   // xdrv_55_touch: 0=pressed,1=x,2=y, -1/-2=raw (SYS_TOUCH_GET); declared even on no-touch builds (call is guarded)
 // When bumping TC_RELEASE or TC_SYSCALL_ABI, add the entry to tasmota/tinyc/CHANGELOG.md
 // (and to its ABI table) -- the release text is taken from there. Keep these comments short.
@@ -1474,6 +1475,14 @@ enum TcSyscall {
   SYS_FTP_RENAME       = 566, // (from_ref, to_ref)            -> int 0 ok
   SYS_SENSOR_GET_NAN   = 567, // (const_idx_path)              -> float, NaN when the path is absent (sensorGet gives 0)
   SYS_IS_NAN           = 568, // (float)                       -> int 1 if NaN
+  SYS_ESPNOW_BEGIN     = 569, // (channel)                     -> int 1 ok / 0  start ESP-NOW (0 = keep the channel of a connected WiFi)
+  SYS_ESPNOW_KEY       = 570, // (key16)                       -> int 1 ok / 0  key for the peers added afterwards ("" = none)
+  SYS_ESPNOW_PEER      = 571, // (mac)                         -> int 1 ok / 0  add / change a peer
+  SYS_ESPNOW_SEND      = 572, // (mac, data, len)              -> int 1 delivered / 0  waits up to 100 ms for the ACK
+  SYS_ESPNOW_AVAIL     = 573, // ()                            -> int           packets in the receive ring
+  SYS_ESPNOW_RECV      = 574, // (mac_out, data_out, max)      -> int len / 0   pops the oldest packet, mac as "AA:BB:CC:DD:EE:FF"
+  SYS_ESPNOW_RSSI      = 575, // ()                            -> int           RSSI of the last packet read (dBm)
+  SYS_ESPNOW_END       = 576, // ()                            -> int 1         stop ESP-NOW
   SYS_WEB_REPO_PULLDOWN = 280, // (gref, label_c, json_url_c, index_key_c, dest_path_c) -> void — Scripter smlpd()-style remote JSON directory picker
   SYS_SML_APPLY_PINS    = 281, // (path_c, rx, tx, smlf) -> int — idempotent SML descriptor pin substitution (%0?rxpin%/%0?txpin%/%0?smlf%, leading 0 optional). Inserts "; <template>" comment line above each active line on first call; rebuilds active line from template on subsequent calls. Values are substituted verbatim (e.g. tx=-1 becomes the literal "-1" which SML accepts as "no tx pin"); the original placeholder text is preserved only in the template comment. Returns # subs done, 0 = no change, -1 = err.
   SYS_SML_SCRIPTER_LOAD = 282, // (path_c) -> int — extract >F/>S sections from descriptor, compile to bytecode, run on EverySecond/Every100ms ticks. Subset: lnv0..lnv9, +=/-=/*=//=/=, +-*/% < <= > >= == !=, switch/case/ends, if/endif, sml(m,0,baud), sml(m,1,"HEX"). Returns # sections compiled (0..2), -1 = err.
@@ -12193,6 +12202,89 @@ static int tc_syscall_impl(TcVM *vm, uint16_t id) {
       TC_PUSH(vm, (f != f) ? 1 : 0);
       break;
     }
+
+    // ── ESP-NOW (USE_TINYC_ESPNOW, ESP32 family) ──────────────────────────────
+    // The protocol lives in the script; see xdrv_124_tinyc_espnow.h for the WiFi / channel rules.
+#if defined(ESP32) && defined(USE_TINYC_ESPNOW)
+    case SYS_ESPNOW_BEGIN: {             // espnowBegin(channel) -> 1/0
+      int32_t ch = TC_POP(vm);
+      TC_PUSH(vm, tc_en_begin((int)ch));
+      break;
+    }
+    case SYS_ESPNOW_KEY: {               // espnowKey("16 characters") -> 1/0
+      int32_t ref = TC_POP(vm);
+      char k[24];
+      tc_ref_to_cstr(vm, ref, k, sizeof(k));
+      TC_PUSH(vm, tc_en_set_key(k));
+      break;
+    }
+    case SYS_ESPNOW_PEER: {              // espnowPeer("AA:BB:CC:DD:EE:FF") -> 1/0
+      int32_t ref = TC_POP(vm);
+      char ms[32];
+      uint8_t mac[6];
+      tc_ref_to_cstr(vm, ref, ms, sizeof(ms));
+      TC_PUSH(vm, tc_en_parse_mac(ms, mac) ? tc_en_add_peer(mac) : 0);
+      break;
+    }
+    case SYS_ESPNOW_SEND: {              // espnowSend(mac, data, len) -> 1 delivered / 0
+      int32_t n    = TC_POP(vm);
+      int32_t dref = TC_POP(vm);
+      int32_t mref = TC_POP(vm);
+      char ms[32];
+      uint8_t mac[6];
+      tc_ref_to_cstr(vm, mref, ms, sizeof(ms));
+      if (n <= 0 || n > TC_ESPNOW_MAXLEN || !tc_en_parse_mac(ms, mac)) { TC_PUSH(vm, 0); break; }
+      TC_UBUF(tmp, TC_ESPNOW_MAXLEN);
+      int32_t got = 0;
+      if (tc_is_const_ref(dref)) {                     // espnowSend(mac, "TOGGLE", 6): a literal is read through the pool
+        char cs[TC_ESPNOW_MAXLEN + 1];
+        tc_ref_to_cstr(vm, dref, cs, sizeof(cs));
+        got = (int32_t)strlen(cs);
+        if (got > n) { got = n; }
+        memcpy(tmp, cs, got);
+      } else {
+        uint8_t *src = tc_ref_bytes(vm, dref, n, tmp, TC_ESPNOW_MAXLEN, &got);
+        if (!src) { got = 0; }
+        else if (src != tmp) { memcpy(tmp, src, got); }
+      }
+      TC_PUSH(vm, got > 0 ? tc_en_send(mac, tmp, (int)got, 100) : 0);
+      break;
+    }
+    case SYS_ESPNOW_AVAIL: {             // espnowAvailable() -> packets waiting
+      TC_PUSH(vm, tc_en_available());
+      break;
+    }
+    case SYS_ESPNOW_RECV: {              // espnowRecv(mac_out, data_out, max) -> len; mac_out gets "AA:BB:CC:DD:EE:FF"
+      int32_t mx   = TC_POP(vm);
+      int32_t dref = TC_POP(vm);
+      int32_t mref = TC_POP(vm);
+      TcEspNowPkt pk;
+      if (mx <= 0 || !tc_en_pop(&pk)) { TC_PUSH(vm, 0); break; }
+      char ms[20];
+      snprintf(ms, sizeof(ms), "%02X:%02X:%02X:%02X:%02X:%02X", pk.mac[0], pk.mac[1], pk.mac[2], pk.mac[3], pk.mac[4], pk.mac[5]);
+      tc_cstr_to_ref(vm, mref, ms);
+      int32_t n = pk.len;
+      if (n > mx) { n = mx; }
+      TC_PUSH(vm, tc_ref_put_bytes(vm, dref, pk.data, n));
+      break;
+    }
+    case SYS_ESPNOW_RSSI: {              // espnowRssi() -> RSSI (dBm) of the last packet read
+      TC_PUSH(vm, (int32_t)TcEn.last_rssi);
+      break;
+    }
+    case SYS_ESPNOW_END: {               // espnowEnd() -> 1
+      tc_en_end();
+      TC_PUSH(vm, 1);
+      break;
+    }
+#else
+    case SYS_ESPNOW_BEGIN: case SYS_ESPNOW_KEY: case SYS_ESPNOW_PEER:   // not built in: 1 argument, answer 0
+      TC_POP(vm); TC_PUSH(vm, 0); break;
+    case SYS_ESPNOW_SEND: case SYS_ESPNOW_RECV:                         // 3 arguments
+      TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_PUSH(vm, 0); break;
+    case SYS_ESPNOW_AVAIL: case SYS_ESPNOW_RSSI: case SYS_ESPNOW_END:   // no arguments
+      TC_PUSH(vm, 0); break;
+#endif  // ESP32 && USE_TINYC_ESPNOW
 
     // ── Generic JSON parsing on an arbitrary script buffer (JsonParser-backed) ──
     // Unlike sensorGet (this device's own sensor JSON only), these parse ANY

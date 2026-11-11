@@ -356,6 +356,14 @@ const BUILTINS = {
     // Same lookup, but NaN (not 0) when the value is missing -- e.g. the slot that owns it was busy. Test with isNan().
     'sensorGetNaN':     { syscall: Syscall.SENSOR_GET_NAN,  args: 1, returns: true,  constArgs: [0], returnFloat: true },
     'isNan':            { syscall: Syscall.IS_NAN,          args: 1, returns: true },
+    'espnowBegin':      { syscall: Syscall.ESPNOW_BEGIN,    args: 1, returns: true },                                   // (channel) 0 = keep the channel of a connected WiFi
+    'espnowKey':        { syscall: Syscall.ESPNOW_KEY,      args: 1, returns: true,  strArgs: [0] },                    // (key16)
+    'espnowPeer':       { syscall: Syscall.ESPNOW_PEER,     args: 1, returns: true,  strArgs: [0] },                    // ("AA:BB:CC:DD:EE:FF")
+    'espnowSend':       { syscall: Syscall.ESPNOW_SEND,     args: 3, returns: true,  strArgs: [0, 1], intArgs: [2] },   // (mac, data, len) 1 = delivered
+    'espnowAvailable':  { syscall: Syscall.ESPNOW_AVAIL,    args: 0, returns: true },
+    'espnowRecv':       { syscall: Syscall.ESPNOW_RECV,     args: 3, returns: true,  strArgs: [0, 1], intArgs: [2] },   // (mac_out, data_out, max) -> len
+    'espnowRssi':       { syscall: Syscall.ESPNOW_RSSI,     args: 0, returns: true },
+    'espnowEnd':        { syscall: Syscall.ESPNOW_END,      args: 0, returns: true },
     // Generic JSON parsing on ANY char[] buffer (e.g. an httpGet response from a
     // remote device). Path is '#'-separated like sensorGet ("StatusSNS#SHT3X#Temperature").
     'jsonNum':          { syscall: Syscall.JSON_NUM,        args: 2, returns: true,  strArgs: [0, 1], returnFloat: true },
@@ -991,6 +999,7 @@ export class CodeGenerator {
     //
     // Schwellen aus dem SYSCALL_ABI-Kommentar in opcodes.js (monoton in der Nummer).
     static _ABI_SCHWELLEN = [
+        [569, 34],                      // espnow* (ESP-NOW)
         [567, 33],                      // sensorGetNaN, isNan
         [556, 32],                      // ftpOpen … ftpRename (FTP-Sitzung)
         [555, 31],                      // serialReadArray

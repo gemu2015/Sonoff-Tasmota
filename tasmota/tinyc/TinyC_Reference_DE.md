@@ -3272,6 +3272,27 @@ int main() {
 }
 ```
 
+### ESP-NOW: Pakete zwischen ESPs ohne Router
+
+ESP-NOW ist Espressifs verbindungslose 2,4-GHz-Strecke: ein Paket von bis zu **250 Byte** geht von einem ESP zum anderen ueber die MAC-Adresse, ohne Router und ohne Verbindungsaufbau. Ein Knoten, der einmal sendet und wieder schlaeft, ist nur etwa 50 ms wach, und genau das braucht ein **Batterie-Taster** (per `deepSleepGpio` auf Tastendruck aufwachen, senden, schlafen). Das Protokoll darueber liegt im Skript; eine Taster-Nummer als ein Byte genuegt. ABI 34, ESP32-Familie, mit `USE_TINYC_ESPNOW` gebaut (Standard; `-DTINYC_NO_ESPNOW` laesst es weg). Ohne antwortet jeder Aufruf mit 0. Nicht zusammen mit WizMote (xdrv_77) oder TasMesh.
+
+| Funktion | Beschreibung |
+|---|---|
+| `int espnowBegin(int kanal)` | ESP-NOW starten. `0` = Kanal eines verbundenen WLAN behalten (Empfaenger). Bei einem Geraet mit `WiFi 0` (Knoten, verbindet nie) startet das Funkteil ohne Verbindung auf `kanal` (1-13). Gibt 1 oder 0 |
+| `int espnowKey(key16)` | 16 Zeichen: ESP-NOWs eigene Verschluesselung fuer die Teilnehmer, die NACH diesem Aufruf angelegt werden, auf beiden Seiten. Weniger Zeichen = kein Schluessel. Nur Unicast, hoechstens 6 verschluesselte Teilnehmer |
+| `int espnowPeer(mac)` | Teilnehmer anlegen oder aendern. `mac` = `"AA:BB:CC:DD:EE:FF"` (Literal, `#define` oder `char[]`). Wer an eine unbekannte MAC sendet, legt sie im Vorbeigehen an |
+| `int espnowSend(mac, daten, len)` | `len` Byte senden (`char[]`, `byte[]` oder Literal) und bis zu 100 ms auf das Urteil des Funkteils warten: 1 nur, wenn der Teilnehmer bestaetigt hat (Broadcast `FF:FF:FF:FF:FF:FF` gibt 1, wenn gesendet), sonst 0 |
+| `int espnowAvailable()` | Wartende Pakete im Empfangsring (8 Pakete; ein voller Ring verwirft das neueste) |
+| `int espnowRecv(mac_aus, daten_aus, max)` | Aeltestes Paket holen: MAC des Absenders als `"AA:BB:CC:DD:EE:FF"` in `mac_aus` (18 Zeichen), die Bytes in `daten_aus`, gibt die Laenge (0 = keins) |
+| `int espnowRssi()` | RSSI in dBm des zuletzt gelesenen Pakets |
+| `int espnowEnd()` | ESP-NOW beenden |
+
+**Der Haken ist der Kanal.** ESP-NOW laeuft auf dem Kanal des WLAN-Funkteils. Ein Empfaenger, der am Router haengt, sitzt auf dem Kanal des Routers; ein Knoten, der nicht verbindet, muss ihn kennen (`espnowBegin(11)`), und der Router darf ihn nicht wechseln (im Router festlegen). **Ein Knoten braucht einmal den Konsolenbefehl `WiFi 0`** (wird gespeichert), sonst versucht Tasmota weiter, sich zu verbinden. Fuer einen Knoten ausserdem `-DTC_AUTOEXEC_MIN_UPTIME=0`: der Autostart wartet nach dem Booten standardmaessig 3 s, das sind 3 s Akku je Tastendruck.
+
+Ohne Schluessel kann jeder in Reichweite ein Paket schicken. Wenn das zaehlt: Zaehler und `hmacSha256` davon in die Nutzdaten legen, oder `espnowKey`. **Die Akkulaufzeit** entscheidet der Schlafstrom des Bretts (Regler, LED: messen); ein Tastendruck kostet etwa 0,3-1 s bei rund 60 mA.
+
+Beispiele: `espnow_receiver.tc`, `espnow_sender_test.tc` (Umlaufzeit in ms), `espnow_button_node.tc`. Kopf: `include/xdrv_124_tinyc_espnow.h`.
+
 ### TCP-Server
 
 Einen TCP-Stream-Server starten, um eingehende Verbindungen anzunehmen. Es wird nur ein Client gleichzeitig bedient.

@@ -1,0 +1,56 @@
+// @name: ESP-NOW sender test
+// Sends one packet per second to RECEIVER and measures how long the answer of espnow_receiver.tc takes (round trip in ms) and whether the
+// radio delivered it (ACK). The WiFi stays as it is: with the same access point both devices are on the same channel.
+// For a battery node without WiFi use espnow_button_node.tc.
+
+#define RECEIVER  "AA:BB:CC:DD:EE:FF"       // MAC of the receiver (Tasmota main page / Status 5)
+
+char pkt[4];
+char mac[20];
+char data[16];
+int seq = 0;
+int sent_ok = 0;
+int answered = 0;
+int rtt_sum = 0;
+
+void TaskLoop() {
+    int t0 = 0;
+    int n = 0;
+    int ok = 0;
+    pkt[0] = seq & 255;
+    seq = seq + 1;
+    t0 = millis();
+    ok = espnowSend(RECEIVER, pkt, 1);
+    if (ok == 1) { sent_ok = sent_ok + 1; }
+    // wait up to 200 ms for the answer
+    n = 0;
+    while (n == 0 && millis() - t0 < 200) {
+        if (espnowAvailable() > 0) { n = espnowRecv(mac, data, 16); }
+        else { delay(1); }
+    }
+    if (n >= 4 && data[0] == 'A') {
+        answered = answered + 1;
+        rtt_sum = rtt_sum + (millis() - t0);
+        addLog("ESPNOW test #%d: ACK from the radio %d, answer after %d ms, RSSI %d dBm", seq, ok, millis() - t0, espnowRssi());
+    } else {
+        addLog("ESPNOW test #%d: ACK from the radio %d, no answer", seq, ok);
+    }
+    delay(1000);
+}
+
+void WebCall() {
+    char ob[96];
+    sprintf(ob, "{s}ESP-NOW sent / delivered / answered{m}%d / %d / %d{e}", seq, sent_ok, answered);
+    webSend(ob);
+    if (answered > 0) {
+        sprintf(ob, "{s}ESP-NOW mean round trip{m}%d ms{e}", rtt_sum / answered);
+        webSend(ob);
+    }
+}
+
+int main() {
+    int ok = espnowBegin(0);
+    espnowPeer(RECEIVER);
+    addLog("ESPNOW sender test: begin %d", ok);
+    return 0;
+}

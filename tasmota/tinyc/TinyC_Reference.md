@@ -3342,6 +3342,49 @@ int main() {
 }
 ```
 
+### ESP-NOW: packets between ESPs without a router
+
+ESP-NOW is Espressif's connectionless 2.4 GHz link: a packet of up to **250 bytes** goes from one ESP to another by MAC address, no router, no connection set-up. A node that sends once and goes back to sleep needs about 50 ms awake, which is what a **battery button** wants (wake on a key press with `deepSleepGpio`, send, sleep). The protocol on top lives in your script; a one-byte button id is enough. ABI 34, ESP32 family, built with `USE_TINYC_ESPNOW` (default; `-DTINYC_NO_ESPNOW` leaves it out). Without it every call answers 0. Not together with WizMote (xdrv_77) or TasMesh.
+
+| Function | Description |
+|---|---|
+| `int espnowBegin(int channel)` | Start ESP-NOW. `0` = keep the channel of a connected WiFi (receiver). On a device with `WiFi 0` (node, never connects) the radio is started without a connection on `channel` (1–13). Returns 1 or 0 |
+| `int espnowKey(key16)` | 16 characters: ESP-NOW's own encryption for the peers added AFTER this call, on both sides. Fewer characters = no key. Unicast only, at most 6 encrypted peers |
+| `int espnowPeer(mac)` | Add or change a peer. `mac` = `"AA:BB:CC:DD:EE:FF"` (a literal, a `#define` or a `char[]`). Sending to an unknown MAC adds it on the fly |
+| `int espnowSend(mac, data, len)` | Send `len` bytes (`char[]`, `byte[]`, or a literal) and wait up to 100 ms for the radio's verdict: 1 only when the peer acknowledged it (a broadcast `FF:FF:FF:FF:FF:FF` returns 1 when it was sent), else 0 |
+| `int espnowAvailable()` | Packets waiting in the receive ring (8 packets; a full ring drops the newest) |
+| `int espnowRecv(mac_out, data_out, max)` | Pop the oldest packet: the sender's MAC as `"AA:BB:CC:DD:EE:FF"` into `mac_out` (18 chars), the bytes into `data_out`, returns the length (0 = none) |
+| `int espnowRssi()` | RSSI in dBm of the last packet read |
+| `int espnowEnd()` | Stop ESP-NOW |
+
+**The channel is the catch.** ESP-NOW travels on the WiFi radio's channel. A receiver that is connected to the router sits on the router's channel; a node that does not connect must be told that channel (`espnowBegin(11)`), and the router must not change it (fix it in the router). **A node needs the console command `WiFi 0` once** (it is stored), otherwise Tasmota keeps trying to connect. Also set `-DTC_AUTOEXEC_MIN_UPTIME=0` for a node build: the autostart waits 3 s after boot by default, which is 3 s of battery per press.
+
+Without a key anyone in range can send you a packet. If that matters, put a counter and an `hmacSha256` of it into your payload, or use `espnowKey`. **Battery life** is decided by the board's sleep current (regulator, LED: measure it), a press costs about 0.3–1 s of roughly 60 mA.
+
+```c
+// receiver: the lamp controller
+char mac[20]; char d[16];
+void TaskLoop() {
+    while (espnowAvailable() > 0) {
+        int n = espnowRecv(mac, d, 16);
+        if (n >= 3 && d[0] == 'B' && d[1] == 1) { /* button 1: toggle the lamp */ }
+    }
+    delay(5);
+}
+int main() { espnowBegin(0); return 0; }
+
+// battery node (WiFi 0 once on the console)
+int main() {
+    espnowBegin(11);
+    char p[4]; p[0] = 'B'; p[1] = 1; p[2] = 1;
+    espnowSend("AA:BB:CC:DD:EE:FF", p, 3);
+    deepSleepGpio(0, 3, 0);          // sleep until GPIO3 goes LOW
+    return 0;
+}
+```
+
+Examples: `espnow_receiver.tc`, `espnow_sender_test.tc` (round trip in ms), `espnow_button_node.tc`. Header: `include/xdrv_124_tinyc_espnow.h`.
+
 ### TCP Server
 
 Start a TCP stream server to accept incoming connections. Only one client is served at a time.

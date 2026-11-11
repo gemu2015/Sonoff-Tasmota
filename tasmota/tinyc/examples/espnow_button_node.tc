@@ -1,0 +1,40 @@
+// @name: ESP-NOW button node
+// A battery wall button: asleep almost all the time, a key press wakes it, it sends ONE ESP-NOW packet to the receiver and sleeps again.
+// Packet: 'B', button id, action (1 = toggle). The receiver (the lamp controller, see espnow_receiver.tc) decides what the id means.
+//
+// SETUP ONCE on the node (console):   WiFi 0       -> the node never connects to the WiFi (stored). Set autoexec for this program.
+//   Build with -DTC_AUTOEXEC_MIN_UPTIME=0 (or low): by default main() starts 3 s after boot, which is 3 s of battery per press.
+// CHANNEL is the channel of the receiver's access point (WiFi router, fixed!). ESP-NOW only reaches a receiver on that channel.
+// WAKE_PIN: ESP32-C3 GPIO 0..5 wake from deep sleep. Key from the pin to GND, ~1 MOhm from the pin to 3.3 V (drains only while pressed).
+//
+// Battery life is decided by the board's sleep current (regulator, LED): measure it. One press costs roughly 0.3-1 s of ~60 mA.
+
+#define CHANNEL    11
+#define RECEIVER   "AA:BB:CC:DD:EE:FF"
+#define BUTTON_ID  1
+#define WAKE_PIN   3
+#define INPUT_PULLUP 5
+
+char pkt[4];
+
+int main() {
+    int ok = 0;
+    int tries = 0;
+    int t0 = millis();
+    espnowBegin(CHANNEL);
+    espnowPeer(RECEIVER);
+    pkt[0] = 'B';
+    pkt[1] = BUTTON_ID;
+    pkt[2] = 1;
+    while (ok == 0 && tries < 4) {
+        ok = espnowSend(RECEIVER, pkt, 3);
+        tries = tries + 1;
+    }
+    addLog("NODE: button %d, delivered %d after %d tries, %d ms awake", BUTTON_ID, ok, tries, millis() - t0);
+    pinMode(WAKE_PIN, INPUT_PULLUP);
+    t0 = millis();
+    while (digitalRead(WAKE_PIN) == 0 && millis() - t0 < 3000) { delay(20); }   // wait for the key to be released, or it wakes us again at once
+    delay(30);
+    deepSleepGpio(0, WAKE_PIN, 0);                  // 0 = no timer, wake when the pin goes LOW
+    return 0;
+}
