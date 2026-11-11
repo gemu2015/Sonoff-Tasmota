@@ -73,6 +73,15 @@
 //      Muell. "Nicht anfassen" reicht NICHT — ein undefinierter Eingang ist
 //      nicht dasselbe wie abgewaehlt.
 //
+// ── ESP-NOW: Wandtaster (11.11.2026) ──────────────────────────────────────
+//   Ein batteriebetriebener Taster (ESP32-C3 im Tiefschlaf, Beispiel espnow_button_node.tc) schickt EIN ESP-NOW-Paket an dieses Geraet:
+//       'B', Tasternummer, Aktion, Zaehler        (4 Byte)
+//   Tasternummer 1 = alle, 2..5 = Zone 1..4. Aktion 0 = AUS, 1 = EIN, 2 = UMSCHALTEN (der Zustand wird je Taster hier gefuehrt).
+//   Der Zaehler (ein Byte, beliebig, je Tastendruck neu) unterdrueckt Wiederholungen: dasselbe Paket wiederholt sich, wenn der Taster keine
+//   Bestaetigung bekam. Ein Paket wird wie ein Tastendruck der Fernbedienung behandelt (tx_pend), die Lampe sieht keinen Unterschied.
+//   ⚠️ Der Empfaenger liegt im WLAN des Routers, ESP-NOW laeuft auf DEREN Kanal (hier 11): im Router festlegen, der Taster sendet dorthin.
+//   ⚠️ Ohne Schluessel kann jeder in Reichweite ein Paket schicken (siehe espnow* in der TinyC-Referenz).
+//
 // ── BEFEHLE ───────────────────────────────────────────────────────────────
 //   Tasmota haengt das Unterkommando OHNE Leerzeichen an den Praefix an.
 //   LAMPTX <hex>  -> Taste senden. alle=5/9  Z1=8/B  Z2=D/3  Z3=7/A  Z4=2/6
@@ -530,6 +539,64 @@ void rc_forget(int idx) {
 // Einen kompletten Tastendruck senden: 90 Rahmen ueber DREI Kanaele
 // (LT8900 4/39/74 = nRF24 6/41/76), je 30 pro Kanal. Nur auf einem Kanal zu
 // senden reichte fuer manche Befehle nicht.
+// ── ESP-NOW-Empfang ───────────────────────────────────────────────────────
+char en_mac[20];
+char en_buf[16];
+int  en_rx;           // Pakete insgesamt
+int  en_last_id;      // zuletzt bedienter Taster (0 = noch keiner)
+int  en_last_on;      // und seine Aktion: 1 = EIN, 0 = AUS
+int  en_last_ms;      // millis() des letzten gueltigen Pakets
+int  en_seq[6];       // letzter Zaehler je Taster, -1 = keiner
+int  en_on[6];        // Umschaltzustand je Taster: 1 = zuletzt EIN gesendet
+
+// Taster + Zustand -> Nibble der Fernbedienung (alle 5/9, Z1 8/B, Z2 D/3, Z3 7/A, Z4 2/6); -1 = unbekannter Taster
+int en_nib(int id, int on) {
+    if (id == 1) { if (on == 1) { return 0x5; } return 0x9; }
+    if (id == 2) { if (on == 1) { return 0x8; } return 0xB; }
+    if (id == 3) { if (on == 1) { return 0xD; } return 0x3; }
+    if (id == 4) { if (on == 1) { return 0x7; } return 0xA; }
+    if (id == 5) { if (on == 1) { return 0x2; } return 0x6; }
+    return -1;
+}
+
+// alle wartenden Pakete lesen; das letzte gueltige wird zum naechsten Sendeauftrag
+void en_poll() {
+    int n = 0;
+    int id = 0;
+    int act = 0;
+    int on = 0;
+    int nb = 0;
+    int dup = 0;
+    char nm[16];
+    while (espnowAvailable() > 0) {
+        n = espnowRecv(en_mac, en_buf, 16);
+        if (n >= 3 && en_buf[0] == 'B') {
+            id = en_buf[1];
+            act = en_buf[2];
+            nb = -1;
+            if (id >= 1 && id <= 5 && act >= 0 && act <= 2) {
+                dup = 0;
+                if (n >= 4 && en_seq[id] == en_buf[3] && millis() - en_last_ms < 3000) { dup = 1; }
+                if (n >= 4) { en_seq[id] = en_buf[3]; }
+                if (dup == 0) {
+                    if (act == 2) { on = 1 - en_on[id]; } else { on = act; }
+                    en_on[id] = on;
+                    nb = en_nib(id, on);
+                }
+            }
+            if (nb >= 0) {
+                tx_pend = nb;
+                en_rx = en_rx + 1;
+                en_last_id = id;
+                en_last_on = on;
+                en_last_ms = millis();
+                btn_name(nb, nm);
+                addLog("gm24g: ESP-NOW Taster %d von %s (%d dBm): %s", id, en_mac, espnowRssi(), nm);
+            }
+        }
+    }
+}
+
 void send_button(int nib) {
     int tx_ch[3];
     tx_ch[0] = 6; tx_ch[1] = 41; tx_ch[2] = 76;
@@ -610,6 +677,7 @@ void TaskLoop() {
         if (n >= 0) { if (n < rc_cnt) { rc_sel = n; rc_save(); } }
         addLog("gm24g: Fernbedienung %d gewaehlt", rc_sel + 1);
     }
+    en_poll();
     if (ui_cmd != 0) {
         tx_pend = ui_cmd & 0x0F;
         ui_cmd = 0;
@@ -666,6 +734,14 @@ void WebCall() {
     }
     sprintf(line, "{s}Gesendet gesamt{m}%d Rahmen{e}", tx_total);
     webSend(line);
+    if (en_rx > 0) {
+        strcpy(nm, "AUS");
+        if (en_last_on == 1) { strcpy(nm, "EIN"); }
+        sprintf(line, "{s}ESP-NOW Taster{m}%d Pakete, zuletzt Taster %d %s (vor %d s){e}", en_rx, en_last_id, nm, (millis() - en_last_ms) / 1000);
+        webSend(line);
+    } else {
+        webSend("{s}ESP-NOW Taster{m}bereit, noch kein Paket{e}");
+    }
 }
 
 // ── Bedienfeld: der Fernbedienung nachempfunden ───────────────────────────
@@ -1305,6 +1381,8 @@ int main() {
     last_sent = -1; last_ms = 0;
 
     learn_state = 0; learn_res = 0; ui_learn = 0;
+    en_rx = 0; en_last_id = 0; en_last_on = 0; en_last_ms = 0;
+    for (int e = 0; e < 6; e++) { en_seq[e] = -1; en_on[e] = 0; }
 
     // persist-Initialisierer werden verworfen, alles kommt als 0 hoch. Ein
     // rc_cnt von 0 heisst also „noch nie angelernt" — dann die beiden hier
@@ -1335,6 +1413,8 @@ int main() {
 	rgbLed(LED_PIN, 0x004000);  // green
 
     addCommand("LAMP");
+    if (espnowBegin(0) == 1) { addLog("gm24g_lamp: ESP-NOW bereit"); }
+    else { addLog("gm24g_lamp: ESP-NOW nicht verfuegbar (Firmware ohne ESP-NOW?)"); }
     addLog("gm24g_lamp: bereit, CONFIG=0x%02X (soll 0x02)", nrf_rd(N_CONFIG));
     return 0;
 }
