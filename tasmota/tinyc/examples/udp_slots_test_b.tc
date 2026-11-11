@@ -1,0 +1,24 @@
+// @name: UDP SLOT B
+// Slot 1 of the two-slot UDP test: any second program. Loading / stopping it must NOT close the UDP port of slot 0.
+// SERIAL 1 also opens a serial port, like the program in gemu2015/Sonoff-Tasmota#142 (set the pins for your board).
+#define SERIAL 0
+#define RX_PIN 4
+#define TX_PIN 5
+int ser = -1;
+int ticks = 0;
+
+void EverySecond() {
+    ticks = ticks + 1;
+    if (SERIAL == 1 && ser >= 0) { serialWriteByte(ser, 65); }
+}
+
+void WebCall() {
+    char b[48];
+    sprintf(b, "{s}UDP B{m}running, %d s{e}", ticks);
+    webSend(b);
+}
+
+int main() {
+    if (SERIAL == 1) { ser = serialBegin(RX_PIN, TX_PIN, 9600, 3, 0); }
+    return 0;
+}

@@ -2050,6 +2050,7 @@ struct TINYC {
   WiFiUDP  udp_port;              // general-purpose UDP socket
   uint16_t udp_port_num;          // bound port number
   bool     udp_port_open;         // port is listening
+  void    *udp_port_owner;        // the TcSlot that opened it: only ITS stop closes it (gemu2015/Sonoff-Tasmota#142)
   uint32_t udp_port_last_rx;     // millis() of last received packet on general port
   uint16_t udp_port_timeout;     // inactivity timeout in seconds (0 = disabled)
   IPAddress udp_port_mcast;       // multicast group IP (0.0.0.0 = unicast)
@@ -2306,6 +2307,7 @@ static inline void tc_chart_response_reset(void) {
 }
 #define TC_MAX_SERIAL_PORTS 3
 static TasmotaSerial *tc_serial_ports[TC_MAX_SERIAL_PORTS] = {}; // TinyC serial ports (up to 3, one per handle)
+static void *tc_serial_owner[TC_MAX_SERIAL_PORTS] = {};          // the TcSlot that opened a handle: only its unload closes it (#142)
 // ⚠️ Which pins each open port drives. TasmotaSerial does not expose them, and
 // patching a vendored library for a lookup would be the wrong place -- see the
 // pin check in SYS_SERIAL_BEGIN for why it has to be answerable at all.
@@ -4465,7 +4467,10 @@ static void tc_udp_init(void) {
   }
 }
 
-static void tc_udp_stop(void) {
+// stopping_slot = the slot being unloaded (nullptr = stop everything). The general-purpose port (udp(0, port)) belongs to the slot that opened
+// it: the stop of ANOTHER slot must not close it. It used to, and a program in slot 1 that was (re)loaded killed the UDP service of slot 0
+// (sml_eco_shelly.tc binds once and never rebinds) while HTTP kept working. #142, reproduced on an ESP32-C3 11.11.2026.
+static void tc_udp_stop(void *stopping_slot = nullptr) {
   if (!Tinyc) return;
   if (Tinyc->udp_connected) {
     Tinyc->udp.flush();
@@ -4475,12 +4480,13 @@ static void tc_udp_stop(void) {
   }
   tc_udp_free_arrays();
   Tinyc->udp_used = false;
-  // Stop general-purpose UDP port
-  if (Tinyc->udp_port_open) {
+  // Stop general-purpose UDP port -- but only when it is this slot's (or nobody's)
+  if (Tinyc->udp_port_open && !(stopping_slot && Tinyc->udp_port_owner && Tinyc->udp_port_owner != stopping_slot)) {
     Tinyc->udp_port.stop();
     Tinyc->udp_port_open = false;
     Tinyc->udp_port_num = 0;
     Tinyc->udp_port_mcast = IPAddress(0,0,0,0);
+    Tinyc->udp_port_owner = nullptr;
   }
   // Stop all outgoing TCP client slots
   for (uint8_t _s = 0; _s < TC_TCP_CLI_SLOTS; _s++) {
@@ -5279,8 +5285,13 @@ static void tc_serial_close(int h) {
   }
 }
 
-static void tc_serial_close_all(void) {
-  for (int i = 0; i < TC_MAX_SERIAL_PORTS; i++) tc_serial_close(i);
+// Closes the ports of the unloading slot only (the handles are one array for all slots). A port without a recorded owner is closed as before.
+static void tc_serial_close_all(void *unloading_slot = nullptr) {
+  for (int i = 0; i < TC_MAX_SERIAL_PORTS; i++) {
+    if (unloading_slot && tc_serial_owner[i] && tc_serial_owner[i] != unloading_slot) continue;
+    tc_serial_close(i);
+    tc_serial_owner[i] = nullptr;
+  }
 }
 
 static inline TasmotaSerial *tc_serial_get(int h) {
@@ -8001,6 +8012,7 @@ static int tc_syscall_impl(TcVM *vm, uint16_t id) {
 #endif
       tc_serial_ports[slot] = new TasmotaSerial(rxpin, txpin, HARDWARE_FALLBACK, 0, bufsize);
       if (tc_serial_ports[slot]) {
+        tc_serial_owner[slot] = (void *)tc_slot_of_vm(vm);
         if (tc_serial_ports[slot]->begin(baud, ConvertSerialConfig(config))) {
           if (tc_serial_ports[slot]->hardwareSerial()) {
             ClaimSerial();
@@ -10572,6 +10584,7 @@ static int tc_syscall_impl(TcVM *vm, uint16_t id) {
             if (Tinyc->udp_port.begin(port)) {
               Tinyc->udp_port_num = port;
               Tinyc->udp_port_open = true;
+              Tinyc->udp_port_owner = (void *)tc_slot_of_vm(vm);
               Tinyc->udp_port_last_rx = millis();  // reset watchdog
               if (!Tinyc->udp_port_timeout) {
                 Tinyc->udp_port_timeout = TC_UDP_TIMEOUT_SEC;
@@ -10792,6 +10805,7 @@ static int tc_syscall_impl(TcVM *vm, uint16_t id) {
           if (ok) {
             Tinyc->udp_port_num = (uint16_t)port;
             Tinyc->udp_port_open = true;
+            Tinyc->udp_port_owner = (void *)tc_slot_of_vm(vm);
             Tinyc->udp_port_mcast = mcast;
             Tinyc->udp_port_last_rx = millis();
             if (!Tinyc->udp_port_timeout) {
@@ -22717,12 +22731,12 @@ static void TinyCStopVM(TcSlot *s) {
       }
     }
     if (!udp_still_needed) {
-      tc_udp_stop();
+      tc_udp_stop((void *)s);
     }
   }
   tc_tcp_server_stop_if_unused((void *)s);
   tc_spi_cleanup();
-  tc_serial_close_all();
+  tc_serial_close_all((void *)s);
   tc_img_store_free();
   // Clear mini-scripter state — otherwise the >F/>S bytecode from the previous
   // .tcb keeps firing on EverySecond/Every100ms ticks and (e.g.) re-emits the

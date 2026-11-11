@@ -1,0 +1,37 @@
+// @name: UDP SLOT A
+// Slot 0 of the two-slot UDP test (gemu2015/Sonoff-Tasmota#142): opens the general-purpose UDP port 5005 ONCE (like sml_eco_shelly.tc, which
+// binds once and never rebinds) and answers every datagram with "pong". Then load udp_slots_test_b.tc into slot 1 and check that the port still
+// answers:   python3 -c "import socket;s=socket.socket(2,2);s.settimeout(2);s.sendto(b'ping',('<ip>',5005));print(s.recvfrom(64))"
+char rx[128];
+char pong[] = "pong";
+int  hits = 0;
+int  once = 0;
+
+void Every100ms() {
+    int n = 0;
+    if (once == 0) { return; }
+    n = udp(1, rx);
+    if (n > 0) {
+        hits = hits + 1;
+        udp(2, pong);
+    }
+}
+
+void EverySecond() {
+    if (once == 0) {
+        if (udp(0, 5005) == 1) {
+            once = 1;
+            addLog("UDP A: port 5005 open");
+        }
+    }
+}
+
+void WebCall() {
+    char b[64];
+    sprintf(b, "{s}UDP A{m}port open %d, %d requests answered{e}", once, hits);
+    webSend(b);
+}
+
+int main() {
+    return 0;
+}
