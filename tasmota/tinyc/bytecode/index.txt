@@ -33,6 +33,7 @@ chart.tcb
 chart_types.tcb
 clock_7seg.tcb
 clock_header.tcb
+const_ref_elem_test.tcb
 core2_energy.tcb
 crypto_test.tcb
 daikin_control.tcb

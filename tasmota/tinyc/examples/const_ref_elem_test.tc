@@ -1,0 +1,38 @@
+// @name: Const ref element test
+// A string literal (or a #define string) passed to a char[] parameter of your own function: reading an ELEMENT of it (pat[k]) returned 0 on the device
+// for every k, while strlen and sprintf("%s") worked (found by Andreas in his SMGW cost reader, 10.11.2026). Fixed in OP_LOAD_REF_ARR (firmware); the
+// IDE simulator was always right. Result in the log: CONSTREF 8 ok, 0 bad. On an old firmware 8 of the literal / #define cases are bad.
+
+#define TXT "unix_seconds"
+char g[32];
+int ok = 0;
+int bad = 0;
+
+int first(char pat[]) { return pat[0]; }
+int third(char pat[]) { int k = 2; return pat[k]; }
+int endc(char pat[]) { return pat[12]; }          // the terminating NUL
+int beyond(char pat[]) { return pat[40]; }        // past the end: 0
+int cnt(char pat[]) {
+    int k = 0;
+    int n = 0;
+    while (pat[k] != 0) { n = n + 1; k = k + 1; }
+    return n;
+}
+
+void chk(int got, int want) {
+    if (got == want) { ok = ok + 1; } else { bad = bad + 1; }
+}
+
+int main() {
+    strcpy(g, "unix_seconds");
+    chk(first("unix_seconds"), 117);
+    chk(third("unix_seconds"), 105);
+    chk(cnt("unix_seconds"), 12);
+    chk(endc("unix_seconds"), 0);
+    chk(first(TXT), 117);
+    chk(cnt(TXT), 12);
+    chk(beyond("unix_seconds"), 0);
+    chk(cnt(g) + first(g), 129);                  // a global array always worked
+    addLog("CONSTREF %d ok, %d bad", ok, bad);
+    return 0;
+}

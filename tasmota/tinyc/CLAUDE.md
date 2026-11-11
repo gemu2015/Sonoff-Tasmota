@@ -671,6 +671,8 @@ One-liner per group — full signatures in `TinyC_Reference.md §Built-in Functi
     string-literal NODE, a `#define` is an identifier. **Needs the new IDE** (the compiler runs in `tinyc_ide.html.gz`; rebuilt at the next release): with an
     older IDE pass a global `char[]` or the literal. `examples/define_string_arg_test.tc` checks it (5 cases). `loudness_gauge.tc` (`play_wav(INTRO_WAV)`) had the bug.
 
+31. **Reading an ELEMENT of a string literal / `#define` string passed to your own `char[]` parameter returned 0 on the device until 11.11.2026** (`sucheText("unix_seconds")` with `pat[k]`; `strlen` and `sprintf("%s")` worked, the IDE simulator was right). Fixed in `OP_LOAD_REF_ARR` (both dispatch paths, `tc_const_ref_char`) - **needs the new firmware**; on older firmware fill a global `char[]` with `sprintf` first. `examples/const_ref_elem_test.tc` checks it (8 cases). Cost Andreas a debugging round on the SMGW cost reader.
+
 Tooling note: `legacy_misc/compile_cli.js` calls `compile()` **without** a getFile
 resolver, so `#include` lines are silently ignored — it cannot verify files like
 `sml_chart.tc`. Run `resolveIncludes(src, getFile)` from `idesrc/src/preprocessor.js`

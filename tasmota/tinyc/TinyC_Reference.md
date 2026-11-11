@@ -2919,7 +2919,7 @@ Timestamp conversion and arithmetic. Supports ISO web format (`2024-01-15T12:30:
 | `int timeOffset(char buf[], days, zeroFlag)` | With `zeroFlag`=1: also zero the time portion (HH:MM:SS→00:00:00) |
 | `int timeToSecs(char buf[])` | Convert timestamp string to epoch seconds. Returns seconds |
 | `int utcSecs()` | Current **UTC** unix epoch (true UTC, unlike `timeToSecs(timeStamp())` which is local-as-UTC). For request signing / API stamps |
-| `int secsToTime(char buf[], secs)` | Convert epoch seconds to ISO timestamp string in buf. Returns 0 |
+| `int secsToTime(char buf[], secs)` | Convert epoch seconds to ISO timestamp string in buf, **in UTC** (device and IDE simulator; `timeToSecs` reads a timestamp as UTC as well). Returns 0 |
 
 **Format auto-detection:** `timeConvert` and `timeOffset` auto-detect the input format (ISO if contains `T`, German otherwise) and preserve or convert accordingly.
 

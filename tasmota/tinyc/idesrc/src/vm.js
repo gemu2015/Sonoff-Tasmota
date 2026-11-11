@@ -2551,8 +2551,8 @@ export class VM {
                 let secs = 0;
                 const m = src.match(/(\d{4})-(\d+)-(\d+)T(\d+):(\d+):(\d+)/);
                 if (m) {
-                    const d = new Date(+m[1], +m[2]-1, +m[3], +m[4], +m[5], +m[6]);
-                    secs = Math.floor(d.getTime() / 1000);
+                    // UTC, like the firmware (MakeTime): the simulator used the PC's time zone, so absolute test values were off by 1-2 hours
+                    secs = Math.floor(Date.UTC(+m[1], +m[2]-1, +m[3], +m[4], +m[5], +m[6]) / 1000);
                 }
                 this.onOutput(`[TIME] timeToSecs("${src}") → ${secs}\n`);
                 this.push(secs);
@@ -2562,12 +2562,13 @@ export class VM {
                 const secs = this.pop();
                 const bufRef = this.pop();
                 const d = new Date(secs * 1000);
-                const ts = d.getFullYear() + '-' +
-                    String(d.getMonth()+1).padStart(2,'0') + '-' +
-                    String(d.getDate()).padStart(2,'0') + 'T' +
-                    String(d.getHours()).padStart(2,'0') + ':' +
-                    String(d.getMinutes()).padStart(2,'0') + ':' +
-                    String(d.getSeconds()).padStart(2,'0');
+                // UTC, like the firmware (gmtime), not the time zone of the PC
+                const ts = d.getUTCFullYear() + '-' +
+                    String(d.getUTCMonth()+1).padStart(2,'0') + '-' +
+                    String(d.getUTCDate()).padStart(2,'0') + 'T' +
+                    String(d.getUTCHours()).padStart(2,'0') + ':' +
+                    String(d.getUTCMinutes()).padStart(2,'0') + ':' +
+                    String(d.getUTCSeconds()).padStart(2,'0');
                 this.writeStringToRef(bufRef, ts);
                 this.onOutput(`[TIME] secsToTime(${secs}) → "${ts}"\n`);
                 this.push(0);

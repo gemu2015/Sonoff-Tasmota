@@ -2698,6 +2698,19 @@ static int32_t tc_ref_maxlen(TcVM *vm, int32_t ref) {
   }
 }
 
+// Element read `pat[k]` through a CONST-POOL ref: a string literal (or a #define string) handed to a char[] parameter of a
+// user function. tc_resolve_ref() refuses such refs by design (no heap array behind them), so OP_LOAD_REF_ARR read 0 for every
+// k on the device while strlen / sprintf("%s") (tc_ref_to_cstr) worked and the IDE simulator was right (Andreas, 10.11.2026,
+// `sucheText("unix_seconds")`). Reads are harmless: serve them from the pool, the terminating NUL is element len, anything
+// beyond reads 0. Writes through such a ref still fault (OP_STORE_REF_ARR). BOTH dispatch paths use this (switch + direct-threaded).
+static inline int32_t tc_const_ref_char(TcVM *vm, int32_t ref, int32_t k) {
+  uint16_t cidx = (uint16_t)((uint32_t)ref & 0x7FFF);
+  if (k < 0 || cidx >= vm->const_count || vm->constants[cidx].type != 1 || !vm->constants[cidx].str.ptr) return 0;
+  const char *cp = vm->constants[cidx].str.ptr;
+  int32_t clen = (int32_t)strlen(cp);
+  return (k < clen) ? (int32_t)(uint8_t)cp[k] : 0;
+}
+
 // Capacity in SLOTS — the arithmetic tc_ref_maxlen does for int32 arrays. Split
 // out so the byte view can use it without recursing into itself.
 static int32_t tc_ref_maxlen_slots(TcVM *vm, int32_t ref) {
@@ -20986,6 +20999,7 @@ static int tc_vm_step(TcVM *vm) {
       a = TC_POP(vm);  // index
       if ((uint32_t)idx >= TC_MAX_LOCALS) return TC_ERR_BOUNDS;
       int32_t ref = vm->frames[vm->fp].locals[idx];
+      if (tc_is_const_ref(ref)) { TC_PUSH(vm, tc_const_ref_char(vm, ref, a)); break; }   // literal / #define string passed to a char[] param
       int32_t *buf = tc_resolve_ref(vm, ref);
       int32_t maxLen = buf ? tc_ref_maxlen(vm, ref) : 0;
       // Out-of-bounds READ through a char[] ref-param is a common parser hiccup
@@ -21857,6 +21871,7 @@ static int tc_vm_run_slice_ex(TcVM *vm, uint32_t max_instr, uint32_t budget_ms,
     if ((uint32_t)_idx >= TC_MAX_LOCALS) { _err = TC_ERR_BOUNDS; goto _vm_exit; }
     if (!vm->frames[vm->fp].locals) { _err = TC_ERR_FRAME_INVALID; goto _vm_exit; }
     int32_t _ref = vm->frames[vm->fp].locals[_idx];
+    if (tc_is_const_ref(_ref)) { TC_IPUSH(tc_const_ref_char(vm, _ref, _a)); NEXT(); }   // literal / #define string passed to a char[] param
     vm->sp = _sp; vm->pc = _pc;                   // tc_resolve_ref may inspect vm state
     int32_t *_buf = tc_resolve_ref(vm, _ref);
     int32_t _maxlen = _buf ? tc_ref_maxlen(vm, _ref) : 0;
