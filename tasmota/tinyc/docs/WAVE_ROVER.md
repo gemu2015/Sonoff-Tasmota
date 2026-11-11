@@ -150,3 +150,10 @@ Library `examples/common/wheel_enc.tc`, used by `rover.tc`: ticks, distance, spe
 4. `RoverEnc 1` switches the stall guard on: a side that is commanded but gives no tick for 800 ms stops the rover ("MOTOR STALL") until the stick is released. It is **off by default**, because without encoders every drive would count as a stall.
 
 Only one channel is counted, so the direction comes from the motor command (the last non-zero direction). `ENC_BOTH 1` also counts channel B (`Gpio35 354`, `Gpio16 355`) for twice the resolution. In `ROVER_SIM 1` the ticks are made up from the command (`RoverEncSim <ticks per second>`, 0 = blocked wheel). Tried in the simulation on the rover board; **not yet with real encoders**. GPIO34 / GPIO27 are not free for anything else once the encoders are used (a lidar wire from `CP_RX` needs another pin).
+
+## RAM (11.11.2026, measured on the rover board, no PSRAM)
+
+- `rover.tc` alone leaves about **50 KB** free heap (largest block 45 KB). A **second slot costs far more than its program**: a 4.8 KB test program in slot 1 took the free heap from 48 KB to 14 KB. Keep the rover in ONE slot, and run bench programs (`examples/cliff_test.tc`) in place of it, not next to it. Aim at 30 KB free or more.
+- The joystick page is the file **`/rover.html`** (`examples/rover.html`), served with `webSendFile`; upload it once together with the program (`curl -X POST "http://<ip>/ufsu?fsz=<size>" -F "ufsu=@rover.html;filename=rover.html"`). Without the file `/rover` is empty. This took 2 KB of constants out of the bytecode.
+- `ROVER_SIM` and `DSP_EXTRA` are compile-time switches (`#if`), so the simulation and the TFT panel are not in the bytecode of the real rover: 16.1 KB -> 13.3 KB with `DSP_EXTRA 0`.
+- Further savings, not done yet: a firmware without the repo IDE page (`-DTINYC_NO_REPO_IDE`, about 4 KB static), other unused TinyC function groups, MQTT/mDNS off at run time (not measured).

@@ -150,3 +150,10 @@ Bibliothek `examples/common/wheel_enc.tc`, von `rover.tc` benutzt: Ticks, Streck
 4. `RoverEnc 1` schaltet den Blockierschutz ein: eine Seite, die Befehl bekommt, aber 800 ms keinen Tick liefert, haelt den Rover an ("MOTOR STALL"), bis der Stick losgelassen wird. Er ist **standardmaessig aus**, weil ohne Geber jede Fahrt als Blockade zaehlen wuerde.
 
 Gezaehlt wird nur ein Kanal, die Richtung kommt also aus dem Motorbefehl (die letzte Richtung ungleich null). `ENC_BOTH 1` zaehlt auch Kanal B (`Gpio35 354`, `Gpio16 355`) und verdoppelt die Aufloesung. Mit `ROVER_SIM 1` werden die Ticks aus dem Befehl erzeugt (`RoverEncSim <Ticks je Sekunde>`, 0 = blockiertes Rad). In der Simulation auf der Rover-Platine geprueft; **noch nicht mit echten Gebern**. GPIO34 / GPIO27 sind mit Gebern nicht mehr frei (eine Lidarleitung von `CP_RX` braucht dann einen anderen Pin).
+
+## RAM (11.11.2026, am Rover gemessen, kein PSRAM)
+
+- `rover.tc` allein laesst etwa **50 KB** freien Heap (groesster Block 45 KB). Ein **zweiter Slot kostet weit mehr als sein Programm**: ein Testprogramm mit 4,8 KB in Slot 1 senkte den freien Heap von 48 KB auf 14 KB. Der Rover bleibt in EINEM Slot; Bankprogramme (`examples/cliff_test.tc`) laufen anstelle davon, nicht daneben. Ziel: 30 KB frei oder mehr.
+- Die Joystick-Seite ist die Datei **`/rover.html`** (`examples/rover.html`), ausgeliefert mit `webSendFile`; einmal zusammen mit dem Programm hochladen (`curl -X POST "http://<ip>/ufsu?fsz=<Groesse>" -F "ufsu=@rover.html;filename=rover.html"`). Ohne die Datei ist `/rover` leer. Das nahm 2 KB Konstanten aus dem Bytecode.
+- `ROVER_SIM` und `DSP_EXTRA` sind Uebersetzungsschalter (`#if`), Simulation und TFT-Feld stecken also nicht im Bytecode des echten Rovers: 16,1 KB -> 13,3 KB mit `DSP_EXTRA 0`.
+- Weitere Einsparungen, noch nicht gemacht: Firmware ohne die Repo-IDE-Seite (`-DTINYC_NO_REPO_IDE`, etwa 4 KB statisch), weitere ungenutzte TinyC-Funktionsgruppen, MQTT/mDNS zur Laufzeit aus (nicht gemessen).

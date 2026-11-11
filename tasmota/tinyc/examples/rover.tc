@@ -36,6 +36,12 @@
 #define ROVER_SIM   0            // 1 = simulated battery / floor sensors, no motor pins
 #define DSP_EXTRA   1            // 1 = extra panel below the 4 OLED lines (TFT)
 
+#if ROVER_SIM
+#define ROVER_REAL  0
+#else
+#define ROVER_REAL  1
+#endif
+
 #include "ina219.tc"
 #include "qmi8658.tc"
 #include "ak09918.tc"
@@ -113,7 +119,7 @@ int rover_pwm(int pct) {
 
 void rover_side(int pwm, int pin_pwm, int pin_in1, int pin_in2) {
     int a = pwm;
-    if (ROVER_SIM == 1) { return; }
+#if ROVER_REAL
     if (a < 0) { a = 0 - a; }
     if (pwm == 0) {
         digitalWrite(pin_in1, 0);
@@ -128,6 +134,7 @@ void rover_side(int pwm, int pin_pwm, int pin_in1, int pin_in2) {
         digitalWrite(pin_in2, 1);
         analogWrite(pin_pwm, a);
     }
+#endif
 }
 
 // the one place where commands become motor values; every safety rule is applied here
@@ -190,7 +197,9 @@ int cliff_eval() {
     int changed = 0;
     while (ch < 4) {
         up = vl_up[ch];
-        if (ROVER_SIM == 1) { up = 1; }
+#if ROVER_SIM
+        up = 1;
+#endif
         age = millis() - vl_age[ch];
         d = vl_dist[ch];
         f = 0;
@@ -217,14 +226,14 @@ int cliff_eval() {
 // one floor sensor per call (about 35 ms each on the real sensor)
 void tof_step() {
     int ch = tof_ch;
-    if (ROVER_SIM == 1) {
-        if (sim_tof[ch] >= 0) {              // a negative value simulates a silent sensor (RoverTof <ch> -1)
-            vl_dist[ch] = sim_tof[ch];
-            vl_age[ch] = millis();
-        }
-    } else {
-        vl_poll(ch);
+#if ROVER_SIM
+    if (sim_tof[ch] >= 0) {                  // a negative value simulates a silent sensor (RoverTof <ch> -1)
+        vl_dist[ch] = sim_tof[ch];
+        vl_age[ch] = millis();
     }
+#else
+    vl_poll(ch);
+#endif
     tof_ch = (ch + 1) & 3;
 }
 
@@ -240,13 +249,13 @@ void TaskLoop() {
     }
     if (millis() >= ina_next) {
         if (park == 1) { ina_next = millis() + 5000; } else { ina_next = millis() + 1000; }
-        if (ROVER_SIM == 1) {
-            vbat_mv = sim_vbat;
-        } else {
-            ina_poll();
-            vbat_mv = 0;
-            if (ina_ok == 1) { vbat_mv = ina_mv; }
-        }
+#if ROVER_SIM
+        vbat_mv = sim_vbat;
+#else
+        ina_poll();
+        vbat_mv = 0;
+        if (ina_ok == 1) { vbat_mv = ina_mv; }
+#endif
         if (vbat_mv > 0 && vbat_mv < VBAT_MIN_MV) {
             if (low == 0) { addLog("ROVER: battery low (%d mV), motors off", vbat_mv); }
             low = 1;
@@ -293,7 +302,8 @@ void display_update() {
         strcpy(dl, "V:--");
     }
     dsp_line(2, 25, 21, dl);
-    if (DSP_EXTRA == 1) {
+#if DSP_EXTRA
+    {
         dspFont(0);
         dspSize(2);
         dspColor(0xFFFF, 0x0000);
@@ -320,6 +330,7 @@ void display_update() {
             dsp_line(2, 142, 20, "floor ok");
         }
     }
+#endif
 }
 
 void display_first() {
@@ -418,27 +429,9 @@ void JsonCall() {
     responseAppend("}");
 }
 
+// the joystick page lives in the file /rover.html on the device (upload examples/rover.html): about 2 KB less bytecode in RAM
 void rover_page() {
-    webSend("<!DOCTYPE html><meta name=viewport content='width=device-width,initial-scale=1'><title>WAVE ROVER</title>");
-    webSend("<style>body{font-family:sans-serif;margin:12px;text-align:center}");
-    webSend("#pad{width:280px;height:280px;margin:10px auto;border:2px solid #888;border-radius:50%;touch-action:none;position:relative}");
-    webSend("#dot{width:40px;height:40px;border-radius:50%;background:#2a7;position:absolute;left:120px;top:120px}</style>");
-    webSend("<h3>WAVE ROVER</h3><div id=st>-</div><div id=pad><div id=dot></div></div>");
-    webSend("<p>Speed limit <input type=range id=mx min=10 max=100 value=40 oninput='mxv.textContent=this.value'> <span id=mxv>40</span> %</p>");
-    webSend("<button onclick='halt()'>STOP</button><p>Arrow keys / WASD also work. Motors stop 0.3 s after the last command.</p>");
-    webSend("<script>var d=0,t=0,act=0,tm=null,ks={},p=document.getElementById('pad'),dot=document.getElementById('dot');");
-    webSend("function send(){fetch('rover_cmd?d='+d+'&t='+t+'&m='+mx.value).then(function(r){return r.json()}).then(function(j){");
-    webSend("st.textContent=j.v+' V   L '+j.l+'   R '+j.r+'   stops '+j.wd+(j.lo?'   LOW BATTERY':'')+(j.cl?'   CLIFF '+j.cl:'')+'   ticks '+j.el+'/'+j.er+(j.st?'   MOTOR STALL':'')}).catch(function(){st.textContent='no link'})}");
-    webSend("function go(){if(!tm){tm=setInterval(send,100)}send()}");
-    webSend("function halt(){d=0;t=0;dot.style.left='120px';dot.style.top='120px';send();clearInterval(tm);tm=null}");
-    webSend("function mv(e){var r=p.getBoundingClientRect(),x=(e.clientX-r.left-140)/140,y=(e.clientY-r.top-140)/140,n=Math.hypot(x,y);");
-    webSend("if(n>1){x/=n;y/=n}t=Math.round(x*100);d=Math.round(-y*100);dot.style.left=(120+x*120)+'px';dot.style.top=(120+y*120)+'px'}");
-    webSend("p.onpointerdown=function(e){p.setPointerCapture(e.pointerId);act=1;mv(e);go()};");
-    webSend("p.onpointermove=function(e){if(act)mv(e)};p.onpointerup=function(e){act=0;halt()};p.onpointercancel=p.onpointerup;");
-    webSend("function kk(){d=(ks.ArrowUp||ks.w?100:0)-(ks.ArrowDown||ks.s?100:0);t=(ks.ArrowRight||ks.d?60:0)-(ks.ArrowLeft||ks.a?60:0);if(d||t){go()}else{halt()}}");
-    webSend("document.onkeydown=function(e){if(!ks[e.key]){ks[e.key]=1;kk()}};document.onkeyup=function(e){ks[e.key]=0;kk()};");
-    webSend("window.onblur=function(){ks={};act=0;halt()};document.onvisibilitychange=function(){if(document.hidden){ks={};act=0;halt()}};");
-    webSend("</script>");
+    webSendFile("/rover.html");
 }
 
 void WebOn() {
@@ -556,7 +549,8 @@ int main() {
     int i = 0;
     while (i < 4) { sim_tof[i] = 60; cl_flag[i] = 1; i = i + 1; }
     addCommand("Rover");
-    if (ROVER_SIM == 0) {
+#if ROVER_REAL
+    {
         pinMode(PIN_PWMA, OUTPUT);
         pinMode(PIN_AIN1, OUTPUT);
         pinMode(PIN_AIN2, OUTPUT);
@@ -564,6 +558,7 @@ int main() {
         pinMode(PIN_BIN1, OUTPUT);
         pinMode(PIN_BIN2, OUTPUT);
     }
+#endif
     rover_off();
     enc_init();
     lastcmd = millis();
@@ -571,7 +566,8 @@ int main() {
     qmi_init(I2C_BUS, 2, 5, 3);
     ak_init(I2C_BUS, 8);
     if (qmi_ok == 1) { qmi_cal_gyro(200); }
-    if (ROVER_SIM == 0) {
+#if ROVER_REAL
+    {
         if (vl_mux_init(I2C_BUS) == 1) {
             vl_timeout = 60;
             i = 0;
@@ -583,6 +579,7 @@ int main() {
             addLog("ROVER: TCA9548A not found, the cliff guard keeps the motors off (RoverCliff 0 to override)");
         }
     }
+#endif
     tasmInfo(2, ip);
     webOn(1, "/rover");
     webOn(2, "/rover_cmd");

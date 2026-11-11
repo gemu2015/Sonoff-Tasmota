@@ -1,0 +1,154 @@
+// @name: CLIFF TEST
+// Bench test for the four floor sensors of the WAVE ROVER (VL53L0X behind a TCA9548A, channels 0..3 = front left, front right, rear left,
+// rear right). No motors, no cliff logic: it only measures, so it is safe to run with the rover in the hand.
+//
+//   WebCall rows (main page): per sensor the distance now, the minimum and maximum since the last reset, the share of good readings.
+//   console:  CtReset            clear min / max / counters
+//             CtLearn            10 s: hold the rover (or one sensor) over the floor you want to drive on; the readings are collected
+//                                and a window for  RoverCliff <min> <max>  is proposed (min * 0.7 .. max * 1.4, rounded)
+//             CtWin              print the proposal again
+//             CtSet <min> <max>  nothing is stored here; the numbers are for  RoverCliff <min> <max>  in rover.tc
+//
+// HOW TO USE: mount (or hold) the sensors the way they will sit - pointing outward / down about 45 degrees, 40..70 mm above the floor.
+// Measure every floor of the house (tiles, wood, dark and shiny carpet, sunlight), then over an edge (stair step, table edge): over a drop
+// the reading jumps far above the window or turns into "no result" (shown as -). The window has to contain every floor reading and
+// exclude the drop.
+//
+// NOT yet run on real sensors (they were soldered after this was written).
+
+#include "vl53l0x_mux.tc"
+
+#define I2C_BUS 0
+
+int mn[4];
+int mx[4];
+int good[4];
+int bad[4];
+int ch = 0;
+int learn_until = 0;
+int win_min = 0;
+int win_max = 0;
+int all_lo = 0;
+int all_hi = 0;
+char ob[160];
+
+void ct_clear() {
+    int i = 0;
+    while (i < 4) {
+        mn[i] = 65535;
+        mx[i] = 0;
+        good[i] = 0;
+        bad[i] = 0;
+        i = i + 1;
+    }
+}
+
+void ct_proposal() {
+    int lo = 65535;
+    int hi = 0;
+    int i = 0;
+    while (i < 4) {
+        if (good[i] > 0) {
+            if (mn[i] < lo) { lo = mn[i]; }
+            if (mx[i] > hi) { hi = mx[i]; }
+        }
+        i = i + 1;
+    }
+    all_lo = lo;
+    all_hi = hi;
+    if (hi == 0) { all_lo = 0; win_min = 0; win_max = 0; return; }
+    win_min = (lo * 7) / 10;
+    win_max = (hi * 14) / 10;
+    win_min = (win_min / 5) * 5;
+    win_max = ((win_max + 4) / 5) * 5;
+}
+
+void TaskLoop() {
+    int d = 0;
+    d = vl_poll(ch);
+    if (d == 65535) {
+        bad[ch] = bad[ch] + 1;
+    } else {
+        good[ch] = good[ch] + 1;
+        if (d < mn[ch]) { mn[ch] = d; }
+        if (d > mx[ch]) { mx[ch] = d; }
+    }
+    ch = (ch + 1) & 3;
+    if (learn_until != 0 && millis() > learn_until) {
+        learn_until = 0;
+        ct_proposal();
+        if (win_max == 0) {
+            addLog("CLIFFTEST: nothing measured, is a sensor connected?");
+        } else {
+            addLog("CLIFFTEST: floor readings %d..%d mm -> try  RoverCliff %d %d", all_lo, all_hi, win_min, win_max);
+        }
+    }
+    delay(5);
+}
+
+void WebCall() {
+    int i = 0;
+    int tot = 0;
+    while (i < 4) {
+        tot = good[i] + bad[i];
+        if (vl_up[i] == 0) {
+            sprintf(ob, "{s}Sensor %d{m}not found{e}", i);
+        } else if (vl_dist[i] == 65535) {
+            sprintf(ob, "{s}Sensor %d{m}-   (min %d  max %d  good %d of %d){e}", i, mn[i] < 65535 ? mn[i] : 0, mx[i], good[i], tot);
+        } else {
+            sprintf(ob, "{s}Sensor %d{m}%d mm   (min %d  max %d  good %d of %d){e}", i, vl_dist[i], mn[i], mx[i], good[i], tot);
+        }
+        webSend(ob);
+        i = i + 1;
+    }
+    if (learn_until != 0) {
+        webSend("{s}Learning{m}hold the sensors over the floor ...{e}");
+    } else if (win_max != 0) {
+        sprintf(ob, "{s}Window proposal{m}RoverCliff %d %d{e}", win_min, win_max);
+        webSend(ob);
+    }
+}
+
+void Command(char cmd[]) {
+    if (strcmp(cmd, "RESET") == 0) {
+        ct_clear();
+        win_min = 0;
+        win_max = 0;
+        responseCmnd("cleared");
+    } else if (strcmp(cmd, "LEARN") == 0) {
+        ct_clear();
+        win_min = 0;
+        win_max = 0;
+        learn_until = millis() + 10000;
+        responseCmnd("learning for 10 s");
+    } else if (strcmp(cmd, "WIN") == 0) {
+        ct_proposal();
+        sprintf(ob, "RoverCliff %d %d", win_min, win_max);
+        responseCmnd(ob);
+    } else {
+        responseCmnd("CtReset, CtLearn, CtWin");
+    }
+}
+
+void CleanUp() {
+    vl_release();
+}
+
+int main() {
+    int i = 0;
+    ct_clear();
+    addCommand("Ct");
+    if (vl_mux_init(I2C_BUS) == 1) {
+        vl_timeout = 60;
+        while (i < 4) {
+            if (vl_start(i) == 0) { addLog("CLIFFTEST: floor sensor %d not found", i); }
+            i = i + 1;
+        }
+        addLog("CLIFFTEST: multiplexer found, %d %d %d %d (1 = sensor up)", vl_up[0], vl_up[1], vl_up[2], vl_up[3]);
+    } else {
+        addLog("CLIFFTEST: no TCA9548A at 0x70 - a single sensor on channel 0 is tried");
+        vl_timeout = 60;
+        if (vl_start(0) == 0) { addLog("CLIFFTEST: no sensor"); }
+    }
+    return 0;
+}
