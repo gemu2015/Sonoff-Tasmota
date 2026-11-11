@@ -1,0 +1,52 @@
+// @name: ESP-NOW switch node
+// A battery node for a TOGGLE SWITCH (the wall switch that stays in position): every flip wakes the node, which reads the switch, sends the
+// POSITION (closed = on, open = off) to the lamp controller as an ESP-NOW packet and goes back to deep sleep, waiting for the OTHER position.
+// Packet: 'B', button id, action (1 = on, 0 = off), counter. Receiver: examples/gm24g_lamp.tc (button 1 = all lamps).
+//
+// Wiring: switch between SW_PIN and GND, about 1 MOhm from SW_PIN to 3.3 V (an external pull-up: it is what holds the level in deep sleep;
+// closed it draws 3 uA). ESP32-C3: GPIO 0..5 wake from deep sleep. Setup as for espnow_button_node.tc (`WiFi 0` once on the console,
+// autoexec, CHANNEL = channel of the router, a build with a short TC_AUTOEXEC_MIN_UPTIME).
+// Sending the position (not "toggle") means a lost packet does not leave lamp and switch out of step: the next flip sends the truth.
+// ⚠️ A wall switch carries 230 V on its contacts. Use it only after the lamp circuit has been taken out of it (permanently live lamps, done by
+// someone qualified): then its two terminals are a plain low-voltage contact.
+
+#define CHANNEL    11
+#define RECEIVER   "AA:BB:CC:DD:EE:FF"       // MAC of the lamp controller
+#define BUTTON_ID  1
+#define SW_PIN     3
+#define INPUT_PULLUP 5
+
+char pkt[4];
+
+int main() {
+    int closed = 0;
+    int ok = 0;
+    int tries = 0;
+    int again = 1;
+    int t0 = millis();
+    pinMode(SW_PIN, INPUT_PULLUP);
+    delay(10);                                   // contact bounce
+    espnowBegin(CHANNEL);
+    espnowPeer(RECEIVER);
+    while (again == 1) {
+        closed = 1 - digitalRead(SW_PIN);        // closed = pin LOW = on
+        pkt[0] = 'B';
+        pkt[1] = BUTTON_ID;
+        pkt[2] = closed;
+        pkt[3] = random(1, 255);
+        ok = 0;
+        tries = 0;
+        while (ok == 0 && tries < 4) {
+            ok = espnowSend(RECEIVER, pkt, 4);
+            tries = tries + 1;
+        }
+        addLog("NODE: switch %d (1 = closed = on) sent, delivered %d after %d tries, %d ms awake", closed, ok, tries, millis() - t0);
+        // flipped again while we sent? then send the new position as well, so the wake level below can never be satisfied already
+        delay(20);
+        again = 0;
+        if (1 - digitalRead(SW_PIN) != closed) { again = 1; }
+    }
+    // wait for the OTHER position: closed (pin LOW) -> wake when it goes HIGH, open (pin HIGH) -> wake when it goes LOW
+    deepSleepGpio(0, SW_PIN, closed);
+    return 0;
+}

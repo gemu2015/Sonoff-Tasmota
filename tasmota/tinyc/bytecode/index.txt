@@ -65,6 +65,7 @@ esf37_speak.tcb
 espnow_button_node.tcb
 espnow_receiver.tcb
 espnow_sender_test.tcb
+espnow_switch_node.tcb
 fast_mux.tcb
 fibonacci.tcb
 file_io.tcb
