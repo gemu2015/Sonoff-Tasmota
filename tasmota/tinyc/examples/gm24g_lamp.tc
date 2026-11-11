@@ -577,6 +577,7 @@ void en_poll() {
             if (id >= 1 && id <= 5 && act >= 0 && act <= 2) {
                 dup = 0;
                 if (n >= 4 && en_seq[id] == en_buf[3] && millis() - en_last_ms < 3000) { dup = 1; }
+                if (id == en_last_id && millis() - en_last_ms < 400) { dup = 1; }   // key bounce on a button that resets its chip: two packets with different counters
                 if (n >= 4) { en_seq[id] = en_buf[3]; }
                 if (dup == 0) {
                     if (act == 2) { on = 1 - en_on[id]; } else { on = act; }
