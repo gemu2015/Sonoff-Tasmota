@@ -22,7 +22,7 @@ running.
 
 | ABI | Firmware | Change |
 |---|---|---|
-| 34 | unreleased | ESP-NOW: `espnowBegin`, `espnowKey`, `espnowPeer`, `espnowSend`, `espnowAvailable`, `espnowRecv`, `espnowRssi`, `espnowEnd` (569–576) |
+| 34 | 1.6.78 | ESP-NOW: `espnowBegin`, `espnowKey`, `espnowPeer`, `espnowSend`, `espnowAvailable`, `espnowRecv`, `espnowRssi`, `espnowEnd` (569–576) |
 | 33 | 1.6.76 | `sensorGetNaN`, `isNan` (567–568) |
 | 32 | 1.6.68 | FTP client (syscalls 556–566) |
 | 31 | 1.6.67 | `serialReadArray` (555) |
@@ -58,7 +58,15 @@ with total size and `abi_rev`) arrived in 1.6.35; v2–v5 files still load.
 
 ---
 
-## Unreleased
+## 1.6.78 — 2026-11-11
+
+- ⚠️ **Fixed: stopping or reloading one slot no longer closes the UDP port and the serial ports of ANOTHER slot** (gemu2015/Sonoff-Tasmota#142, found by serafma): the general-purpose UDP port (`udp(0, port)`) belongs to the driver, and the unload path closed it whenever no other slot used UDP *globals*. `sml_eco_shelly.tc` in slot 0 binds once and never rebinds, so loading any program into slot 1 (the IDE stops the slot first) made its UDP calls time out while HTTP kept working; `tc_serial_close_all()` closed the serial ports of all slots on every unload (one handle array). The driver now records the slot that opened the UDP port / a serial handle (`udp_port_owner`, `tc_serial_owner[]`) and an unload closes only its own. Reproduced and checked on an ESP32-C3 with `examples/udp_slots_test_a.tc` (slot 0, UDP 5005 answers "pong") + `udp_slots_test_b.tc` (any second program, `SERIAL 1` opens a serial port): slot 1 loaded / reloaded while running / with a serial port / unloaded: 3 of 3 answered each time, unloading slot 0 still closes the port. Not tested: a real Modbus program in slot 0. Workaround on older firmware: start both programs by autostart (boot stops no slot) or restart slot 0 after every manual start of slot 1.
+- ⚠️ **GPIO16 and GPIO17 are usable by a program on a classic ESP32 without PSRAM**: Tasmota paints them red on every classic ESP32 (PSRAM/flash pins of WROVER/PICO modules) and TinyC refused them ("Forbidden pin 17"). The WAVE ROVER's ESP32-WROOM-32UE has no PSRAM and drives its motor driver from IO17 (and the encoder B from IO16). `tc_pin_red()` frees the two pins when `FoundPSRAM()` is false (pin check and `gpio_init`). Other chips are unchanged.
+- **WAVE ROVER on the real rover** (11.11.2026): runs on the original ESP32-WROOM-32UE (16 MB flash, no PSRAM) with `tinyc32-4M-plain`; the flash read/write works at 230400 baud (921600 and 460800 broke on the CP2102), I2C scan 0x0C / 0x3C / 0x42 / 0x6B, drive test on blocks. `docs/WAVE_ROVER.md` / `_DE.md` have the measured facts.
+- **`common/wheel_enc.tc` + `rover.tc`: wheel encoders**: ticks, distance, speed and odometry per drive side from Tasmota's pulse counters (`Gpio34 352`, `Gpio27 353`; the counter driver is already in the build), a stall guard ("MOTOR STALL", off until `RoverEnc 1`) and the console commands `RoverEnc`, `RoverEncZero`, `RoverEncCal <mm>`, `RoverEncTpr`, `RoverEncSim`. Checked in the simulation on the rover board, not yet with real encoders.
+- **`rover.tc` uses 2.8 KB less RAM** (measured: 16.1 KB -> 13.3 KB bytecode, free heap 47.3 -> 49.8 KB): the joystick page is the file `/rover.html` (upload `examples/rover.html` once, served with `webSendFile`; without it `/rover` is empty) and `ROVER_SIM` / `DSP_EXTRA` are `#if` switches. Measured: a second slot with a 4.8 KB program took 33 KB of free heap (48 -> 14 KB), so the rover stays in ONE slot.
+- **`examples/cliff_test.tc`**: bench test of the four floor sensors behind the TCA9548A (no motors): live distances, min / max / good-bad counters, `CtLearn` proposes the window for `RoverCliff <min> <max>`. Not run on real sensors yet.
+- **ESP8266 ESP-NOW wall button: proven on hardware** (`docs/espnow_button_esp8266/`): to the receiver's MAC an ESP8266 never sees the ESP32's ACK and the packets arrived only some of the time; as a broadcast every copy reports `status=0` and 11 of 11 presses arrived. Five copies 25 ms apart, `wifi_set_channel()` only works in promiscuous mode, the reset reason after a key press is 5 or 6. The READMEs list the findings; deep-sleep current measured at about 20 uA.
 
 - **`espnow_switch_node.tc`**: an ESP-NOW node for a TOGGLE SWITCH (wall switch that stays in position): each flip wakes the node (`deepSleepGpio` with the opposite level), it sends the POSITION (closed = on, open = off) and sleeps again; a lost packet cannot leave lamp and switch out of step. Not yet run (needs a pin and a C3).
 - **ESP-NOW wall button on a bare ESP8266** (`docs/espnow_button_esp8266/`): a simple Arduino sketch (button between RST and GND, `ESP.deepSleep(0)`, one packet per press, about 100-250 ms awake), README in EN and DE with wiring, supply and battery numbers; compiles with the PlatformIO ESP8266 core (not yet run on hardware). `gm24g_lamp.tc` ignores a second packet of the same button within 400 ms (bounce on a button that resets its chip).

@@ -2,17 +2,18 @@
 
 TinyC is a C-subset compiler and VM that runs on ESP32/ESP8266 as Tasmota driver `XDRV_124`. Write C code in the browser IDE, compile to bytecode, upload and run — no firmware rebuild needed.
 
-> **Current firmware: v1.6.77** — pre-built `.bin` / `.factory.bin` for ESP32 / ESP32-S3 / ESP32-C3 / ESP32-C6 / ESP8266 and the matching `tinyc_ide.html.gz` are attached to every release.
+> **Current firmware: v1.6.78** — pre-built `.bin` / `.factory.bin` for ESP32 / ESP32-S3 / ESP32-C3 / ESP32-C6 / ESP8266 and the matching `tinyc_ide.html.gz` are attached to every release.
 >
 > * [**All releases**](https://github.com/gemu2015/Sonoff-Tasmota/releases) — one `v<version>` release per build. Watch the repository (*Custom → Releases*) to be notified when a new one appears.
 > * [`testing`](https://github.com/gemu2015/Sonoff-Tasmota/releases/tag/testing) — a rolling tag that always carries the newest assets, for stable download URLs. It is deliberately reused, so it never fires a release notification.
 >
 > Every version is listed in [**CHANGELOG.md**](CHANGELOG.md), including the syscall-ABI table (which firmware a `.tcb` needs).
 
-## What's new (v1.6.29 – v1.6.77)
+## What's new (v1.6.29 – v1.6.78)
 
 The highlights; details per version in [CHANGELOG.md](CHANGELOG.md).
 
+- **1.6.78:** UDP port and serial ports are no longer closed when ANOTHER slot is loaded or stopped (#142), ESP-NOW for battery buttons and device-to-device packets (ABI 34), GPIO16/17 usable without PSRAM, WAVE ROVER on the real rover (wheel encoders, joystick page as a file), SMGW reader and EEBUS updates from Andreas, `TinyCTlsCert`, programs over 64 KB, LD19 lidar driver, element read of a string literal through a `char[]` parameter — see [CHANGELOG.md](CHANGELOG.md).
 - **1.6.77:** USB host on the ESP32-S3 (USB stick as `/usb`, USB audio stick for playback and microphone, FTDI, hub), TinyC file manager (Flash/SD/USB, drag & drop, rename, edit, `.pvs` → CSV, runs in any slot with a main-page button), `webOn()` answered by the registering slot, `.secret` files stay inside, EEBUS identity backup — see [CHANGELOG.md](CHANGELOG.md).
 - **1.6.76:** `sensorGetNaN()` / `isNan()` (a missing sensor value is NaN, not 0), big uploads stop the slots only when writing to the flash, eBUS slave replies are CRC-checked, `tcpSelect()` per slot — see [CHANGELOG.md](CHANGELOG.md).
 - **Upstream merge: Tasmota 16.0.0.1 (1.6.75)** — the fork is merged with arendst/development of 25.10.2026 (Arduino core 3.3.12, IDF 5.5.5, platform 2026.09.50) and now shares real Git history with upstream. Building needs PlatformIO Core ≥ 6.2.0. Also in this release: EEBUS Steuerbox v216 / SteuVE v025 (operating log on the SD card, certificate-based SKI, mDNS with IPv4), details in [CHANGELOG.md](CHANGELOG.md).
