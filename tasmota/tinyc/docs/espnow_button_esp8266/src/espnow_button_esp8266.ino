@@ -24,6 +24,8 @@ static uint8_t RECEIVER[6] = { 0xE0, 0x72, 0xA1, 0xE7, 0xE6, 0xF4 };   // MAC of
 #define TRIES      4             // sends until the radio reports "delivered"
 // -------------------------------------------------------------------------------------------------------------------
 
+#define SEND_ON_POWER_ON 0       // 0 = a battery insertion / power-up sends nothing (it would toggle the lamp); only the RST button does
+
 static volatile int sendStatus = -1;                       // -1 waiting, 0 = delivered, other = failed
 
 static void onSent(uint8_t *mac, uint8_t status) {
@@ -31,6 +33,9 @@ static void onSent(uint8_t *mac, uint8_t status) {
 }
 
 void setup() {
+  if (!SEND_ON_POWER_ON && ESP.getResetInfoPtr()->reason != REASON_EXT_SYS_RST) {
+    ESP.deepSleep(0);                                      // power-up / watchdog / flashing: not a key press, sleep at once
+  }
   WiFi.persistent(false);                                  // never write the WiFi settings to flash
   WiFi.mode(WIFI_STA);
   wifi_station_disconnect();                               // no access point: ESP-NOW only
