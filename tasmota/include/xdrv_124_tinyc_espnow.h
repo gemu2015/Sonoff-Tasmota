@@ -34,6 +34,12 @@
 #ifndef _XDRV_124_TINYC_ESPNOW_H_
 #define _XDRV_124_TINYC_ESPNOW_H_
 
+// On by default for the ESP32 family (about 2 KB RAM for the receive ring and some flash); -DTINYC_NO_ESPNOW leaves it out. Set here, in a
+// tracked file, so a build from this repository has it without a private user_config_override.h.
+#if defined(ESP32) && !defined(TINYC_NO_ESPNOW) && !defined(USE_TINYC_ESPNOW)
+#define USE_TINYC_ESPNOW
+#endif
+
 // One ESP-NOW user per device: Tasmota's WizMote decoder (xdrv_77) and TasMesh own the receive callback. When one of them is built in,
 // TinyC leaves ESP-NOW alone (the calls answer 0). Decided HERE, after every configuration file has been read.
 #if defined(USE_TINYC_ESPNOW) && (defined(USE_WIZMOTE) || defined(USE_TASMESH))
