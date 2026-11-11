@@ -14,3 +14,13 @@ A battery button for the radio-controlled lamps (receiver: `examples/gm24g_lamp.
 `RECEIVER` = MAC of the lamp controller (Tasmota main page, `Status 5`), `CHANNEL` = channel of the router (**fix it in the router**, ESP-NOW only reaches a receiver on the same channel), `BUTTON_ID`, `ACTION`. Build `pio run -e esp01_1m`, flash over a serial adapter with GPIO0 to GND (`-t upload`). Compiles with the ESP8266 Arduino core of PlatformIO (248 KB flash).
 
 Without a key anyone in range could send a packet; for a lamp that is acceptable, otherwise put a keyed check into the payload.
+
+## Measured on hardware (11.11.2026)
+
+- **Send as broadcast, not unicast.** To the receiver's MAC an ESP8266 never gets the ESP32's ACK (`status=1` on every copy); the packets arrived only some of the time (a key press had to be repeated up to 3 times). As a broadcast (`USE_BROADCAST 1`) every copy reports `status=0` and 11 of 11 presses arrived. The receiver accepts only packets starting with `'B'` and a known button id.
+- **`wifi_set_channel()` only works in promiscuous mode** on the ESP8266 (the sketch does the enable/set/disable dance); `DEBUG 1` prints the channel actually in use.
+- Five copies 25 ms apart (about 125 ms awake); the receiver drops repeats by the counter byte.
+- The key press out of deep sleep reports reset reason 5 (`DEEP_SLEEP_AWAKE`) or 6 (`EXT_SYS_RST`); only a real power-up (0) is ignored.
+- `TX_POWER_DBM 14` keeps the current peak low; 20.5 was not compared.
+- PlatformIO: use `~/.platformio/penv/bin/pio` (see the project notes on the SCons conflict).
+

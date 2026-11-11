@@ -14,3 +14,12 @@ Ein Batterie-Taster fuer die funkgesteuerten Lampen (Empfaenger: `examples/gm24g
 `RECEIVER` = MAC der Lampensteuerung (Tasmota-Hauptseite, `Status 5`), `CHANNEL` = Kanal des Routers (**im Router festlegen**, ESP-NOW erreicht nur einen Empfaenger auf demselben Kanal), `BUTTON_ID`, `ACTION`. Bauen `pio run -e esp01_1m`, ueber einen seriellen Adapter mit GPIO0 an GND flashen (`-t upload`). Uebersetzt mit dem ESP8266-Arduino-Kern von PlatformIO (248 KB Flash).
 
 Ohne Schluessel kann jeder in Reichweite ein Paket senden; bei einer Lampe ist das vertretbar, sonst eine geschluesselte Pruefung in die Nutzdaten legen.
+
+## Auf Hardware gemessen (11.11.2026)
+
+- **Als Broadcast senden, nicht gezielt.** An die MAC des Empfaengers bekommt ein ESP8266 die Bestaetigung der ESP32 nie (`status=1` bei jeder Kopie); die Pakete kamen nur teilweise an (ein Tastendruck musste bis zu dreimal wiederholt werden). Als Broadcast (`USE_BROADCAST 1`) meldet jede Kopie `status=0`, und 11 von 11 Druecken kamen an. Der Empfaenger nimmt nur Pakete an, die mit `'B'` und einer bekannten Tasternummer beginnen.
+- **`wifi_set_channel()` wirkt am ESP8266 nur im Promiscuous-Modus** (der Sketch schaltet ihn kurz ein und wieder aus); `DEBUG 1` gibt den tatsaechlichen Kanal aus.
+- Fuenf Kopien im Abstand von 25 ms (etwa 125 ms wach); der Empfaenger erkennt Wiederholungen am Zaehlerbyte.
+- Der Tastendruck aus dem Tiefschlaf meldet Reset-Grund 5 (`DEEP_SLEEP_AWAKE`) oder 6 (`EXT_SYS_RST`); nur ein echtes Einschalten (0) wird ignoriert.
+- `TX_POWER_DBM 14` haelt die Stromspitze klein; 20,5 wurde nicht verglichen.
+
