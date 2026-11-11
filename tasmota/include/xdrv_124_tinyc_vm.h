@@ -6096,10 +6096,19 @@ static uint32_t tc_ts_cmp(const char *ts) {
  * VM: GPIO pin safety check — halt VM on forbidden/in-use pins
 \*********************************************************************************************/
 
+// Classic ESP32: Tasmota paints GPIO16/17 red because WROVER/PICO modules use them for PSRAM/flash. On a WROOM-32 without PSRAM they are
+// ordinary pins (WAVE ROVER: AIN2 = IO17, encoder B = IO16), so they are free for a script when no PSRAM was found (11.11.2026).
+static bool tc_pin_red(int32_t pin) {
+#if defined(CONFIG_IDF_TARGET_ESP32) && !defined(CONFIG_IDF_TARGET_ESP32S2) && !defined(CONFIG_IDF_TARGET_ESP32S3)
+  if ((16 == pin || 17 == pin) && !FoundPSRAM()) return false;
+#endif
+  return RedPin(pin);
+}
+
 static bool tc_pin_forbidden(int32_t pin) {
   if (pin < 0 || pin >= MAX_GPIO_PIN) return true;
   if (FlashPin(pin)) return true;
-  if (RedPin(pin)) return true;
+  if (tc_pin_red(pin)) return true;
   // gpio_pin[] stores (function << 5) | index. Top 11 bits hold the GPIO
   // function id. GPIO_NONE (0) = pin is free; GPIO_USER (2047) = pin is
   // explicitly user-configurable in the module template — both must remain
@@ -6112,7 +6121,7 @@ static bool tc_pin_forbidden(int32_t pin) {
 #define TC_CHECK_PIN(vm, pin) \
   if (tc_pin_forbidden(pin)) { \
     AddLog(LOG_LEVEL_ERROR, PSTR("TCC: HALT — forbidden pin %d (flash:%d red:%d gpio_func:%d)"), \
-      (int)(pin), FlashPin(pin), RedPin(pin), \
+      (int)(pin), FlashPin(pin), tc_pin_red(pin), \
       (pin >= 0 && pin < MAX_GPIO_PIN) ? (TasmotaGlobal.gpio_pin[pin] >> 5) : -1); \
     (vm)->error = TC_ERR_FORBIDDEN_PIN; \
     (vm)->halted = true; \
@@ -7758,7 +7767,7 @@ static int tc_syscall_impl(TcVM *vm, uint16_t id) {
       // Release pin from Tasmota GPIO management and set mode
       // gpio_init() is intentional override — still block flash/red pins
       b = TC_POP(vm); a = TC_POP(vm);  // pin, mode
-      if (a < 0 || a >= MAX_GPIO_PIN || FlashPin(a) || RedPin(a)) {
+      if (a < 0 || a >= MAX_GPIO_PIN || FlashPin(a) || tc_pin_red(a)) {
         AddLog(LOG_LEVEL_ERROR, PSTR("TCC: HALT — gpio_init forbidden pin %d"), (int)a);
         vm->error = TC_ERR_FORBIDDEN_PIN;
         vm->halted = true;

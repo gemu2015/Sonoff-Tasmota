@@ -9,8 +9,8 @@ Waveshare-Firmware. Programm: `examples/wave_rover.tc`. English: [WAVE_ROVER.md]
 
 ## Die Hardware (Waveshare-Wiki und `waveshareteam/ugv_base_general`)
 
-- Treiberplatine "General Driver for Robots": **ESP32-WROOM-32UE**, IPEX-Antennenbuchse (**Antenne angeschlossen lassen**), **4 MB Flash**
-  (die Original-Partitionstabelle endet bei 0x400000), kein PSRAM. Zwei USB-C-Buchsen: **"USB"** (ESP32, CP2102, automatische Download-Schaltung,
+- Treiberplatine "General Driver for Robots": **ESP32-WROOM-32UE**, IPEX-Antennenbuchse (**Antenne angeschlossen lassen**), **16 MB Flash**
+  (mit esptool gemessen am 11.11.2026: Hersteller 0x46, Baustein 0x4018; die Werks-Firmware nutzt nur die ersten 4 MB), kein PSRAM. Zwei USB-C-Buchsen: **"USB"** (ESP32, CP2102, automatische Download-Schaltung,
   kein Boot-Knopf noetig) und **"LIDAR"** (ein zweiter CP2102, der nur die Daten eines Lidars an einen Rechner weitergibt, das ist **nicht** der ESP32).
 - Motoren: vier N20-Getriebemotoren **ohne Encoder**, je zwei pro Seite parallel, ueber **einen TB6612FNG**. Kanal **A = links, B = rechts**.
   Keine Raddrehzahl, keine Wegmessung. Unter PWM 23 drehen die Motoren nicht an.
@@ -36,7 +36,7 @@ In TinyC nutzt `analogWrite()` die Arduino-Vorgabe (1 kHz): es geht, die Motoren
 
 ## Tasmota-Einstellungen
 
-Bau `tinyc32-4M-plain` (klassischer ESP32, 4 MB, ohne Matter und Kamera; etwa 238 KB Flash frei). In *Konfiguration Modul* das generische Modul und nur
+Bau `tinyc32-4M-plain` (klassischer ESP32, Partitionstabelle fuer 4 MB, ohne Matter und Kamera; etwa 238 KB Flash frei; er laeuft auf dem 16-MB-Chip und nutzt die ersten 4 MB). In *Konfiguration Modul* das generische Modul und nur
 **GPIO32 = I2C SDA, GPIO33 = I2C SCL** setzen. **Die Motorpins (17, 21, 22, 23, 25, 26) unbelegt lassen**: TinyC lehnt Pins ab, die Tasmota fuer eine Funktion genommen hat.
 Tasmotas eigener INA219-Treiber kennt die Adresse 0x42 nicht (noch pruefen); `wave_rover.tc` liest das Register der Busspannung selbst.
 Lagesensor, Kompass: kein Tasmota-Treiber, die Register aus TinyC lesen (der Waveshare-Quellcode hat `QMI8658.cpp` / `AK09918.cpp` als Vorlage).
@@ -48,11 +48,11 @@ Lagesensor, Kompass: kein Tasmota-Treiber, die Register aus TinyC lesen (der Wav
 
 ```bash
 python3 ~/.platformio/packages/tool-esptoolpy/esptool.py --chip esp32 --port /dev/cu.usbserial-XXXX flash-id
-python3 ~/.platformio/packages/tool-esptoolpy/esptool.py --chip esp32 --port /dev/cu.usbserial-XXXX --baud 921600 read-flash 0 0x400000 wave_rover_original_4MB.bin
+python3 ~/.platformio/packages/tool-esptoolpy/esptool.py --chip esp32 --port /dev/cu.usbserial-XXXX --baud 230400 read-flash 0 0x1000000 wave_rover_werk_flash_16MB.bin
 ```
 
 3. **Diese Datei aufheben** (nicht ins Repository: sie enthaelt die WLAN-Daten des Rovers, sobald sie eingetragen sind). Zurueck geht es mit
-   `... write-flash 0 wave_rover_original_4MB.bin`. Den Quellcode der Waveshare-Firmware und einen Bau gibt es in `waveshareteam/ugv_base_general`
+   `... write-flash 0 wave_rover_werk_flash_16MB.bin`. Den Quellcode der Waveshare-Firmware und einen Bau gibt es in `waveshareteam/ugv_base_general`
    (`General_Driver/build/...`), ausserdem hat Waveshare ein "ESP32 Download Tool" fuer das Werksabbild.
 
 ## Tasmota/TinyC flashen
@@ -130,3 +130,23 @@ Am 10.11.2026 mit echten Daten geprueft (STL-19P an einem Mac: 1262 Pakete, 0 CR
 - **Test ohne den Rover:** `ROVER_SIM 1` laesst die Motorpins in Ruhe und nimmt Batterie und Bodenabstaende aus `RoverVbat <mV>` / `RoverTof <Kanal> <mm>` (`-1` = stummer Sensor). So an einem ESP32 mit ILI9341 durchgespielt: vorwaerts / rueckwaerts / drehen wurden bei jeder Kombination aus vorn / hinten / beides / zu nah / stumm / Batterie leer / Schutz aus wie oben erlaubt oder verweigert, der Watchdog stoppte die Motoren.
 - **Parkmodus** fuer einen stehenden Rover (laden oder nicht): `RoverPark 1` (oder `/rover_cmd?p=1`) verweigert die Motoren und bedient Bodensensoren, IMU, Kompass und Display nicht mehr (die Chips laufen weiter, nur ihr I2C-Verkehr und das Display stehen), die Schleife schlaeft, nur die Batterie wird alle 5 s gelesen. Ein Fahrbefehl oder `RoverPark 0` weckt den Rover; die Bodensensoren muessen erst wieder antworten, bevor er sich bewegen darf. `PARK_AUTO_S` > 0 parkt ihn nach so vielen Sekunden ohne Befehl. Die grossen Verbraucher sind nicht Teil des Programms: ein Lidar mit 230 mA braucht seinen eigenen 5-V-Schalter, der S3 schlaeft fuer sich. In der Simulation auf einem ESP32-S3 ausprobiert: parken, wecken per Fahrbefehl, wecken per `p=0`, automatisches Parken.
 - Noch nicht am Rover selbst und nicht mit echten VL53L0X-Sensoren getestet.
+
+## Am Rover gemessen (11.11.2026)
+
+- **Flash mit 230400 Baud lesen**: bei 921600 und 460800 kamen "Invalid head of packet" / "Corrupt data" am CP2102. 16 MB dauern bei 230400 rund 13 Minuten. `verify-flash` gegen den Chip stimmte.
+- I2C-Scan (GPIO32 = SDA, GPIO33 = SCL, gesetzt mit `Gpio32 640`, `Gpio33 608`, dann `Restart 1`): **0x0C** AK09918C, **0x3C** SSD1306, **0x42** INA219, **0x6B** QMI8658C, **0x7E** nicht zugeordnet; BMP280 (0x77) ist nicht bestueckt.
+- **TinyC lehnte IO17 ab ("Forbidden pin")**: Tasmota sperrt GPIO16/17 beim klassischen ESP32 (PSRAM/Flash bei WROVER/PICO). Der WROOM-32UE hat keinen PSRAM, und der Rover nutzt IO17 (AIN2) und IO16 (Geber B). `tc_pin_red()` in `xdrv_124_tinyc_vm.h` gibt GPIO16/17 frei, wenn `FoundPSRAM()` falsch ist. Braucht eine Firmware, die nach dem 11.11.2026 gebaut wurde.
+- Nach frischem Flashen ist die HTTP-Befehlsschnittstelle aus: einmal in der Web-Konsole `SetOption128 1` eingeben.
+- Fahrtest aufgebockt: beide Seiten drehen richtig; das Chassis ist symmetrisch, "vorn" ist also Festlegung (vor dem Anbau der Bodensensoren und der Kamera entscheiden).
+
+
+## Radgeber (11.11.2026)
+
+Bibliothek `examples/common/wheel_enc.tc`, von `rover.tc` benutzt: Ticks, Strecke, Geschwindigkeit, Odometrie (x, y, Kurs) und ein **Blockierschutz** fuer die beiden Antriebsseiten. Gezaehlt wird mit Tasmotas eigenen Impulszaehlern (interruptgesteuert; die Firmware enthaelt sie schon, nur die Pins muessen zugewiesen werden).
+
+1. Waveshare-Geber-Motoren an die Buchsen H3 / H4 stecken. Seite A (links) C1 = GPIO34, Seite B (rechts) C1 = GPIO27.
+2. `Gpio34 352`, `Gpio27 353`, `Restart 1` (am Rover am 11.11.2026 gesetzt). Rad von Hand drehen: `Counter1` / `Counter2` laufen (`CounterDebounce 0`).
+3. `RoverEnc` zeigt Ticks und Zustand; `RoverEncZero`, den Rover eine gemessene Strecke rollen, `RoverEncCal <mm>` setzt die mm je Tick (der Vorgabewert 350 Ticks je Radumdrehung ist geschaetzt: 7 Impulse je Motorumdrehung x 50 : 1).
+4. `RoverEnc 1` schaltet den Blockierschutz ein: eine Seite, die Befehl bekommt, aber 800 ms keinen Tick liefert, haelt den Rover an ("MOTOR STALL"), bis der Stick losgelassen wird. Er ist **standardmaessig aus**, weil ohne Geber jede Fahrt als Blockade zaehlen wuerde.
+
+Gezaehlt wird nur ein Kanal, die Richtung kommt also aus dem Motorbefehl (die letzte Richtung ungleich null). `ENC_BOTH 1` zaehlt auch Kanal B (`Gpio35 354`, `Gpio16 355`) und verdoppelt die Aufloesung. Mit `ROVER_SIM 1` werden die Ticks aus dem Befehl erzeugt (`RoverEncSim <Ticks je Sekunde>`, 0 = blockiertes Rad). In der Simulation auf der Rover-Platine geprueft; **noch nicht mit echten Gebern**. GPIO34 / GPIO27 sind mit Gebern nicht mehr frei (eine Lidarleitung von `CP_RX` braucht dann einen anderen Pin).

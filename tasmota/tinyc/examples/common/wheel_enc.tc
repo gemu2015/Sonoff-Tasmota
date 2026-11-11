@@ -1,0 +1,187 @@
+// wheel_enc.tc - two wheel encoders (one per drive side) -> ticks, distance, speed, odometry and a stall detector. Pure TinyC on top of
+// Tasmota's own pulse counters (interrupt driven), so it counts at kHz rates without loading the VM.
+//
+// WIRING (WAVE ROVER "General Driver for Robots", motor sockets H3 / H4, Waveshare DCGM-N20-12V-EN-200RPM):
+//   side A (left):  C1 = GPIO34, C2 = GPIO35      side B (right): C1 = GPIO27, C2 = GPIO16     (GPIO34/35 are input only; the sockets
+//   carry 3.3 V and have 3.6 V zeners + 10 ohm series resistors)
+// Tasmota has to own the pins as counters, TinyC does not read them itself:
+//   Gpio34 352   (Counter1)    Gpio27 353   (Counter2)         [ENC_BOTH 1 additionally:  Gpio35 354 (Counter3)   Gpio16 355 (Counter4)]
+//   then Restart 1. Check with the console command  Counter1  (turn the wheel by hand: the value runs).
+//
+// WHAT IT DOES NOT KNOW: the direction. Counting one channel gives the number of ticks, not the sign. The sign is taken from the motor
+// command (the last non-zero direction, so a coasting wheel keeps counting the way it was driven). A wheel that is pushed against the
+// command (carried, pushed by hand while the motors are off) is counted in the last driven direction.
+//
+// Use (rover.tc shows it all):
+//   #include "wheel_enc.tc"
+//   main():    enc_init();
+//   every 50 ms: enc_update(cmdL, cmdR);        // cmdL / cmdR = signed side command in the ROBOT frame (positive = forward)
+//   then  enc_ticks[0..1] (signed, since enc_zero()), enc_mm[0..1], enc_v[0..1] (mm/s, low passed), enc_x / enc_y (mm), enc_th (rad,
+//   positive = turned RIGHT = clockwise, like  l = d + t,  r = d - t  in rover.tc),  enc_stall (bit 0 = left, bit 1 = right)
+//
+// ENC_TPR = ticks per WHEEL revolution as counted here. It is an ESTIMATE until measured: 7 pulses per motor revolution x 50 : 1 =
+// 350 (channel A, one edge type). Calibrate:  RoverEncZero, roll the rover a measured distance, RoverEncCal <mm>.
+//
+// ENC_SIM 1: no counters; the ticks are made up from the command (ENC_SIM_TPS ticks per second at full command), to try the rest
+// without a rover. NOT yet run on the rover (the encoder motors were still on their way).
+
+#ifndef ENC_TPR
+#define ENC_TPR 350              // ticks per wheel revolution (ESTIMATE, calibrate)
+#endif
+#ifndef ENC_BOTH
+#define ENC_BOTH 0               // 1 = also count channel B (Counter3 / Counter4): twice the resolution
+#endif
+#ifndef ENC_SIM
+#define ENC_SIM 0
+#endif
+#ifndef ENC_SIM_TPS
+#define ENC_SIM_TPS 1200         // simulated ticks per second per side at 100 % command
+#endif
+#ifndef ENC_WHEEL_R_MM
+#define ENC_WHEEL_R_MM 40.6      // from the rover model
+#endif
+#ifndef ENC_TRACK_MM
+#define ENC_TRACK_MM 130.0       // distance between the wheel centres of the two sides
+#endif
+#ifndef ENC_STALL_MS
+#define ENC_STALL_MS 800         // a side that is commanded but gives no tick for this long is stalled
+#endif
+#ifndef ENC_ON
+#define ENC_ON 0                 // 1 = a stall stops the rover. Leave 0 until the encoders are wired (without them every drive would "stall")
+#endif
+
+int   enc_on = ENC_ON;
+int   enc_last[2];               // last raw counter reading
+int   enc_ticks[2];              // signed ticks since enc_zero()
+int   enc_dir[2];                // last non-zero direction: +1 forward, -1 backward
+int   enc_idle[2];               // ms commanded without a tick
+int   enc_seen[2];               // 1 once a tick arrived since boot
+int   enc_stall = 0;             // bit 0 = left, bit 1 = right
+int   enc_t0 = 0;
+float enc_mm_tick = 0.0;         // mm of wheel travel per tick
+float enc_mm[2];                 // signed distance since enc_zero(), mm
+float enc_v[2];                  // speed, mm/s (low passed)
+float enc_x = 0.0;               // odometry since enc_zero(), mm (x = the way the rover pointed at enc_zero())
+float enc_y = 0.0;
+float enc_th = 0.0;              // radians, positive = clockwise
+int   enc_sim_tps = ENC_SIM_TPS;   // simulated ticks per second at 100 % (RoverEncSim <n>; 0 = a blocked wheel)
+float enc_sim_acc[2];
+int   enc_sim_cnt[2];
+
+int enc_raw(int s) {
+    int c = 0;
+    if (ENC_SIM == 1) { return enc_sim_cnt[s]; }
+    c = tasmCounter(s);
+    if (ENC_BOTH == 1) { c = c + tasmCounter(s + 2); }
+    return c;
+}
+
+void enc_set_tpr(int tpr) {
+    if (tpr < 1) { tpr = 1; }
+    enc_mm_tick = (2.0 * 3.14159265 * ENC_WHEEL_R_MM) / (float)tpr;
+}
+
+void enc_zero() {
+    int s = 0;
+    while (s < 2) {
+        enc_ticks[s] = 0;
+        enc_mm[s] = 0.0;
+        enc_v[s] = 0.0;
+        enc_idle[s] = 0;
+        s = s + 1;
+    }
+    enc_x = 0.0;
+    enc_y = 0.0;
+    enc_th = 0.0;
+    enc_stall = 0;
+}
+
+void enc_init() {
+    int s = 0;
+    enc_set_tpr(ENC_TPR);
+    while (s < 2) {
+        enc_dir[s] = 1;
+        enc_seen[s] = 0;
+        enc_sim_acc[s] = 0.0;
+        enc_sim_cnt[s] = 0;
+        enc_last[s] = enc_raw(s);
+        s = s + 1;
+    }
+    enc_zero();
+    enc_t0 = millis();
+}
+
+// calibrate from a measured distance: both sides travelled `mm` (the average of the two is used)
+int enc_cal(int mm) {
+    float t = 0.0;
+    float a = 0.0;
+    float b = 0.0;
+    a = (float)enc_ticks[0];
+    b = (float)enc_ticks[1];
+    if (a < 0.0) { a = 0.0 - a; }
+    if (b < 0.0) { b = 0.0 - b; }
+    t = (a + b) / 2.0;
+    if (t < 10.0 || mm < 10) { return 0; }
+    enc_mm_tick = (float)mm / t;
+    return 1;
+}
+
+// one call every ~50 ms. cmd0 / cmd1 = signed command of the left / right side in the robot frame (positive = forward).
+void enc_update(int cmd0, int cmd1) {
+    int now = millis();
+    int dt = now - enc_t0;
+    int s = 0;
+    int cmd = 0;
+    int raw = 0;
+    int d = 0;
+    float dm = 0.0;
+    float dl = 0.0;
+    float dr = 0.0;
+    float dmid = 0.0;
+    float dth = 0.0;
+    float thm = 0.0;
+    if (dt < 20) { return; }
+    enc_t0 = now;
+    if (ENC_SIM == 1) {
+        s = 0;
+        while (s < 2) {
+            if (s == 0) { cmd = cmd0; } else { cmd = cmd1; }
+            if (cmd < 0) { cmd = 0 - cmd; }
+            cmd = (cmd * 100) / 255;                  // the rover hands in PWM values (0..255), the simulation wants percent
+            enc_sim_acc[s] = enc_sim_acc[s] + (float)cmd * (float)enc_sim_tps * (float)dt / 100000.0;
+            d = (int)enc_sim_acc[s];
+            enc_sim_acc[s] = enc_sim_acc[s] - (float)d;
+            enc_sim_cnt[s] = enc_sim_cnt[s] + d;
+            s = s + 1;
+        }
+    }
+    s = 0;
+    while (s < 2) {
+        if (s == 0) { cmd = cmd0; } else { cmd = cmd1; }
+        raw = enc_raw(s);
+        d = raw - enc_last[s];
+        enc_last[s] = raw;
+        if (d < 0) { d = 0; }                    // a counter reset (Counter1 0) must not count backwards
+        if (cmd > 0) { enc_dir[s] = 1; }
+        if (cmd < 0) { enc_dir[s] = 0 - 1; }
+        if (d > 0) { enc_seen[s] = 1; }
+        enc_ticks[s] = enc_ticks[s] + d * enc_dir[s];
+        dm = (float)(d * enc_dir[s]) * enc_mm_tick;
+        enc_mm[s] = enc_mm[s] + dm;
+        enc_v[s] = enc_v[s] * 0.7 + (dm * 1000.0 / (float)dt) * 0.3;
+        if (cmd != 0 && d == 0) {
+            enc_idle[s] = enc_idle[s] + dt;
+            if (enc_idle[s] >= ENC_STALL_MS) { enc_stall = enc_stall | (1 + s); }
+        } else {
+            enc_idle[s] = 0;
+        }
+        if (s == 0) { dl = dm; } else { dr = dm; }
+        s = s + 1;
+    }
+    dmid = (dl + dr) / 2.0;
+    dth = (dl - dr) / ENC_TRACK_MM;
+    thm = enc_th + dth / 2.0;
+    enc_x = enc_x + dmid * cos(thm);
+    enc_y = enc_y + dmid * sin(thm);
+    enc_th = enc_th + dth;
+}

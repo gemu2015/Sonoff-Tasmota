@@ -5,7 +5,7 @@
 //
 //   http://<ip>/rover        joystick page (touch or mouse; arrow keys / WASD)
 //   http://<ip>/rover_cmd?d=<-100..100>&t=<-100..100>&m=<10..100>   one drive command, answers a small JSON
-//   console:  RoverCalGyro, RoverYaw0, RoverCalMag 1|0, RoverCliff [0|1|<min> <max>], RoverPark [0|1], RoverTof <ch> <mm> (-1 = silent sensor), RoverVbat <mV>
+//   console:  RoverEnc [0|1], RoverEncZero, RoverEncCal <mm>, RoverEncTpr <n>, RoverCalGyro, RoverYaw0, RoverCalMag 1|0, RoverCliff [0|1|<min> <max>], RoverPark [0|1], RoverTof <ch> <mm> (-1 = silent sensor), RoverVbat <mV>
 //
 // SAFETY, in the order it matters:
 //  1. STAIRCASE: four VL53L0X floor sensors (TCA9548A channels 0..3 = front left, front right, rear left, rear right, looking
@@ -16,6 +16,8 @@
 //  2. DEAD-MAN: a drive command must be renewed within WD_MS (300 ms), else the motors stop. The page sends one every 100 ms.
 //  3. Battery guard: below VBAT_MIN_MV the motors are refused (3S Li-ion, INA219 at 0x42).
 //  4. A slot stop (CleanUp) and the start of the program switch all motor pins off.
+//  4b. MOTOR STALL (wheel encoders, off until RoverEnc 1): a side that is commanded but gives no tick for ENC_STALL_MS stops the rover until
+//     the stick is released (see common/wheel_enc.tc for wiring, counters and calibration).
 //  5. PARK MODE (RoverPark 1, or /rover_cmd?p=1): for a rover that stands still, on its charger or not. The motors are refused, the
 //     floor sensors, IMU, compass and the display are no longer served (the chips keep running, only the I2C traffic and the display
 //     stop), the loop sleeps, only the battery is read (every 5 s). A drive command wakes the rover (or RoverPark 0, /rover_cmd?p=0):
@@ -38,6 +40,10 @@
 #include "qmi8658.tc"
 #include "ak09918.tc"
 #include "vl53l0x_mux.tc"
+#if ROVER_SIM
+#define ENC_SIM 1
+#endif
+#include "wheel_enc.tc"
 
 #define OUTPUT      3
 
@@ -70,7 +76,7 @@ int motR    = 0;
 int stops   = 0;
 int vbat_mv = 0;
 int low     = 0;
-int why     = 0;                 // why the motors are held: 0 free, 1 battery, 2 sensor fault, 3 front cliff, 4 rear cliff, 5 both, 6 parked
+int why     = 0;                 // why the motors are held: 0 free, 1 battery, 2 sensor fault, 3 front cliff, 4 rear cliff, 5 both, 6 parked, 7 motor stall
 int park    = 0;                 // 1 = parked (see header)
 int cl_on   = 1;
 int cl_min  = CLIFF_MIN;
@@ -147,6 +153,7 @@ void rover_apply() {
             t = 0; why = 4;
         }
     }
+    if (enc_on == 1 && enc_stall != 0) { d = 0; t = 0; why = 7; }
     if (park == 1) { d = 0; t = 0; why = 6; }
     l = rover_clamp(d + t, -100, 100);
     r = rover_clamp(d - t, -100, 100);
@@ -266,6 +273,7 @@ void dsp_state(char t[]) {
     else if (why == 4) { strcpy(t, "CLIFF BEHIND"); }
     else if (why == 5) { strcpy(t, "CLIFF F+R"); }
     else if (why == 6) { strcpy(t, "PARKED"); }
+    else if (why == 7) { strcpy(t, "MOTOR STALL"); }
     else if (motL == 0 && motR == 0) { strcpy(t, "STOP"); }
     else { sprintf(t, "L%d R%d", motL, motR); }
 }
@@ -351,6 +359,8 @@ void Every50ms() {
         turn = 0;
         rover_apply();
     }
+    enc_update(motL * DIR_L, motR * DIR_R);
+    if (enc_on == 1 && enc_stall != 0 && why != 7) { rover_apply(); }
     if (PARK_AUTO_S > 0 && park == 0 && millis() - lastcmd > PARK_AUTO_S * 1000) { park_set(1); }
     dsp_n = dsp_n + 1;
     if (dsp_n >= 10) {
@@ -385,6 +395,14 @@ void WebCall() {
         sprintf(ob, "{s}Compass{m}heading %.0f{e}", ak_heading());
         webSend(ob);
     }
+    if (enc_on == 1 || enc_seen[0] == 1 || enc_seen[1] == 1 || ENC_SIM == 1) {
+        sprintf(ob, "{s}Wheel encoders L / R{m}%d / %d ticks   %d / %d mm   %d / %d mm/s{e}", enc_ticks[0], enc_ticks[1], (int)enc_mm[0], (int)enc_mm[1], (int)enc_v[0], (int)enc_v[1]);
+        webSend(ob);
+        sprintf(ob, "{s}Odometry{m}x %d  y %d mm   heading %.1f deg   stall %d   guard %d{e}", (int)enc_x, (int)enc_y, enc_th * 57.29578, enc_stall, enc_on);
+        webSend(ob);
+    } else {
+        webSend("{s}Wheel encoders{m}no ticks yet (RoverEnc 1 switches the stall guard on){e}");
+    }
     webSend("{s}Rover page{m}<a href='/rover'>/rover</a>{e}");
 }
 
@@ -395,6 +413,8 @@ void JsonCall() {
         sprintf(ob, ",\"Yaw\":%.1f", qmi_yaw);
         responseAppend(ob);
     }
+    sprintf(ob, ",\"EncL\":%d,\"EncR\":%d,\"Stall\":%d", enc_ticks[0], enc_ticks[1], enc_stall);
+    responseAppend(ob);
     responseAppend("}");
 }
 
@@ -408,7 +428,7 @@ void rover_page() {
     webSend("<button onclick='halt()'>STOP</button><p>Arrow keys / WASD also work. Motors stop 0.3 s after the last command.</p>");
     webSend("<script>var d=0,t=0,act=0,tm=null,ks={},p=document.getElementById('pad'),dot=document.getElementById('dot');");
     webSend("function send(){fetch('rover_cmd?d='+d+'&t='+t+'&m='+mx.value).then(function(r){return r.json()}).then(function(j){");
-    webSend("st.textContent=j.v+' V   L '+j.l+'   R '+j.r+'   stops '+j.wd+(j.lo?'   LOW BATTERY':'')+(j.cl?'   CLIFF '+j.cl:'')}).catch(function(){st.textContent='no link'})}");
+    webSend("st.textContent=j.v+' V   L '+j.l+'   R '+j.r+'   stops '+j.wd+(j.lo?'   LOW BATTERY':'')+(j.cl?'   CLIFF '+j.cl:'')+'   ticks '+j.el+'/'+j.er+(j.st?'   MOTOR STALL':'')}).catch(function(){st.textContent='no link'})}");
     webSend("function go(){if(!tm){tm=setInterval(send,100)}send()}");
     webSend("function halt(){d=0;t=0;dot.style.left='120px';dot.style.top='120px';send();clearInterval(tm);tm=null}");
     webSend("function mv(e){var r=p.getBoundingClientRect(),x=(e.clientX-r.left-140)/140,y=(e.clientY-r.top-140)/140,n=Math.hypot(x,y);");
@@ -433,8 +453,9 @@ void WebOn() {
         if (webArg("p", cb) > 0) { park_set(strToInt(cb)); }
         if (park == 1 && (drive != 0 || turn != 0)) { park_set(0); }
         lastcmd = millis();
+        if (drive == 0 && turn == 0) { enc_stall = 0; }   // the stick is released: a stall is cleared
         rover_apply();
-        sprintf(ob, "{\"v\":%d.%02d,\"l\":%d,\"r\":%d,\"wd\":%d,\"lo\":%d,\"cl\":%d}", vbat_mv / 1000, (vbat_mv % 1000) / 10, motL, motR, stops, low, cliff_mask());
+        sprintf(ob, "{\"v\":%d.%02d,\"l\":%d,\"r\":%d,\"wd\":%d,\"lo\":%d,\"cl\":%d,\"el\":%d,\"er\":%d,\"st\":%d}", vbat_mv / 1000, (vbat_mv % 1000) / 10, motL, motR, stops, low, cliff_mask(), enc_ticks[0], enc_ticks[1], enc_stall);
         webSend(ob);
     }
 }
@@ -457,6 +478,35 @@ void Command(char cmd[]) {
             ak_cal_end();
             responseCmnd("compass offsets set");
         }
+    } else if (strStartsWith(cmd, "ENCSIM")) {
+        strToken(a, cmd, ' ', 2);
+        if (strlen(a) > 0) { enc_sim_tps = strToInt(a); }
+        responseCmnd("ok");
+    } else if (strStartsWith(cmd, "ENCZERO")) {
+        enc_zero();
+        responseCmnd("encoders zeroed");
+    } else if (strStartsWith(cmd, "ENCCAL")) {
+        strToken(a, cmd, ' ', 2);
+        if (enc_cal(strToInt(a)) == 1) {
+            sprintf(ob, "%.3f mm per tick, %.0f ticks per wheel revolution", enc_mm_tick, (2.0 * 3.14159265 * ENC_WHEEL_R_MM) / enc_mm_tick);
+            responseCmnd(ob);
+        } else {
+            responseCmnd("need 10 ticks and 10 mm (RoverEncZero, roll, RoverEncCal <mm>)");
+        }
+    } else if (strStartsWith(cmd, "ENCTPR")) {
+        strToken(a, cmd, ' ', 2);
+        if (strlen(a) > 0) { enc_set_tpr(strToInt(a)); }
+        sprintf(ob, "%.3f mm per tick", enc_mm_tick);
+        responseCmnd(ob);
+    } else if (strStartsWith(cmd, "ENC")) {
+        strToken(a, cmd, ' ', 2);
+        if (strlen(a) > 0) {
+            enc_on = strToInt(a);
+            if (enc_on == 0) { enc_stall = 0; }
+            rover_apply();
+        }
+        sprintf(ob, "guard %d, ticks %d / %d, seen %d / %d, stall %d", enc_on, enc_ticks[0], enc_ticks[1], enc_seen[0], enc_seen[1], enc_stall);
+        responseCmnd(ob);
     } else if (strStartsWith(cmd, "CLIFF")) {
         strToken(a, cmd, ' ', 2);
         strToken(b, cmd, ' ', 3);
@@ -515,6 +565,7 @@ int main() {
         pinMode(PIN_BIN2, OUTPUT);
     }
     rover_off();
+    enc_init();
     lastcmd = millis();
     ina_init(INA_ADDR, I2C_BUS);
     qmi_init(I2C_BUS, 2, 5, 3);
