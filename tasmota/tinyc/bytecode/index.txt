@@ -31,6 +31,7 @@ ccs811.tcb
 cfg_test.tcb
 chart.tcb
 chart_types.tcb
+cliff_test.tcb
 clock_7seg.tcb
 clock_header.tcb
 const_ref_elem_test.tcb
@@ -201,6 +202,8 @@ touch_coords_legacy.tcb
 tuya_pool_heater.tcb
 uart_tx_test.tcb
 udp.tcb
+udp_slots_test_a.tcb
+udp_slots_test_b.tcb
 usb_variolab_tcp.tcb
 variograf_ekg.tcb
 veml6075.tcb
