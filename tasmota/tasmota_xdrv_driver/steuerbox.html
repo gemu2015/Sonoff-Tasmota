@@ -223,6 +223,8 @@
   .rtabs{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 14px;border-bottom:1px solid var(--line);padding-bottom:8px}
   .rtabs button{background:var(--panel);color:var(--muted);border:1px solid var(--line);border-radius:8px;padding:6px 12px;font:inherit;font-size:13px;cursor:pointer}
   .rtabs button[aria-selected="true"]{background:#FFEB9C;color:#9C5700;border-color:#FFEB9C;font-weight:600}
+  .rtabs button.rechts{margin-left:auto}   /* 09.11. (Andreas): Reiter Status rechts wie beim SMGW-Leser und HEMS */
+  .skv{display:grid;grid-template-columns:max-content 1fr;gap:3px 18px;font-size:13px} .skv span:nth-child(odd){color:var(--muted)} .skv .bad{color:var(--bad)}
   #log{white-space:pre-wrap;font-family:ui-monospace,Consolas,monospace;font-size:12px;color:var(--muted);
        max-height:140px;overflow:auto;background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:8px}
   /* 31.10. (Andreas): eigene Rueckfrage statt Browserfenster - das sah wie eine Windows-Meldung aus */
@@ -244,6 +246,7 @@
     <button role="tab" data-r="kennung">Eigene Steuerbox-Kennung</button>
     <button role="tab" data-r="steuern">Steuern § 9 und § 14a</button>   <!-- 06.11. (Andreas): vor den Messwerten -->
     <button role="tab" data-r="mgcp">Messwerte MGCP</button>
+    <button role="tab" data-r="status" class="rechts">Status</button>   <!-- 09.11. (Andreas) -->
   </nav>
   <p class="warn hide" id="boxweg" role="alert"></p>
 
@@ -617,6 +620,15 @@
   <div data-r="steuern" class="card">
     <h3>Antwort des Geräts</h3>
     <div id="log">bereit</div>
+  </div>
+  <!-- 09.11.2026 (Andreas): Reiter Status rechts wie beim SMGW-Leser und HEMS - nur lesen, jede Minute neu -->
+  <div data-r="status" class="card">
+    <h2>Gerät (Steuerbox)</h2>
+    <div class="skv" id="st_geraet"><span>Stand</span><span>wird gelesen …</span></div>
+  </div>
+  <div data-r="status" class="card">
+    <h2>Kopplungen (EEBUS)</h2>
+    <div class="skv" id="st_kopp"><span>Stand</span><span>wird gelesen …</span></div>
   </div>
   <!-- 08.11.2026 (Andreas): Fusszeile wie SMGW-Seite, unten rechts -->
   <footer><span class="design" style="margin-left:auto">Design by meierchen006</span></footer>
@@ -2181,10 +2193,67 @@
     document.querySelectorAll('#rtabs button').forEach(function(b){ b.setAttribute('aria-selected', b.dataset.r === r ? 'true' : 'false'); });
     document.querySelectorAll('.wrap > [data-r]').forEach(function(e){ e.style.display = (e.dataset.r === r) ? '' : 'none'; });
     try { localStorage.setItem('box_reiter', r); } catch(x) {}
+    if(r === 'status'){ statusZeigen(); }   // 09.11.
   }
+
+  // ===== 09.11.2026 (Andreas): Reiter Status wie SMGW-Leser/HEMS. Nur lesen (Status 1/2/4/5/11, UfsSize/UfsFree, EEBusStatus),
+  // ueber holen() nacheinander. Bewusst NICHT: WLAN-Name, MAC, Hostname, SKI.
+  var ST_SEITE = 'Stand 09.11.2026', stLaeuft = false;
+  function stEsc(t){ return String(t == null ? '' : t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function stGr(kb){ return kb >= 1048576 ? (kb / 1048576).toLocaleString('de-DE', {maximumFractionDigits: 1}) + ' GB'
+                     : (kb >= 1024 ? (kb / 1024).toLocaleString('de-DE', {maximumFractionDigits: 1}) + ' MB' : kb.toLocaleString('de-DE') + ' KB'); }
+  function stKv(id, kv){ var e = el(id); if(e){ e.innerHTML = kv.map(function(z){ return '<span>' + stEsc(z[0]) + '</span><span' + (z[2] ? ' class="bad"' : '') + '>' + stEsc(z[1]) + '</span>'; }).join(''); } }
+  function stCm(c){ return holen('/cm?cmnd=' + encodeURIComponent(c)).then(function(x){ var j = JSON.parse(x); return (j && j.Command === 'Busy') ? null : j; }).catch(function(){ return null; }); }
+  function statusZeigen(){
+    if(stLaeuft){ return; } stLaeuft = true;
+    var R = {}, liste = ['Status 1', 'Status 2', 'Status 4', 'Status 5', 'Status 11', 'TinyC', 'UfsSize', 'UfsFree', 'EEBusStatus'];
+    liste.reduce(function(p, c){ return p.then(function(){ return stCm(c).then(function(j){ R[c] = j; }); }); }, Promise.resolve()).then(function(){
+      var P = (R['Status 1'] && R['Status 1'].StatusPRM) || {}, F = (R['Status 2'] && R['Status 2'].StatusFWR) || {};
+      var M = (R['Status 4'] && R['Status 4'].StatusMEM) || {}, N = (R['Status 5'] && R['Status 5'].StatusNET) || {};
+      var S = (R['Status 11'] && R['Status 11'].StatusSTS) || {}, W = S.Wifi || {}, E = N.Ethernet || {};
+      var kv = [];
+      kv.push(['Tasmota-Firmware', F.Version ? F.Version + ' · Build ' + String(F.BuildDateTime || '').replace('T', ' ') : '–']);
+      kv.push(['Core / ESP-IDF', F.Core ? F.Core + ' / ' + F.SDK : '–']);
+      kv.push(['Prozessor', F.Hardware ? F.Hardware + ', ' + F.CpuFrequency + ' MHz' : '–']);
+      if(F.HostedMCU){ kv.push(['Funkchip (WLAN)', F.HostedMCU.Hardware + ' ' + F.HostedMCU.Version]); }
+      ((R.TinyC && R.TinyC.TinyC && R.TinyC.TinyC.Slots) || []).forEach(function(x){
+        var feh = x.Error && x.Error !== 'OK';
+        kv.push(['Skript Slot ' + x.Slot, String(x.File || '').replace(/^\//, '').replace(/\.tcb$/, '') + ' · ' + (x.Running ? 'läuft' : (x.Loaded ? 'geladen, gestoppt' : 'leer')) + (feh ? ' · Fehler ' + x.Error : ''), feh]);
+      });
+      kv.push(['Seite', 'steuerbox.html ' + ST_SEITE]);
+      if(M.PsrMax){ kv.push(['Speicher', 'Arbeitsspeicher frei ' + M.Heap + ' KB · PSRAM ' + stGr(M.PsrFree) + ' frei von ' + stGr(M.PsrMax) + ' · Flash ' + stGr(M.FlashSize)]); }
+      else if(M.Heap){ kv.push(['Speicher', 'Arbeitsspeicher frei ' + M.Heap + ' KB · Flash ' + stGr(M.FlashSize)]); }
+      var u1 = R.UfsSize && R.UfsSize.UfsSize, u2 = R.UfsFree && R.UfsFree.UfsFree;
+      if(u1 && u2){
+        kv.push(['SD-Karte', stGr(u1[0] - u2[0]) + ' belegt, ' + stGr(u2[0]) + ' frei von ' + stGr(u1[0])]);
+        if(u1.length > 1){ kv.push(['Flash-Dateisystem', stGr(u1[1] - u2[1]) + ' belegt, ' + stGr(u2[1]) + ' frei']); }
+      }
+      kv.push(['LAN', E.IPAddress ? E.IPAddress + ' / ' + E.Subnetmask : 'keine Verbindung']);
+      if(W.Signal !== undefined){ kv.push(['WLAN', (N.IPAddress && N.IPAddress !== '0.0.0.0' ? N.IPAddress + ' · ' : '') + 'Signal ' + W.Signal + ' dBm (' + W.RSSI + ' %) · ' + (W.Mode || '') + ' · Kanal ' + W.Channel]); }
+      if(S.UptimeSec !== undefined){ kv.push(['Laufzeit', Math.floor(S.UptimeSec / 86400) + ' d ' + Math.floor((S.UptimeSec % 86400) / 3600) + ' h ' + Math.floor((S.UptimeSec % 3600) / 60) + ' min']); }
+      if(P.RestartReason){ kv.push(['Letzter Neustart', String(P.StartupUTC || '').replace('T', ' ') + ' UTC · ' + (typeof P.RestartReason === 'string' ? P.RestartReason : 'Absturz') + ' · ' + P.BootCount + ' Starts gesamt']); }
+      stKv('st_geraet', kv);
+      var es = R.EEBusStatus && R.EEBusStatus.EEBusStatus, kk = [];
+      if(!es){ kk.push(['Stand', 'EEBusStatus nicht lesbar', true]); }
+      else {
+        if(es.Betriebslogbuch){ kk.push(['Betriebslogbuch', es.Betriebslogbuch, es.Betriebslogbuch !== 'aktiv']); }
+        (es.Slots || []).filter(function(x){ return x.State && x.State !== 'idle'; }).forEach(function(x){
+          var ok = x.State === 'cmi_ok';
+          kk.push([(x.Ip || ('Platz ' + x.Slot)) + (x.Art && x.Art !== '?' ? ' (' + x.Art + ')' : ''),
+            (ok ? 'gekoppelt' : 'nicht gekoppelt (' + x.State + ')') + ' · ' + (x.PeerId || 'Partner ohne Kennung') +
+            (x.LpcResult ? ' · ' + x.LpcResult : '') +
+            (x.Verloren !== undefined ? ' · Abbrüche ' + x.Verloren + (x.VerlorenAm ? ' (zuletzt ' + x.VerlorenAm + ')' : '') : '') +
+            (x.Error ? ' · Fehler ' + x.Error : ''), !ok || !!x.Error]);
+        });
+        if(kk.length < 2 && !(es.Slots || []).some(function(x){ return x.State && x.State !== 'idle'; })){ kk.push(['Kopplung', 'keine aktiv', true]); }
+      }
+      stKv('st_kopp', kk);
+    }).catch(function(){}).then(function(){ stLaeuft = false; });
+  }
+  setInterval(function(){ var b = document.querySelector('#rtabs button[data-r="status"][aria-selected="true"]'); if(b && !document.hidden){ statusZeigen(); } }, 60000);
   document.querySelectorAll('#rtabs button').forEach(function(b){ b.onclick = function(){ reiter(b.dataset.r); }; });
   (function(){ var r = 'start'; try { r = localStorage.getItem('box_reiter') || 'start'; } catch(x) {}
-    if(['start','steuern','kennung','mgcp'].indexOf(r) < 0){ r = 'start'; } reiter(r); })();
+    if(['start','steuern','kennung','mgcp','status'].indexOf(r) < 0){ r = 'start'; } reiter(r); })();
 
   var SW = {fw: '', slots: []};
   function chip(cls, txt){ return '<span class="chip"><span class="dot ' + cls + '"></span>' + txt + '</span>'; }

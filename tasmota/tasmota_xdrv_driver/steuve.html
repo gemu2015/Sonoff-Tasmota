@@ -46,6 +46,8 @@ h1{font-size:22px;margin:0;font-weight:650}
 .tabs{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 14px;border-bottom:1px solid var(--ring);padding-bottom:8px}
 .tabs button{background:var(--surface);color:var(--ink-2);border:1px solid var(--ring);border-radius:8px;padding:6px 12px;font:inherit;font-size:13px;cursor:pointer}
 .tabs button[aria-selected="true"]{background:#FFEB9C;color:#9C5700;border-color:#FFEB9C;font-weight:600}
+.tabs button.rechts{margin-left:auto}   /* 09.11. (Andreas): Reiter Status rechts wie beim SMGW-Leser und HEMS */
+.kv.gs{grid-template-columns:max-content 1fr;gap:3px 18px} .kv.gs span:nth-child(even){text-align:left}
 .btn{background:var(--surface);color:var(--ink-2);border:1px solid var(--ring);border-radius:8px;padding:4px 10px;font:inherit;font-size:12px;cursor:pointer}
 a.btn{text-decoration:none}   /* 06.11. (Andreas): wie HEMS */
 .btn.tas{background:#1fa3ec;color:#fff;border:0;text-decoration:none}
@@ -166,6 +168,7 @@ dialog.frage::backdrop { background:rgba(0,0,0,.65); }
   <button role="tab" data-t="hm">Meldungen</button>
   <button role="tab" data-t="prot">Protokoll</button>
   <button role="tab" data-t="test">Test &amp; Einstellungen</button>
+  <button role="tab" data-t="stat" class="rechts">Status</button>   <!-- 09.11. (Andreas) -->
 </nav>
 
 <!-- ================= SteuVE (Geraet) ================= -->
@@ -409,6 +412,11 @@ dialog.frage::backdrop { background:rgba(0,0,0,.65); }
   <h3>Antwort des Geräts</h3>
   <div class="card"><pre id="out">—</pre></div>
 </section>
+</div>
+<!-- 09.11.2026 (Andreas): Reiter Status rechts wie beim SMGW-Leser und HEMS - nur lesen, jede Minute neu -->
+<div class="pane" data-p="stat">
+  <div class="card"><h2>Gerät (SteuVE)</h2><div class="kv gs" id="st_geraet"><span>Stand</span><span>wird gelesen …</span></div></div>
+  <div class="card" style="margin-top:12px"><h2>Kopplungen (EEBUS)</h2><div class="kv gs" id="st_kopp"><span>Stand</span><span>wird gelesen …</span></div></div>
 </div>
 
 </div>
@@ -1264,7 +1272,62 @@ document.querySelectorAll('.tabs:not(.subt) button').forEach(b => b.onclick = ()
   if (b.dataset.t === 'prot') { ladeLog(); }
   if (b.dataset.t === 'shelly' && !SHDIRTY) { ladeCfg(true); }
   if (b.dataset.t === 'hm') { ladeHm(); }
+  if (b.dataset.t === 'stat') { statZeigen(); }   // 09.11.
 });
+// ---- 09.11.2026 (Andreas): Reiter Status wie SMGW-Leser/HEMS. Nur lesen (Status 1/2/4/5/11, TinyC, UfsSize/UfsFree, EEBusStatus),
+// nacheinander. Bewusst NICHT: WLAN-Name, MAC, Hostname, SKI.
+const ST_SEITE = 'Stand 09.11.2026';
+let ST_LAEUFT = false;
+const stGr = kb => kb >= 1048576 ? (kb / 1048576).toLocaleString('de-DE', {maximumFractionDigits: 1}) + ' GB'
+                 : (kb >= 1024 ? (kb / 1024).toLocaleString('de-DE', {maximumFractionDigits: 1}) + ' MB' : kb.toLocaleString('de-DE') + ' KB');
+const stKv = (id, kv) => { const e = $(id); if (e) { e.innerHTML = kv.map(([k, v, rot]) => '<span>' + esc(k) + '</span><span' + (rot ? ' style="color:' + ROT + '"' : '') + '>' + esc(v) + '</span>').join(''); } };
+const stCm = c => cmd(c).then(j => (j && j.Command === 'Busy') ? null : j);
+async function statZeigen(){
+  if (ST_LAEUFT) { return; } ST_LAEUFT = true;
+  try {
+    const s1 = await stCm('Status 1'), s2 = await stCm('Status 2'), s4 = await stCm('Status 4');
+    const s5 = await stCm('Status 5'), s11 = await stCm('Status 11'), tc = await stCm('TinyC');
+    const us = await stCm('UfsSize'), uf = await stCm('UfsFree'), es = await stCm('EEBusStatus');
+    const P = (s1 && s1.StatusPRM) || {}, F = (s2 && s2.StatusFWR) || {}, M = (s4 && s4.StatusMEM) || {};
+    const N = (s5 && s5.StatusNET) || {}, S = (s11 && s11.StatusSTS) || {}, W = S.Wifi || {}, E = N.Ethernet || {};
+    const kv = [];
+    kv.push(['Tasmota-Firmware', F.Version ? F.Version + ' · Build ' + String(F.BuildDateTime || '').replace('T', ' ') : '–']);
+    kv.push(['Core / ESP-IDF', F.Core ? F.Core + ' / ' + F.SDK : '–']);
+    kv.push(['Prozessor', F.Hardware ? F.Hardware + ', ' + F.CpuFrequency + ' MHz' : '–']);
+    if (F.HostedMCU) { kv.push(['Funkchip (WLAN)', F.HostedMCU.Hardware + ' ' + F.HostedMCU.Version]); }
+    ((tc && tc.TinyC && tc.TinyC.Slots) || []).forEach(x => { const feh = x.Error && x.Error !== 'OK';
+      kv.push(['Skript Slot ' + x.Slot, String(x.File || '').replace(/^\//, '').replace(/\.tcb$/, '') + ' · ' + (x.Running ? 'läuft' : (x.Loaded ? 'geladen, gestoppt' : 'leer')) + (feh ? ' · Fehler ' + x.Error : ''), feh]); });
+    kv.push(['Seite', 'steuve.html ' + ST_SEITE]);
+    if (M.PsrMax) { kv.push(['Speicher', 'Arbeitsspeicher frei ' + M.Heap + ' KB · PSRAM ' + stGr(M.PsrFree) + ' frei von ' + stGr(M.PsrMax) + ' · Flash ' + stGr(M.FlashSize)]); }
+    else if (M.Heap) { kv.push(['Speicher', 'Arbeitsspeicher frei ' + M.Heap + ' KB · Flash ' + stGr(M.FlashSize)]); }
+    const u1 = us && us.UfsSize, u2 = uf && uf.UfsFree;
+    if (u1 && u2) {
+      kv.push(['SD-Karte', stGr(u1[0] - u2[0]) + ' belegt, ' + stGr(u2[0]) + ' frei von ' + stGr(u1[0])]);
+      if (u1.length > 1) { kv.push(['Flash-Dateisystem', stGr(u1[1] - u2[1]) + ' belegt, ' + stGr(u2[1]) + ' frei']); }
+    }
+    kv.push(['LAN', E.IPAddress ? E.IPAddress + ' / ' + E.Subnetmask : 'keine Verbindung']);
+    if (W.Signal !== undefined) { kv.push(['WLAN', (N.IPAddress && N.IPAddress !== '0.0.0.0' ? N.IPAddress + ' · ' : '') + 'Signal ' + W.Signal + ' dBm (' + W.RSSI + ' %) · ' + (W.Mode || '') + ' · Kanal ' + W.Channel]); }
+    if (S.UptimeSec !== undefined) { kv.push(['Laufzeit', Math.floor(S.UptimeSec / 86400) + ' d ' + Math.floor((S.UptimeSec % 86400) / 3600) + ' h ' + Math.floor((S.UptimeSec % 3600) / 60) + ' min']); }
+    if (P.RestartReason) { kv.push(['Letzter Neustart', String(P.StartupUTC || '').replace('T', ' ') + ' UTC · ' + (typeof P.RestartReason === 'string' ? P.RestartReason : 'Absturz') + ' · ' + P.BootCount + ' Starts gesamt']); }
+    stKv('st_geraet', kv);
+    const E2 = es && es.EEBusStatus, kk = [];
+    if (!E2) { kk.push(['Stand', 'EEBusStatus nicht lesbar', true]); }
+    else {
+      (E2.Slots || []).filter(x => x.State && x.State !== 'idle').forEach(x => {
+        const ok = x.State === 'cmi_ok';
+        kk.push([x.Ip || ('Platz ' + x.Slot),
+          (ok ? 'gekoppelt' : 'nicht gekoppelt (' + x.State + ')') + ' · ' + (x.PeerId || 'Partner ohne Kennung') +
+          (x.LpcResult ? ' · ' + x.LpcResult : '') +
+          (x.Verloren !== undefined ? ' · Abbrüche ' + x.Verloren + (x.VerlorenAm ? ' (zuletzt ' + x.VerlorenAm + ')' : '') : '') +
+          (x.Error ? ' · Fehler ' + x.Error : ''), !ok || !!x.Error]);
+      });
+      if (!kk.length) { kk.push(['Kopplung', 'keine aktiv', true]); }
+    }
+    stKv('st_kopp', kk);
+  } catch (x) {}
+  ST_LAEUFT = false;
+}
+setInterval(() => { if (!document.hidden && document.querySelector('.pane.on[data-p="stat"]')) { statZeigen(); } }, 60000);
 try { const t = localStorage.getItem('steuve_theme'); if (t) { document.documentElement.dataset.theme = t; } } catch (x) {}
 $('theme').onclick = () => {
   const r = document.documentElement; r.dataset.theme = r.dataset.theme === 'light' ? 'dark' : 'light';
