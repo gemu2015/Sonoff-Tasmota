@@ -5,6 +5,7 @@ a7105_probe.tcb
 a7105_scan.tcb
 ads1115.tcb
 analog_clock.tcb
+arm_servos.tcb
 audio_io.tcb
 benchmark.tcb
 ble_gatt_explore.tcb

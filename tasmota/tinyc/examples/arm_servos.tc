@@ -1,0 +1,194 @@
+// @name: ARM SERVOS
+// Six hobby servos (MG996R) of a 6-DOF robot arm on a PCA9685: one slider per joint, a slow ramp, "centre all" and a master switch.
+// For the first assembly step: put EVERY servo in its centre position (1500 us) BEFORE the horns and brackets are screwed on.
+//
+//   http://<ip>/   main page:  Servos on / off, six sliders (500..2500 us per joint), "Centre all"
+//   console:  ArmOn, ArmOff, ArmCenter, ArmUs <joint 1..6> <us>, ArmLimit <joint 1..6> <min> <max>, ArmSpeed <us per 20 ms>
+//
+// SAFETY
+//  1. Nothing moves at start: the outputs carry no pulse until "Servos on". After "Servos off" the outputs are released again (the
+//     servos can be turned by hand; an arm will fall under its own weight).
+//  2. A slow ramp (ARM_SPEED us per 20 ms tick, default 6 = 300 us per second): a jump of the slider does not make the arm snap.
+//     When the servos are switched on, the ramp starts at the slider values (centre after a reset): put the sliders where the
+//     arm really is, or the first move is a step from there.
+//  3. Every joint has its own limits (default ARM_MIN..ARM_MAX = 700..2300 us). ArmLimit narrows one joint; use it to keep the
+//     arm away from its mechanical stops once you know them.
+//  4. POWER: six MG996R can draw several amps when they start or stall. A bench supply of 6 V and at least 5 A on the servo rail of the
+//     PCA9685 (V+), NOT the 5 V of the ESP32 or USB. GND of the supply, PCA9685 and ESP32 has to be common. A large electrolytic
+//     (>= 1000 uF) at the servo rail. Never power the servos from the 5 V rail of the rover.
+// I2C: SDA/SCL of the ESP32 to the PCA9685 (3.3 V logic), address 0x40 (all address jumpers open).
+// Run on 12.11.2026 on an ESP32-S3 with a PCA9685 and ONE servo (joint 1 = PCA channel 0): sweep 700..2300 us and back to centre, about 40 mA
+// without load. The other five joints and the load of the real arm are not tested yet. Joints count 1..6 in the commands, PCA channels 0..15.
+
+#include "pca9685.tc"
+
+#define I2C_BUS    0
+#define PCA_ADDR   0x40
+#define NSRV       6
+#define ARM_MIN    700
+#define ARM_MAX    2300
+#define ARM_SPEED  6             // us per 20 ms tick: how fast a joint may move
+#define ARM_CENTRE 1500
+
+int  on     = 0;
+int  was_on = 0;
+int  do_center = 0;
+int  speed  = ARM_SPEED;
+int  s0 = ARM_CENTRE;            // the slider values (targets), us
+int  s1 = ARM_CENTRE;
+int  s2 = ARM_CENTRE;
+int  s3 = ARM_CENTRE;
+int  s4 = ARM_CENTRE;
+int  s5 = ARM_CENTRE;
+int  cur[6];                     // what the servos are commanded to right now
+int  lo[6];
+int  hi[6];
+int  sent[6];
+char ob[96];
+
+int arm_clamp(int v, int a, int b) {
+    if (v < a) { return a; }
+    if (v > b) { return b; }
+    return v;
+}
+
+int arm_target(int j) {
+    int v = ARM_CENTRE;
+    if (j == 0) { v = s0; }
+    if (j == 1) { v = s1; }
+    if (j == 2) { v = s2; }
+    if (j == 3) { v = s3; }
+    if (j == 4) { v = s4; }
+    if (j == 5) { v = s5; }
+    return arm_clamp(v, lo[j], hi[j]);
+}
+
+void arm_set_slider(int j, int v) {
+    if (j == 0) { s0 = v; }
+    if (j == 1) { s1 = v; }
+    if (j == 2) { s2 = v; }
+    if (j == 3) { s3 = v; }
+    if (j == 4) { s4 = v; }
+    if (j == 5) { s5 = v; }
+}
+
+void arm_all_off() {
+    int j = 0;
+    pca_all_off();
+    while (j < NSRV) { sent[j] = 0; j = j + 1; }
+}
+
+void TaskLoop() {
+    int j = 0;
+    int t = 0;
+    int c = 0;
+    if (do_center == 1) {
+        do_center = 0;
+        j = 0;
+        while (j < NSRV) { arm_set_slider(j, ARM_CENTRE); j = j + 1; }
+    }
+    if (on == 1 && was_on == 0) {                // switching on: the ramp starts at the sliders, so the first command is no jump
+        j = 0;
+        while (j < NSRV) { cur[j] = arm_target(j); sent[j] = 0; j = j + 1; }
+        was_on = 1;
+        addLog("ARM: servos on");
+    }
+    if (on == 0 && was_on == 1) {
+        arm_all_off();
+        was_on = 0;
+        addLog("ARM: servos released (no pulse)");
+    }
+    if (on == 1) {
+        j = 0;
+        while (j < NSRV) {
+            t = arm_target(j);
+            c = cur[j];
+            if (t > c) { c = c + speed; if (c > t) { c = t; } }
+            if (t < c) { c = c - speed; if (c < t) { c = t; } }
+            cur[j] = c;
+            if (c != sent[j]) {
+                pca_us(j, c);
+                sent[j] = c;
+            }
+            j = j + 1;
+        }
+    }
+    delay(20);
+}
+
+void WebCall() {
+    webToggle(on, "Servos on|Servos off");
+    webSlider(s0, ARM_MIN, ARM_MAX, "1 Base");
+    webSlider(s1, ARM_MIN, ARM_MAX, "2 Shoulder");
+    webSlider(s2, ARM_MIN, ARM_MAX, "3 Elbow");
+    webSlider(s3, ARM_MIN, ARM_MAX, "4 Wrist");
+    webSlider(s4, ARM_MIN, ARM_MAX, "5 Wrist roll");
+    webSlider(s5, ARM_MIN, ARM_MAX, "6 Gripper");
+    webButton(do_center, "Centre all (1500 us)");
+    if (pca_ok == 0) { webSend("{s}PCA9685{m}not found at 0x40{e}"); }
+}
+
+void Command(char cmd[]) {
+    char a[12];
+    char b[12];
+    char c[12];
+    int j = 0;
+    if (strcmp(cmd, "ON") == 0) {
+        on = 1;
+        responseCmnd("on");
+    } else if (strcmp(cmd, "OFF") == 0) {
+        on = 0;
+        responseCmnd("released");
+    } else if (strcmp(cmd, "CENTER") == 0) {
+        do_center = 1;
+        responseCmnd("centring");
+    } else if (strStartsWith(cmd, "US")) {
+        strToken(a, cmd, ' ', 2);
+        strToken(b, cmd, ' ', 3);
+        j = strToInt(a) - 1;
+        if (j >= 0 && j < NSRV && strlen(b) > 0) {
+            arm_set_slider(j, strToInt(b));
+            responseCmnd("ok");
+        } else {
+            responseCmnd("ArmUs <joint 1..6> <us>");
+        }
+    } else if (strStartsWith(cmd, "LIMIT")) {
+        strToken(a, cmd, ' ', 2);
+        strToken(b, cmd, ' ', 3);
+        strToken(c, cmd, ' ', 4);
+        j = strToInt(a) - 1;
+        if (j >= 0 && j < NSRV && strlen(c) > 0) {
+            lo[j] = arm_clamp(strToInt(b), 500, 2500);
+            hi[j] = arm_clamp(strToInt(c), 500, 2500);
+            sprintf(ob, "joint %d limited to %d..%d us", j + 1, lo[j], hi[j]);
+            responseCmnd(ob);
+        } else {
+            responseCmnd("ArmLimit <joint 1..6> <min> <max>");
+        }
+    } else if (strStartsWith(cmd, "SPEED")) {
+        strToken(a, cmd, ' ', 2);
+        if (strlen(a) > 0) { speed = arm_clamp(strToInt(a), 1, 200); }
+        sprintf(ob, "%d us per 20 ms", speed);
+        responseCmnd(ob);
+    } else {
+        responseCmnd("ArmOn, ArmOff, ArmCenter, ArmUs, ArmLimit, ArmSpeed");
+    }
+}
+
+// OnExit = program stopped or replaced (CleanUp only runs at a restart): give the I2C address back and release the servos
+void OnExit() {
+    pca_all_off();
+    pca_release();
+}
+
+void CleanUp() {
+    pca_release();
+}
+
+int main() {
+    int j = 0;
+    while (j < NSRV) { lo[j] = ARM_MIN; hi[j] = ARM_MAX; cur[j] = ARM_CENTRE; sent[j] = 0; j = j + 1; }
+    addCommand("Arm");
+    if (pca_init(PCA_ADDR, I2C_BUS) == 0) { addLog("ARM: no PCA9685 at 0x40"); }
+    return 0;
+}

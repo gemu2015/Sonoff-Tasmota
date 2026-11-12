@@ -1,0 +1,70 @@
+// pca9685.tc - PCA9685 16-channel PWM driver for hobby servos (I2C, include library, no main()). Pure TinyC, no Tasmota driver needed.
+//
+// Use (init in main(), it waits 5 ms for the oscillator):
+//   #include "pca9685.tc"
+//   int main() { if (pca_init(0x40, 0) == 0) { addLog("no PCA9685"); } return 0; }     // I2C address 0x40, bus 0, 50 Hz
+//   pca_us(3, 1500);        // channel 3 (0..15) gets a 1500 us pulse = servo centre
+//   pca_off(3);             // no pulse on channel 3: the servo is NOT held, it can be turned by hand
+//   pca_all_off();          // all 16 channels off at once
+//
+// The servo pulse is in microseconds (typical hobby servo 500..2500 us, centre 1500 us). The chip counts 4096 steps per 20 ms period
+// (about 4.9 us per step). Prescaler 121 gives 50.0 Hz with the internal 25 MHz oscillator (datasheet: round(25 MHz / (4096 * 50)) - 1).
+// Registers: MODE1 0x00, MODE2 0x01, LEDn_ON_L = 0x06 + 4 * n, PRESCALE 0xFE, ALL_LED_OFF_H 0xFD (bit 4 = full off).
+// Checked on 12.11.2026 on a real PCA9685 (registers read back: prescaler 121, 1500 us = 0x133, off bit works) and with one servo on channel 0.
+
+#define PCA_MODE1      0x00
+#define PCA_MODE2      0x01
+#define PCA_LED0       0x06
+#define PCA_ALL_OFF_H  0xFD
+#define PCA_PRESCALE   0xFE
+
+int pca_addr = 0;
+int pca_bus  = 0;
+int pca_ok   = 0;
+
+void pca_all_off() {
+    if (pca_ok == 0) { return; }
+    i2cWrite8(pca_addr, PCA_ALL_OFF_H, 0x10, pca_bus);
+}
+
+// main() only (waits for the oscillator). 1 = chip found
+int pca_init(int addr, int bus) {
+    pca_ok = 0;
+    if (i2cSetDevice(addr, bus) == 0) { return 0; }
+    i2cSetActiveFound(addr, "PCA9685", bus);
+    pca_addr = addr;
+    pca_bus = bus;
+    pca_ok = 1;
+    i2cWrite8(addr, PCA_MODE1, 0x10, bus);       // sleep, so the prescaler may be written
+    i2cWrite8(addr, PCA_PRESCALE, 121, bus);     // 50 Hz
+    i2cWrite8(addr, PCA_MODE1, 0x20, bus);       // wake up, register auto increment
+    delay(5);
+    i2cWrite8(addr, PCA_MODE1, 0xA0, bus);       // restart
+    i2cWrite8(addr, PCA_MODE2, 0x04, bus);       // totem pole outputs
+    pca_all_off();                               // no servo gets a pulse until the program asks for one
+    return 1;
+}
+
+void pca_us(int ch, int us) {
+    int ticks = 0;
+    int base = 0;
+    if (pca_ok == 0 || ch < 0 || ch > 15) { return; }
+    if (us < 0) { us = 0; }
+    if (us > 19000) { us = 19000; }
+    ticks = (us * 4096 + 10000) / 20000;
+    base = PCA_LED0 + 4 * ch;
+    i2cWrite8(pca_addr, base, 0, pca_bus);                       // ON_L
+    i2cWrite8(pca_addr, base + 1, 0, pca_bus);                   // ON_H
+    i2cWrite8(pca_addr, base + 2, ticks & 255, pca_bus);         // OFF_L
+    i2cWrite8(pca_addr, base + 3, (ticks >> 8) & 15, pca_bus);   // OFF_H (also clears the full-off bit)
+}
+
+void pca_off(int ch) {
+    if (pca_ok == 0 || ch < 0 || ch > 15) { return; }
+    i2cWrite8(pca_addr, PCA_LED0 + 4 * ch + 3, 0x10, pca_bus);   // OFF_H bit 4 = full off
+}
+
+void pca_release() {
+    pca_all_off();
+    if (pca_ok == 1) { I2cResetActive(pca_addr, pca_bus); pca_ok = 0; }
+}
