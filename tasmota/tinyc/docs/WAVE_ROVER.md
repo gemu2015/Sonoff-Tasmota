@@ -157,3 +157,19 @@ Only one channel is counted, so the direction comes from the motor command (the 
 - The joystick page is the file **`/rover.html`** (`examples/rover.html`), served with `webSendFile`; upload it once together with the program (`curl -X POST "http://<ip>/ufsu?fsz=<size>" -F "ufsu=@rover.html;filename=rover.html"`). Without the file `/rover` is empty. This took 2 KB of constants out of the bytecode.
 - `ROVER_SIM` and `DSP_EXTRA` are compile-time switches (`#if`), so the simulation and the TFT panel are not in the bytecode of the real rover: 16.1 KB -> 13.3 KB with `DSP_EXTRA 0`.
 - Further savings, not done yet: a firmware without the repo IDE page (`-DTINYC_NO_REPO_IDE`, about 4 KB static), other unused TinyC function groups, MQTT/mDNS off at run time (not measured).
+
+## RAM, second round (12.11.2026, measured on the rover, free internal heap in bytes)
+
+| State | before | after |
+|---|---|---|
+| no program loaded, fresh boot (`tinyc32-4M-plain`) | 95 424 | 108 092 |
+| `rover.tc` loaded | about 47 000 - 53 000 | **64 544** (66 720 with `TinyCStack 8192`) |
+
+What brought it:
+- **A leak in the firmware (fixed in the source):** every program start lost a 1 KB frame block (`frames[0]` overwritten by the entry CALL), 35 KB gone after 28 reloads. Details in the CHANGELOG.
+- **The upload server task (8 KB) now lives only while a file arrives.**
+- **A lean build for the rover**, 4.3 KB more heap and 157 KB less flash (1 700 416 -> 1 543 536 B): `tinyc32-4M-plain` without `USE_SML_M/_TCP/_SCRIPT_CMD`, `USE_HOME_ASSISTANT`, `USE_IMPROV`, `USE_PING`, `USE_DEEPSLEEP`, `USE_TIMERS/_WEB`, `USE_SUNRISE`, `USE_TOUCH_BUTTONS`, `USE_UNIVERSAL_TOUCH`, `USE_SENDMAIL`, `USE_SHINE`, `USE_KNX_WEB_MENU`. It needs the counters (`USE_COUNTER`), I2C and the display, which stay in. The switches are a block `#ifdef TINYC_ROVER_LEAN` with `#undef ...` at the end of the (git-ignored) `user_config_override.h` and a local env `[env:tinyc32-4M-rover] extends = env:tinyc32-4M-plain`, `build_flags = ${env:tinyc32-4M-plain.build_flags} -DTINYC_ROVER_LEAN`. Tasmota features cost flash far more than RAM: 157 KB of flash bought 4.3 KB of heap.
+- `TinyCStack 8192` (the VM task needed 4.9 KB at most with `rover.tc`; the default stays 12288 because a script that calls `saveVars()` from `main()` needs more).
+
+Where the RAM of a classic ESP32 without PSRAM goes (`TinyCStack` and `TinyCHeap` show it): the FreeRTOS task stacks alone are about 54 KB (loopTask 12 288, VM task 12 288, `tiT` 4 608, `arduino_events` / `esp_timer` / `Tmr Svc` 4 096 each, `wifi` 3 584 ...) of a heap of about 208 KB. The next steps would be in the WiFi / lwIP / task stack settings of the Arduino libraries (a rebuild of the libs, about 8 minutes, `custom_sdkconfig`), not in Tasmota features.
+

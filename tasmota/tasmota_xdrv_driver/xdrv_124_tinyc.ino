@@ -2416,7 +2416,10 @@ void CmndTinyCHeap(void) {
       (unsigned)ps.total_free_bytes, (unsigned)ps.largest_free_block,
       (unsigned)ps.allocated_blocks, (unsigned)ps.free_blocks);
   }
-  ResponseAppend_P(PSTR(",\"psram_limit\":%u}}"), (unsigned)(Tinyc ? Tinyc->psram_limit : 0));
+  // What the structures cost (RAM per slot is sizeof(TcSlot) + the VM task stack + the program; Tinyc is allocated once at start).
+  ResponseAppend_P(PSTR(",\"psram_limit\":%u,\"sizeof\":{\"TcSlot\":%u,\"TcVM\":%u,\"TINYC\":%u,\"locals_block\":%u}}}"),
+                   (unsigned)(Tinyc ? Tinyc->psram_limit : 0), (unsigned)sizeof(TcSlot), (unsigned)sizeof(TcVM),
+                   (unsigned)sizeof(struct TINYC), (unsigned)(TC_MAX_LOCALS * sizeof(int32_t)));
 }
 
 // ── TinyCPsram <limit>: where malloc() goes ─────────────────────────────────
@@ -7684,15 +7687,35 @@ static void tc_ul_handle(WiFiClient &client) {
   }
 }
 
-// Dedicated task: accept + service upload connections. WiFiServer serializes them
-// (one accepted client at a time), so uploads never overlap.
-static void tc_upload_server_task(void *param) {
-  for (;;) {
-    WiFiClient client = tc_ul_server->available();
-    if (!client) { vTaskDelay(pdMS_TO_TICKS(25)); continue; }
-    tc_ul_handle(client);
-    delay(30);          // let the reply drain before FIN
-    client.stop();
+// One upload connection per task: the task (and its 8 KB stack) exists only while a file arrives. It used to be a task that lived forever and
+// polled the listener every 25 ms - 8 KB of internal RAM for a feature that is used a few times a day (measured on the WAVE ROVER, 12.11.2026:
+// stack 8192 B, high-water mark 1000 B). Uploads never overlap (tc_ul_busy), a second connection waits in the listener's backlog.
+static volatile bool tc_ul_busy = false;
+
+static void tc_upload_conn_task(void *param) {
+  WiFiClient *cp = (WiFiClient *)param;
+  tc_ul_handle(*cp);
+  delay(30);            // let the reply drain before FIN
+  cp->stop();
+  delete cp;
+  tc_ul_busy = false;
+  vTaskDelete(NULL);
+}
+
+// Called from the main loop (TC_DLServerLoop): a pending connection on port 83 gets its own short-lived task.
+static void tc_ul_poll(void) {
+  if (!tc_ul_server || tc_ul_busy) { return; }
+  WiFiClient c = tc_ul_server->available();
+  if (!c) { return; }
+  WiFiClient *cp = new (std::nothrow) WiFiClient(c);
+  if (!cp) { c.stop(); return; }
+  tc_ul_busy = true;
+  if (xTaskCreatePinnedToCore(tc_upload_conn_task, "TCUL", 8192, cp, 3, NULL, 1) != pdPASS) {   // needs 8 KB contiguous: a fragmented heap may refuse
+    tc_ul_reply(*cp, "503 Service Unavailable", "FAIL no memory for the upload task");
+    cp->stop();
+    delete cp;
+    tc_ul_busy = false;
+    AddLog(LOG_LEVEL_ERROR, PSTR("TCC: upload task: out of memory (largest block %u)"), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
   }
 }
 
@@ -7714,7 +7737,6 @@ static void TC_DLServerInit(void) {
     if (tc_ul_server) {
       tc_ul_server->begin();
       tc_ul_server->setNoDelay(true);
-      xTaskCreatePinnedToCore(tc_upload_server_task, "TCUL", 8192, NULL, 3, NULL, 1);
       AddLog(LOG_LEVEL_INFO, PSTR("TCC: Upload server started on port %d"), TC_ULPORT);
     }
   }
@@ -7724,6 +7746,7 @@ static void TC_DLServerInit(void) {
 static void TC_DLServerLoop(void) {
   if (Tinyc && Tinyc->dl_server) {
     Tinyc->dl_server->handleClient();
+    tc_ul_poll();
   }
 }
 
@@ -7998,7 +8021,28 @@ void CmndTinyCStack(void) {
                      e->name, e->slot_idx, freeb);
   }
   tc_spawn_pool_unlock();
-  ResponseAppend_P(PSTR("}}"));
+  ResponseAppend_P(PSTR("}"));
+  // Every FreeRTOS task with its stack (size = the heap block the stack lives in) and the stack never used (high-water mark): where the RAM of
+  // the tasks goes, and which stack could be smaller. 12.11.2026, found while sizing the RAM of the rover (needs the FreeRTOS trace facility).
+#if (configUSE_TRACE_FACILITY == 1)
+  {
+    UBaseType_t n = uxTaskGetNumberOfTasks();
+    TaskStatus_t *ts = (TaskStatus_t *)malloc(n * sizeof(TaskStatus_t));
+    if (ts) {
+      n = uxTaskGetSystemState(ts, n, nullptr);
+      uint32_t total = 0;
+      ResponseAppend_P(PSTR(",\"Tasks\":["));
+      for (UBaseType_t i = 0; i < n; i++) {
+        uint32_t sz = (uint32_t)heap_caps_get_allocated_size((void *)ts[i].pxStackBase);
+        total += sz;
+        ResponseAppend_P(PSTR("%s{\"n\":\"%s\",\"stk\":%u,\"free\":%u}"), i ? "," : "", ts[i].pcTaskName, (unsigned)sz, (unsigned)ts[i].usStackHighWaterMark);
+      }
+      ResponseAppend_P(PSTR("],\"TaskStackTotal\":%u"), (unsigned)total);
+      free(ts);
+    }
+  }
+#endif
+  ResponseAppend_P(PSTR("}"));
 }
 
 // TinyCHttpRx [bytes] — TLS receive buffer for httpGet()/httpPost() from a
