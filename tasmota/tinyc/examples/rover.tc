@@ -287,10 +287,46 @@ void dsp_state(char t[]) {
     else { sprintf(t, "L%d R%d", motL, motR); }
 }
 
+// Colour helper: the 128x32 OLED is 1 bpp, there dspColor(0xFFFF,..) draws nothing; any colour -> 1
+void dcol(int fg) {
+    if (dspWidth() <= 128) { dspColor(1, 0); } else { dspColor(fg, 0x0000); }
+}
+
+int dpage = 0;   // OLED page counter: state page for 4 updates, then IP page for 2
+
+// 128x32 OLED: big text (size 2 = 10 characters per line), two lines, alternating pages
+void display_mono() {
+    int ph = dpage % 6;
+    dpage++;
+    dspFont(0);
+    dcol(0xFFFF);
+    if (ph == 0 || ph == 4) { dspClear(); }          // clear on every page switch (pads differ)
+    if (ph < 4) {
+        dspSize(2);
+        dsp_state(dl);
+        dl[10] = 0;
+        dsp_line(0, 0, 10, dl);
+        if (vbat_mv > 0) {
+            sprintf(dl, "%d.%02dV %dmA", vbat_mv / 1000, (vbat_mv % 1000) / 10, ina_ma);
+        } else {
+            strcpy(dl, "V:--");
+        }
+        dl[10] = 0;
+        dsp_line(0, 16, 10, dl);
+    } else {
+        dspSize(2);
+        dsp_line(0, 0, 10, "WAVE ROVER");
+        dspSize(1);
+        sprintf(dl, "IP %s", ip);
+        dsp_line(0, 20, 21, dl);
+    }
+}
+
 void display_update() {
+    if (dspWidth() <= 128) { display_mono(); return; }
     dspFont(0);
     dspSize(1);
-    dspColor(0xFFFF, 0x0000);
+    dcol(0xFFFF);
     dsp_line(2, 1, 21, "WAVE ROVER");
     sprintf(dl, "IP:%s", ip);
     dsp_line(2, 9, 21, dl);
@@ -306,27 +342,27 @@ void display_update() {
     {
         dspFont(0);
         dspSize(2);
-        dspColor(0xFFFF, 0x0000);
+        dcol(0xFFFF);
         sprintf(dl, "Yaw %.0f  Hdg %.0f", qmi_yaw, ak_heading());
         dsp_line(2, 40, 20, dl);
         sprintf(dl, "Gz %.1f  T %.1f C", qmi_gz, qmi_temp);
         dsp_line(2, 58, 20, dl);
-        dspColor(0xFFE0, 0x0000);
+        dcol(0xFFE0);
         dsp_line(2, 82, 20, "Floor sensors (mm)");
-        dspColor(0xFFFF, 0x0000);
+        dcol(0xFFFF);
         sprintf(dl, "FL %d  FR %d", vl_dist[0], vl_dist[1]);
         dsp_line(2, 100, 20, dl);
         sprintf(dl, "RL %d  RR %d", vl_dist[2], vl_dist[3]);
         dsp_line(2, 118, 20, dl);
         if (cl_on == 0) {
-            dspColor(0xFFE0, 0x0000);
+            dcol(0xFFE0);
             dsp_line(2, 142, 20, "CLIFF GUARD OFF");
         } else if (why >= 2 && why <= 5) {
-            dspColor(0xF800, 0x0000);
+            dcol(0xF800);
             dsp_state(dl);
             dsp_line(2, 142, 20, dl);
         } else {
-            dspColor(0x07E0, 0x0000);
+            dcol(0x07E0);
             dsp_line(2, 142, 20, "floor ok");
         }
     }
@@ -335,9 +371,6 @@ void display_update() {
 
 void display_first() {
     dspClear();
-    dspColor(0x7BEF, 0x0000);
-    dspPos(0, 0);
-    dspRect(128, 32);
     display_update();
 }
 
