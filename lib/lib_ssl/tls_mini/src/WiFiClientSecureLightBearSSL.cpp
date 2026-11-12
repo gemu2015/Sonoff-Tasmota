@@ -841,6 +841,105 @@ const uint8_t *ShipPeerPubKey(const void *client, size_t *len) {
 }
 #endif
 
+// 11.11.2026 (Andreas, SMGW reader): validity, subject (CN) and serial number of the FIRST certificate the peer
+// sent on the last TLS connect through the unverified path (setInsecure / fingerprint decoder) - e.g. the
+// self-signed TLS certificate of a smart meter gateway (what TRuDI shows as "Zertifikat der TLS-Verbindung").
+// Only the first 1024 bytes of that certificate are kept (serial, validity and subject come first). Times are
+// UTC as in the certificate ("JJJJ-MM-TT hh:mm:ss"). No class field (class layout unchanged), read-only getter
+// TlsPeerCertInfo() in the header. Nothing in the handshake changes.
+static uint8_t tlspc_buf[1024];
+static size_t  tlspc_len = 0;
+static bool    tlspc_an = false;
+static char    tlspc_von[24], tlspc_bis[24], tlspc_fuer[65], tlspc_snr_hex[44], tlspc_snr_dez[24], tlspc_host[64];
+
+// DER tag + length; p moves to the start of the value. Bounds of the value are checked by the caller.
+static bool tlspc_tl(const uint8_t *&p, const uint8_t *e, uint8_t &tag, size_t &len) {
+  if (p + 2 > e) { return false; }
+  tag = *p++;
+  uint8_t l = *p++;
+  if (l < 0x80) { len = l; return true; }
+  int n = l & 0x7f;
+  if (n < 1 || n > 3 || p + n > e) { return false; }
+  len = 0;
+  while (n--) { len = (len << 8) | *p++; }
+  return true;
+}
+
+static void tlspc_zeit(const uint8_t *p, size_t len, uint8_t tag, char *out) {
+  char d[16];
+  size_t n = (len < 15) ? len : 15;
+  memcpy(d, p, n); d[n] = 0;
+  char j[5];
+  const char *s;
+  if (tag == 0x17 && n >= 12) {          // UTCTime YYMMDDhhmmssZ
+    bool alt = (d[0] >= '5');
+    j[0] = alt ? '1' : '2'; j[1] = alt ? '9' : '0'; j[2] = d[0]; j[3] = d[1]; j[4] = 0; s = d + 2;
+  } else if (tag == 0x18 && n >= 14) {   // GeneralizedTime YYYYMMDDhhmmssZ
+    memcpy(j, d, 4); j[4] = 0; s = d + 4;
+  } else { out[0] = 0; return; }
+  snprintf(out, 24, "%s-%.2s-%.2s %.2s:%.2s:%.2s", j, s, s + 2, s + 4, s + 6, s + 8);
+}
+
+static void tlspc_auswerten(void) {
+  tlspc_von[0] = tlspc_bis[0] = tlspc_fuer[0] = tlspc_snr_hex[0] = tlspc_snr_dez[0] = 0;
+  const uint8_t *p = tlspc_buf, *e = tlspc_buf + tlspc_len;
+  uint8_t t; size_t l;
+  if (!tlspc_tl(p, e, t, l) || t != 0x30) { return; }               // Certificate
+  if (!tlspc_tl(p, e, t, l) || t != 0x30) { return; }               // TBSCertificate
+  if (!tlspc_tl(p, e, t, l)) { return; }
+  if (t == 0xA0) { p += l; if (!tlspc_tl(p, e, t, l)) { return; } } // [0] version
+  if (t != 0x02 || p + l > e) { return; }                           // serialNumber
+  {
+    size_t k = 0; uint64_t dez = 0; size_t sig = 0;
+    for (size_t i = 0; i < l && k + 2 < sizeof(tlspc_snr_hex); i++) {
+      snprintf(tlspc_snr_hex + k, 3, "%02x", p[i]); k += 2;
+      if (p[i] || sig) { sig++; dez = (dez << 8) | p[i]; }
+    }
+    if (sig <= 8) { snprintf(tlspc_snr_dez, sizeof(tlspc_snr_dez), "%llu", (unsigned long long)dez); }
+  }
+  p += l;
+  if (!tlspc_tl(p, e, t, l) || p + l > e) { return; } p += l;       // signature
+  if (!tlspc_tl(p, e, t, l) || p + l > e) { return; } p += l;       // issuer
+  if (!tlspc_tl(p, e, t, l) || t != 0x30 || p + l > e) { return; }  // validity
+  {
+    const uint8_t *q = p, *qe = p + l; uint8_t t2; size_t l2;
+    if (tlspc_tl(q, qe, t2, l2) && q + l2 <= qe) {
+      tlspc_zeit(q, l2, t2, tlspc_von); q += l2;
+      if (tlspc_tl(q, qe, t2, l2) && q + l2 <= qe) { tlspc_zeit(q, l2, t2, tlspc_bis); }
+    }
+  }
+  p += l;
+  if (!tlspc_tl(p, e, t, l) || t != 0x30 || p + l > e) { return; }  // subject: SET { SEQ { OID, value } } ...
+  const uint8_t *se = p + l;
+  while (p < se) {
+    if (!tlspc_tl(p, se, t, l) || p + l > se) { return; }
+    const uint8_t *ae = p + l;
+    while (p < ae) {
+      if (!tlspc_tl(p, ae, t, l) || p + l > ae) { return; }
+      const uint8_t *ve = p + l, *o = p; uint8_t t3; size_t l3;
+      if (tlspc_tl(o, ve, t3, l3) && t3 == 0x06 && l3 == 3 && o[0] == 0x55 && o[1] == 0x04 && o[2] == 0x03) {  // CN
+        o += l3;
+        if (tlspc_tl(o, ve, t3, l3) && o + l3 <= ve) {
+          size_t n = (l3 < sizeof(tlspc_fuer) - 1) ? l3 : sizeof(tlspc_fuer) - 1;
+          memcpy(tlspc_fuer, o, n); tlspc_fuer[n] = 0;
+          for (size_t i = 0; i < n; i++) { if (tlspc_fuer[i] < 0x20 || tlspc_fuer[i] == '"' || tlspc_fuer[i] == '\\') { tlspc_fuer[i] = '?'; } }
+        }
+      }
+      p = ve;
+    }
+  }
+}
+
+void TlsPeerCertInfo(const char **von, const char **bis, const char **fuer, const char **snr_hex,
+                     const char **snr_dez, const char **host) {
+  if (von) { *von = tlspc_von; }
+  if (bis) { *bis = tlspc_bis; }
+  if (fuer) { *fuer = tlspc_fuer; }
+  if (snr_hex) { *snr_hex = tlspc_snr_hex; }
+  if (snr_dez) { *snr_dez = tlspc_snr_dez; }
+  if (host) { *host = tlspc_host; }
+}
+
 extern "C" {
 
   // see https://stackoverflow.com/questions/6357031/how-do-you-convert-a-byte-array-to-a-hexadecimal-string-in-c
@@ -886,8 +985,9 @@ extern "C" {
     // Don't process anything but the first certificate in the chain
     if (!xc->done_cert) {
       br_x509_decoder_init(&xc->ctx, nullptr, nullptr, nullptr, nullptr);
+      tlspc_len = 0; tlspc_an = true;   // 11.11.2026: keep the first certificate for TlsPeerCertInfo()
+      strlcpy(tlspc_host, server_name ? server_name : "", sizeof(tlspc_host));
     }
-    (void)server_name; // ignore server name
   }
 
   // Callback for each certificate present in the chain (but only operates
@@ -903,12 +1003,18 @@ extern "C" {
     // Don't process anything but the first certificate in the chain
     if (!xc->done_cert) {
       br_x509_decoder_push(&xc->ctx, (const void*)buf, len);
+      if (tlspc_an && tlspc_len < sizeof(tlspc_buf)) {   // 11.11.2026: first 1024 bytes for TlsPeerCertInfo()
+        size_t n = sizeof(tlspc_buf) - tlspc_len;
+        if (n > len) { n = len; }
+        memcpy(tlspc_buf + tlspc_len, buf, n); tlspc_len += n;
+      }
     }
   }
 
   // Callback on individual cert end.
   static void pubkeyfingerprint_end_cert(const br_x509_class **ctx) {
     br_x509_pubkeyfingerprint_context *xc = (br_x509_pubkeyfingerprint_context *)ctx;
+    if (!xc->done_cert && tlspc_an) { tlspc_auswerten(); tlspc_an = false; }   // 11.11.2026
     xc->done_cert = true; // first cert already processed
   }
 

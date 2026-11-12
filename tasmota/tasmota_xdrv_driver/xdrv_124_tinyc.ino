@@ -1197,6 +1197,7 @@ void CmndTinyCStrict(void);
 void CmndTinyCLogName(void);
 #ifdef ESP32
 void CmndTinyCTlsCert(void);
+void CmndTinyCTlsGueltig(void);
 #endif
 #ifdef USE_MATTER_C
 void CmndMatterReset(void);
@@ -1208,7 +1209,7 @@ void CmndMatterCryptoTest(void);
 const char kTinyCCommands[] PROGMEM = D_PRFX_TINYC "|"
   "|Run|Stop|Reset|Exec|Info|Ide|Unload|Udp|Strict|LogName"
 #ifdef ESP32
-  "|Chkpt|Stack|HttpRx|Heap|Psram|TlsCert"
+  "|Chkpt|Stack|HttpRx|Heap|Psram|TlsCert|TlsGueltig"
 #endif
 #ifdef USE_MATTER_C
   "|MtrReset"
@@ -1226,7 +1227,8 @@ void (* const TinyCCommand[])(void) PROGMEM = {
   &CmndTinyCReset, &CmndTinyCExec, &CmndTinyCInfo, &CmndTinyCIde, &CmndTinyCUnload, &CmndTinyCUdp,
   &CmndTinyCStrict, &CmndTinyCLogName
 #ifdef ESP32
-  , &CmndCheckPartition, &CmndTinyCStack, &CmndTinyCHttpRx, &CmndTinyCHeap, &CmndTinyCPsram, &CmndTinyCTlsCert
+  , &CmndCheckPartition, &CmndTinyCStack, &CmndTinyCHttpRx, &CmndTinyCHeap, &CmndTinyCPsram, &CmndTinyCTlsCert,
+  &CmndTinyCTlsGueltig
 #endif
 #ifdef USE_MATTER_C
   , &CmndMatterReset
@@ -2254,6 +2256,24 @@ void CmndTinyCTlsCert(void) {
     Response_P(PSTR("{\"%s\":{\"loaded\":0}}"), XdrvMailbox.command);
   }
 #endif  // USE_MQTT_CLIENT_CERT
+}
+
+// TinyCTlsGueltig   certificate the peer sent on the LAST tlsConnect (or other unverified TLS connect of this
+//                   device): {"host","von","bis" (UTC),"fuer" (subject CN),"seriennr" (decimal),"seriennr_hex"}.
+// 11.11.2026 (Andreas): validity of a smart meter gateway's TLS certificate = date by which the gateway must be
+// replaced (TRuDI shows it as "Zertifikat der TLS-Verbindung"). Read right after the session; empty before.
+// "fuer" shows only the last 4 characters (rest '*'): the answer always ends up in the log (RSL: RESULT), and the
+// subject of a gateway certificate is its device ID - like the .secret files it is used, never printed.
+void CmndTinyCTlsGueltig(void) {
+  const char *von, *bis, *fuer, *snr_hex, *snr_dez, *host;
+  BearSSL::TlsPeerCertInfo(&von, &bis, &fuer, &snr_hex, &snr_dez, &host);
+  char fuer4[65];
+  size_t n = strlen(fuer);
+  if (n >= sizeof(fuer4)) { n = sizeof(fuer4) - 1; }
+  for (size_t i = 0; i < n; i++) { fuer4[i] = (i + 4 < n) ? '*' : fuer[i]; }
+  fuer4[n] = 0;
+  Response_P(PSTR("{\"%s\":{\"host\":\"%s\",\"von\":\"%s\",\"bis\":\"%s\",\"zeit\":\"UTC\",\"fuer\":\"%s\",\"seriennr\":\"%s\",\"seriennr_hex\":\"%s\"}}"),
+             XdrvMailbox.command, host, von, bis, fuer4, snr_dez, snr_hex);
 }
 #endif  // ESP32
 

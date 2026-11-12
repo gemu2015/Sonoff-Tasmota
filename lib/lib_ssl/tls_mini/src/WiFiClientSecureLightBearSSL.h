@@ -225,6 +225,12 @@ class WiFiClientSecure_light : public WiFiClient {
 const uint8_t *ShipPeerPubKey(const void *client, size_t *len);
 #endif
 
+// 11.11.2026 (Andreas, SMGW reader): first certificate of the peer on the LAST TLS connect through the unverified
+// path (setInsecure): validity von/bis (UTC, "JJJJ-MM-TT hh:mm:ss"), subject CN, serial (hex, decimal if <= 8 bytes)
+// and the server name used. Empty strings if none. Read right after connect(); the next connect overwrites it.
+void TlsPeerCertInfo(const char **von, const char **bis, const char **fuer, const char **snr_hex,
+                     const char **snr_dez, const char **host);
+
 #define ERR_OOM             -1000
 #define ERR_CANT_RESOLVE_IP -1001
 #define ERR_TCP_CONNECT     -1002
