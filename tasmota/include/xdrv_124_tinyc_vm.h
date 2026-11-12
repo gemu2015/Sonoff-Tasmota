@@ -4855,6 +4855,14 @@ static inline int32_t tc_binop_i(uint8_t op, int32_t a, int32_t b, int *err) {
 
 // Allocate locals for a frame, returns false on OOM
 static bool tc_frame_alloc(TcVM *vm, TcFrame *frame) {
+  // The frame slot may still own a block: tc_vm_load() allocates frames[0] "for main()", and the entry code of the program then CALLs main,
+  // whose frame lands in frames[frame_count] = frames[0] again. Overwriting the pointer lost the first block - 1 KB (TC_MAX_LOCALS * 4) per
+  // program start, seen as the "~1 KB per slot restart" decline of the free heap (measured on the rover 12.11.2026: +1028 B per start/unload).
+  // Reuse it (zeroed, exactly what a fresh calloc would hand out) instead.
+  if (frame->locals) {
+    memset(frame->locals, 0, TC_MAX_LOCALS * sizeof(int32_t));
+    return true;
+  }
   if (vm && vm->frame_cache_n) {
     frame->locals = vm->frame_cache[--vm->frame_cache_n];
     memset(frame->locals, 0, TC_MAX_LOCALS * sizeof(int32_t));
