@@ -1,0 +1,371 @@
+// @name: SMGW-Kosten
+// ============================================================================
+// slot2-smgwkosten_v006.tc - Boersenpreise fuer die Kostenrechnung des SMGW-Lesers
+// v006 11.11.2026 (Andreas): Aufbewahrung SIEBEN Kalenderjahre (laufendes Jahr + 6 davor; ~ Laufzeit eines Gateway-Zertifikats,
+//      reicht fuer die Pruefung von Rechnungen). Geloescht wird erst, was aelter ist. Sonst wie v005.
+// v005 11.11.2026 (Andreas): Aufbewahrung DREI Kalenderjahre (laufendes Jahr, Vorjahr, Vorvorjahr) statt zwei -
+//      geloescht wird erst, was aelter als das Vorvorjahr ist (2027: 2025 bleibt, 2028: 2025 wird geloescht).
+//      Die Zaehlerdateien /smgw_JJJJ-MM.txt loescht kein Slot. Sonst wie v004.
+// v004 10.11.2026 (Andreas): v003 fand am Geraet "unix_seconds" nicht (Fehler "ohne Zeitstempel (52045 Byte)"), obwohl die
+//      Datei stimmt und der Simulator es findet: der Suchtext ging als fester Text an die eigene Funktion sucheText()
+//      und wurde dort zeichenweise gelesen (pat[k]) - das kann die Geraete-VM offenbar nicht. Jetzt steht der Suchtext
+//      in einem globalen Puffer (muster, per sprintf gefuellt). Sonst wie v003.
+// v003 10.11.2026 (Andreas): ein Abruf je MONAT statt je Tag (energy-charts begrenzt die Zahl der Anfragen, nicht die
+//      Datenmenge - in Excel kommt ein ganzes Jahr in Sekunden). fileDownload schreibt die Antwort direkt auf die SD
+//      (/smgw_boerse_dl.json, ~55 KB je Monat), danach wird sie stueckweise gelesen: "unix_seconds" -> Ortszeit
+//      (Sommerzeit letzter Sonntag Maerz 01:00 UTC bis letzter Sonntag Oktober 01:00 UTC; gegen alle 27.360
+//      Zeitstempel 30.01.-10.11.2026 geprueft, 0 Abweichungen), "price" -> /smgw_boerse_JJJJ-MM.txt komplett neu
+//      (Zeilen "JJJJ-MM-TT HH:MM<TAB>EUR/MWh", Oktober 02:xx zweimal wie bisher). Nachholen ab 01.01. des ersten
+//      Messjahres, ein Monat je 20 s (ganzes Jahr ~4 min). Danach taeglich der laufende Monat neu, ab 14:00 bis
+//      einschliesslich Folgetag. Stand jetzt /smgw_boerse_stand3.txt ("bis JJJJ-MM-TT"); der Stand von v001/v002
+//      wird nicht uebernommen - alle Monate werden einmal sauber neu geschrieben. Aufbewahrung wie v002.
+// v002 10.11.2026: ganze Kalenderjahre, laufendes Jahr + Vorjahr behalten, aeltere Boersendateien taeglich loeschen.
+// v001 10.11.2026 (Andreas). Geraet: SMGW-Leser (esp32S3_waveshare_ETH_SMGW_TinyC)
+//
+// Web: /smgwkosten = Seite /smgw_kosten.html (SD) · /smgwb?n=JJJJ-MM | tarif | status
+// Quelle: api.energy-charts.info, Day-Ahead DE-LU, Bundesnetzagentur | SMARD.de, CC BY 4.0.
+// Kein Abruf, solange Slot 0 am Gateway abruft ("aktiv":1). Abruf nur in der TaskLoop (blockiert).
+// ============================================================================
+
+char buf[1040];        // Lesefenster der heruntergeladenen Datei
+int  bufN = 0;
+int  bufP = 0;
+int  dlH = -1;
+int  uts[3200];        // unix_seconds eines Monats (max. 31 * 96 + 4)
+int  nU = 0;
+char url[200];
+char zeile[48];
+char wert[24];
+char uhr[8];           // Uhrzeit in ortszeit() (eigener Puffer, wert gehoert dem Preis)
+char letzterTag[16];   // Tag des letzten gelieferten Werts
+char fn[40];
+char st[900];          // /smgw_status.txt (Slot 0)
+char W[1100];
+char startTag[16];
+char bis[16];          // letzter gespeicherter Tag (lueckenlos ab grenze)
+char grenze[16];       // 01.01. ab dem gespeichert wird
+char heute[16];
+char morgen[16];
+char ziel[16];
+char monA[16];         // erster Tag des abzurufenden Monats
+char monE[16];         // letzter abzurufender Tag
+char loeschTag[16];
+char dTmp[32];
+char dTmp2[32];
+char fehler[100];
+char fehlerZeit[24];
+char okZeit[24];
+int  nextTry = 0;
+int  anzLetzt = 0;
+int  cacheJ = 0;
+int  sBeg = 0;
+int  sEnd = 0;
+char startStd[] = "2026-01-30";   // als Feld: #define-Strings kommen als Argument leer an
+
+void scopy(char dst[], char src[]) { sprintf(dst, "%s", src); }
+
+void tagPlus(char dst[], char src[], int d) {
+    sprintf(dTmp, "%sT00:00:00", src);
+    int s = timeToSecs(dTmp) + d * 86400;
+    secsToTime(dTmp, s);
+    strSub(dst, dTmp, 0, 10);
+}
+
+int datumOk(char d[]) {
+    if (strlen(d) != 10) { return 0; }
+    if (d[4] != '-' || d[7] != '-' || d[0] != '2' || d[1] != '0') { return 0; }
+    return 1;
+}
+
+int leseStatus() {
+    st[0] = 0;
+    int h = fileOpen("/smgw_status.txt", 0);
+    if (h < 0) { return 0; }
+    int n = fileRead(h, st, 890);
+    fileClose(h);
+    if (n <= 0) { st[0] = 0; return 0; }
+    st[n] = 0;
+    return 1;
+}
+
+void leseStart() {
+    scopy(startTag, startStd);
+    if (leseStatus() == 0) { return; }
+    int p = strFind(st, "\"start\":\"");
+    if (p < 0) { return; }
+    strSub(dTmp, st, p + 9, 10);
+    if (datumOk(dTmp) == 1) { scopy(startTag, dTmp); }
+}
+
+int slot0Aktiv() {
+    if (leseStatus() == 0) { return 0; }
+    if (strFind(st, "\"aktiv\":1") >= 0) { return 1; }
+    return 0;
+}
+
+void leseStand() {
+    bis[0] = 0;
+    int h = fileOpen("/smgw_boerse_stand3.txt", 0);
+    if (h < 0) { return; }
+    int n = fileRead(h, W, 100);
+    fileClose(h);
+    if (n < 14) { W[0] = 0; return; }
+    W[n] = 0;
+    int p = strFind(W, "bis ");
+    if (p >= 0) { strSub(zeile, W, p + 4, 10); if (datumOk(zeile) == 1) { scopy(bis, zeile); } }
+    W[0] = 0;
+}
+
+void schreibeStand() {
+    int h = fileOpen("/smgw_boerse_stand3.txt", 1);
+    if (h < 0) { return; }
+    sprintf(W, "bis %s\n", bis);
+    fileWrite(h, W, strlen(W));
+    fileClose(h);
+}
+
+void setzeGrenze() {
+    int j = atoi(startTag);
+    if (j < tasm_year - 1) { j = tasm_year - 1; }
+    sprintf(grenze, "%04d-01-01", j);
+}
+
+void aufraeumen() {
+    int y = tasm_year - 12;
+    while (y <= tasm_year - 7) {             // v006: sieben Jahre behalten
+        int m = 1;
+        while (m <= 12) {
+            sprintf(fn, "/smgw_boerse_%04d-%02d.txt", y, m);
+            if (fileExists(fn) == 1) {
+                fileDelete(fn);
+                sprintf(W, "SMG-Boerse: %s geloescht (aelter als sieben Jahre)", fn);
+                addLog(W);
+            }
+            m++;
+        }
+        y++;
+    }
+    if (bis[0] != 0 && strcmp(bis, grenze) < 0) { bis[0] = 0; schreibeStand(); }
+}
+
+void setFehler(char t[]) {
+    scopy(fehler, t);
+    timeStamp(fehlerZeit);
+    sprintf(W, "SMG-Boerse: %s", fehler);
+    addLog(W);
+}
+
+// ---------- Ortszeit aus unix-Sekunden (Deutschland) ----------
+int letzterSonntag(int y, int mon) {          // 01:00 UTC des letzten Sonntags (Maerz/Oktober haben 31 Tage)
+    sprintf(dTmp2, "%04d-%02d-31T01:00:00", y, mon);
+    int s = timeToSecs(dTmp2);
+    int tage = s / 86400;
+    int wd = (tage + 4) % 7;                   // 1970-01-01 war ein Donnerstag -> 0 = Sonntag
+    return s - wd * 86400;
+}
+void ortszeit(int t) {                         // -> zeile "JJJJ-MM-TT HH:MM"
+    secsToTime(dTmp2, t);
+    int y = atoi(dTmp2);
+    if (y != cacheJ) { sBeg = letzterSonntag(y, 3); sEnd = letzterSonntag(y, 10); cacheJ = y; }
+    int off = 3600;
+    if (t >= sBeg && t < sEnd) { off = 7200; }
+    secsToTime(dTmp2, t + off);
+    strSub(zeile, dTmp2, 0, 10);
+    strSub(uhr, dTmp2, 11, 5);
+    sprintf(dTmp2, "%s %s", zeile, uhr);
+    scopy(zeile, dTmp2);
+}
+
+// ---------- heruntergeladene Datei zeichenweise lesen ----------
+int naechstes() {
+    if (bufP >= bufN) {
+        bufN = fileRead(dlH, buf, 1024);
+        bufP = 0;
+        if (bufN <= 0) { bufN = 0; return -1; }
+    }
+    int c = buf[bufP];
+    bufP++;
+    return c;
+}
+char muster[24];       // v004: Suchtext global (fester Text als Argument wurde am Geraet nicht zeichenweise gelesen)
+int sucheMuster() {                            // 1 = gefunden (Lesezeiger steht danach), 0 = Dateiende
+    int k = 0;
+    int L = strlen(muster);
+    int c = naechstes();
+    while (c >= 0) {
+        if (c == muster[k]) { k++; if (k == L) { return 1; } }
+        else { k = 0; if (c == muster[0]) { k = 1; } }
+        c = naechstes();
+    }
+    return 0;
+}
+
+// Monat monA..monE holen und /smgw_boerse_JJJJ-MM.txt neu schreiben;
+// 1 = ok, 0 = noch nicht veroeffentlicht (leer), -1 = Fehler, -2 = zu viele Anfragen
+int holeMonat() {
+    sprintf(url, "https://api.energy-charts.info/price?bzn=DE-LU&start=%s&end=%s", monA, monE);
+    tcpConnectTimeout(8000);
+    int stc = fileDownload("/smgw_boerse_dl.json", url);
+    tcpConnectTimeout(0);
+    int gr = fileSize("/smgw_boerse_dl.json");
+    if (stc == 429) { return -2; }
+    if (stc != 200) { sprintf(W, "Abruf %s fehlgeschlagen (HTTP %d, %d Byte)", monA, stc, gr); setFehler(W); return -1; }
+    dlH = fileOpen("/smgw_boerse_dl.json", 0);
+    if (dlH < 0) { setFehler("Download-Datei nicht lesbar"); return -1; }
+    bufN = 0; bufP = 0;
+    sprintf(muster, "%s", "\"unix_seconds\":[");
+    if (sucheMuster() == 0) {
+        fileClose(dlH); dlH = -1;
+        if (gr < 200) { return -2; }           // z. B. "Too Many Requests" als Text
+        sprintf(W, "Antwort %s ohne Zeitstempel (%d Byte)", monA, gr); setFehler(W); return -1;
+    }
+    nU = 0;
+    int v = 0; int hat = 0;
+    int c = naechstes();
+    while (c >= 0 && c != ']') {
+        if (c >= '0' && c <= '9') { v = v * 10 + (c - '0'); hat = 1; }
+        if (c == ',') { if (hat == 1 && nU < 3200) { uts[nU] = v; nU++; } v = 0; hat = 0; }
+        c = naechstes();
+    }
+    if (hat == 1 && nU < 3200) { uts[nU] = v; nU++; }
+    if (nU == 0) { fileClose(dlH); dlH = -1; return 0; }
+    sprintf(muster, "%s", "\"price\":[");
+    if (sucheMuster() == 0) { fileClose(dlH); dlH = -1; sprintf(W, "Antwort %s ohne Preise", monA); setFehler(W); return -1; }
+    strSub(dTmp, monA, 0, 7);
+    sprintf(fn, "/smgw_boerse_%s.txt", dTmp);
+    int h = fileOpen(fn, 1);
+    if (h < 0) { fileClose(dlH); dlH = -1; sprintf(W, "%s nicht schreibbar", fn); setFehler(W); return -1; }
+    int i = 0; int k = 0;
+    c = naechstes();
+    while (c >= 0 && i < nU) {
+        if (c == ',' || c == ']') {
+            wert[k] = 0;
+            if (k > 0 && wert[0] != 'n') {             // "null" auslassen
+                ortszeit(uts[i]);
+                sprintf(W, "%s\t%s\n", zeile, wert);
+                fileWrite(h, W, strlen(W));
+            }
+            i++; k = 0;
+            if (c == ']') { i = nU; }
+        } else {
+            if (c != ' ' && k < 20) { wert[k] = c; k++; }
+        }
+        c = naechstes();
+    }
+    fileClose(h);
+    fileClose(dlH); dlH = -1;
+    anzLetzt = nU;
+    // letzter vollstaendig gelieferter Tag: Tag des letzten Werts, wenn dieser 23:45 ist, sonst der Vortag
+    ortszeit(uts[nU - 1]);
+    strSub(letzterTag, zeile, 0, 10);
+    if (strcmp(uhr, "23:45") != 0) { tagPlus(letzterTag, letzterTag, -1); }
+    return 1;
+}
+
+void TaskLoop() {
+    delay(1000);
+    if (tasm_net == 0) { return; }
+    if (tasm_uptime < 150) { return; }
+    if (tasm_year < 2026) { return; }
+    if (tasm_uptime < nextTry) { return; }
+    nextTry = tasm_uptime + 60;
+    if (slot0Aktiv() == 1) { return; }
+    timeStamp(dTmp);
+    strSub(heute, dTmp, 0, 10);
+    tagPlus(morgen, heute, 1);
+    if (tasm_hour * 60 + tasm_minute >= 14 * 60) { scopy(ziel, morgen); } else { scopy(ziel, heute); }   // Folgetag ab 14:00 (Andreas)
+    setzeGrenze();
+    if (strcmp(loeschTag, heute) != 0) {
+        aufraeumen();
+        if (bis[0] != 0 && strcmp(loeschTag, "") != 0) {
+            // neuer Tag: laufenden Monat neu holen (ab dem 1. des Monats von "heute")
+            sprintf(monA, "%s", heute); monA[8] = '0'; monA[9] = '1'; monA[10] = 0;   // nicht dTmp: tagPlus benutzt dTmp selbst
+            tagPlus(bis, monA, -1);
+            if (strcmp(bis, grenze) < 0) { bis[0] = 0; }
+        }
+        scopy(loeschTag, heute);
+    }
+    // naechster Monat: ab bis+1 (bzw. grenze), auf den Monatsanfang gesetzt, Ende = Monatsende oder ziel
+    if (bis[0] == 0) { scopy(monA, grenze); } else { tagPlus(monA, bis, 1); }
+    if (strcmp(monA, ziel) > 0) { return; }            // alles da
+    monA[8] = '0'; monA[9] = '1'; monA[10] = 0;        // ganzen Monat neu (Datei wird komplett geschrieben)
+    if (strcmp(monA, grenze) < 0) { scopy(monA, grenze); }
+    int jj = atoi(monA);
+    strSub(dTmp, monA, 5, 2);
+    int mm = atoi(dTmp);
+    int ml = 31;
+    if (mm == 4 || mm == 6 || mm == 9 || mm == 11) { ml = 30; }
+    if (mm == 2) { ml = 28; if (jj % 4 == 0) { ml = 29; } }
+    sprintf(monE, "%04d-%02d-%02d", jj, mm, ml);
+    if (strcmp(monE, ziel) > 0) { scopy(monE, ziel); }
+    int r = holeMonat();
+    if (r == 1) {
+        scopy(bis, monE);
+        if (strcmp(letzterTag, monE) < 0) { scopy(bis, letzterTag); }   // z. B. Folgetag noch nicht veroeffentlicht
+        if (strcmp(bis, grenze) < 0) { bis[0] = 0; }
+        schreibeStand();
+        timeStamp(okZeit);
+        fehler[0] = 0;
+        sprintf(W, "SMG-Boerse: %s bis %s gespeichert (%d Werte)", monA, bis, anzLetzt);
+        addLog(W);
+        nextTry = tasm_uptime + 20;                    // naechster Monat in 20 s
+        if (strcmp(bis, monE) < 0) { nextTry = tasm_uptime + 900; }   // fehlt etwas am Ende: erst in 15 min wieder
+        return;
+    }
+    if (r == -2) {
+        if (strFind(fehler, "zu viele") < 0) { setFehler("energy-charts: zu viele Anfragen - Pause 15 min"); }
+        nextTry = tasm_uptime + 900;
+        return;
+    }
+    if (r == 0) {                                      // keine Werte im Zeitraum
+        nextTry = tasm_uptime + 900;
+        return;
+    }
+    nextTry = tasm_uptime + 600;
+}
+
+void sendeDatei(char f[]) {
+    int h = fileOpen(f, 0);
+    if (h < 0) { return; }
+    int n = fileRead(h, W, 1000);
+    while (n > 0) {
+        W[n] = 0;
+        webSend(W);
+        n = fileRead(h, W, 1000);
+    }
+    fileClose(h);
+}
+
+void WebOn() {
+    int h = webHandler();
+    if (h == 1) { webSendFile("/smgw_kosten.html"); return; }
+    if (h == 2) {
+        char na[16];
+        int n = webArg("n", na);
+        if (strcmp(na, "tarif") == 0) { sendeDatei("/smgw_tarif.json"); return; }
+        if (strcmp(na, "status") == 0) {
+            sprintf(W, "{\"bis\":\"%s\",\"von\":\"%s\",\"grenze\":\"%s\",\"start\":\"%s\",\"ok\":\"%s\",\"fehler\":\"%s\",\"fehlerzeit\":\"%s\",\"version\":\"v006\"}",
+                bis, grenze, grenze, startTag, okZeit, fehler, fehlerZeit);
+            webSend(W);
+            return;
+        }
+        if (n != 7 || na[4] != '-') { return; }
+        for (int i = 0; i < 7; i++) {
+            if (i != 4 && (na[i] < '0' || na[i] > '9')) { return; }
+        }
+        sprintf(fn, "/smgw_boerse_%s.txt", na);
+        sendeDatei(fn);
+        return;
+    }
+}
+
+int main() {
+    fehler[0] = 0; fehlerZeit[0] = 0; okZeit[0] = 0; loeschTag[0] = 0; grenze[0] = 0;
+    leseStart();
+    leseStand();
+    webOn(1, "/smgwkosten");
+    webOn(2, "/smgwb");
+    sprintf(W, "SMG-Kosten: v006 bereit, Boerse bis '%s' (Monatsabruf), Messung ab %s", bis, startTag);
+    addLog(W);
+    return 0;
+}

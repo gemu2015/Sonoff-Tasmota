@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Stromkosten</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2234%22%20r%3D%2220%22%20fill%3D%22none%22%20stroke%3D%22%2337c871%22%20stroke-width%3D%226%22%2F%3E%3Cg%20transform%3D%22translate(32%2034)%20scale(1.5)%22%3E%3Cpath%20d%3D%22M2-9L-5%201H0L-2%209L6-2H1Z%22%20fill%3D%22%2337c871%22%2F%3E%3C%2Fg%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2213%22%20r%3D%2212%22%20fill%3D%22%23f5c518%22%2F%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2249%22%20r%3D%2212%22%20fill%3D%22%2342a5f5%22%2F%3E%3Ccircle%20cx%3D%2252%22%20cy%3D%2249%22%20r%3D%2212%22%20fill%3D%22%23ff9800%22%2F%3E%3C%2Fsvg%3E">   <!-- v010 07.11.2026 (Andreas): Logo im Browser-Tab wie HEMS, Steuerbox, SteuVE -->
-<!-- smgw_kosten.html v020 (10.11.2026, Andreas): Stromkosten aus den amtlichen 15-Minuten-Zaehlerstaenden des SMGW-Lesers.
+<!-- smgw_kosten.html v038 (11.11.2026, Andreas): Stromkosten aus den amtlichen 15-Minuten-Zaehlerstaenden des SMGW-Lesers.
      Gehoert auf die SD-Karte (wie smgw.html, auch als .gz); aufgerufen ueber /smgwkosten (slot2-smgwkosten).
      Nachrechnung ohne Gewaehr - verbindlich ist allein die Rechnung des Lieferanten. Design by meierchen006. -->
 <style>
@@ -160,7 +160,7 @@ table.matrix td.best{background:rgba(12,163,12,.18);outline:2px solid var(--good
 .sub.tasblau{color:var(--ink);font-weight:600}
 .seitenwahl{margin-left:auto;display:inline-flex;gap:6px;align-self:center}
 .seitenwahl a{background:var(--surface);color:var(--ink-2);border:1px solid var(--ring);border-radius:8px;padding:6px 14px;font-size:13px;text-decoration:none}
-.seitenwahl a.on{background:#a5e8a8;color:#14531a;border-color:#a5e8a8;font-weight:600}
+.seitenwahl a.sg{background:#e2f6e3;color:#14531a;border-color:#a5e8a8}.seitenwahl a.sk{background:#ffe9d6;color:#8a3c00;border-color:#ffd3ad}.seitenwahl a.sg.on{background:#a5e8a8;border-color:#14531a;font-weight:600}.seitenwahl a.sk.on{background:#ffd3ad;border-color:#8a3c00;font-weight:600}.seitenwahl a:not(.on){opacity:.75}.seitenwahl a:not(.on):hover{opacity:1}table.matrix td.best{outline-offset:-2px}table.matrix caption.vZeit{caption-side:top;text-align:left;padding:4px 8px 10px;font-size:18px;color:var(--ink)}table.matrix caption.vZeit b{font-weight:700}table.matrix caption.vZeit span{font-weight:600}table.matrix caption.vZeit .vBasisTxt{color:#8a3c00;background:#ffd3ad;border-radius:8px;padding:1px 10px}table.matrix caption.vZeit .note{font-size:12px;margin-top:2px;font-weight:normal}table.matrix tr.vAbschn td{text-align:left;padding:18px 8px 8px;font-size:18px;color:var(--ink);border-bottom:2px solid var(--ring)}table.matrix tr.vAbschn:first-child td{padding-top:4px}table.matrix tr.vAbschn td span{font-weight:600}table.matrix tr.vAbschn .note{font-size:12px;margin-top:2px;font-weight:normal}table.matrix tr.vAbschn .vBasisTxt{color:#8a3c00;background:#ffd3ad;border-radius:8px;padding:1px 10px}table.matrix tr.vjZeile td{opacity:.62;font-style:italic}table.matrix tr.vjZeile .vk{font-size:16px}table.matrix tr.vjZeile td:first-child{color:var(--ink-2)}.jahre{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 12px}.jahre button{font:inherit;font-size:16px;font-weight:600;padding:6px 20px;border-radius:10px;border:2px solid var(--ring);background:var(--surface);color:var(--ink-2);cursor:pointer;line-height:1.2}.jahre button .tag{display:block;font-size:11px;font-weight:normal;background:none;color:inherit;padding:0}.jahre button.on{background:#ffd3ad;color:#8a3c00;border-color:#8a3c00}.jahre button.plus{font-size:14px;border-style:dashed}.tbkopf{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:baseline}.tbkopf>b{font-size:18px}.vorlTag{font-size:11px;background:#5a4a12;color:#ffd866;border-radius:999px;padding:1px 8px}.warnbox{border-left:4px solid var(--warn);background:rgba(227,160,8,.10);padding:8px 12px;border-radius:6px;margin:0 0 12px}#tbInhalt .card h2{display:flex;align-items:center;gap:10px}#tbInhalt .card h2 .nr{background:#ffd3ad;color:#8a3c00;border-radius:999px;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;font-size:13px}#tbInhalt .sub{font-weight:600;margin:10px 0 4px;font-size:13px}.tbz{display:grid;grid-template-columns:260px 190px 110px 1fr;gap:10px;align-items:center;padding:5px 0;border-bottom:1px solid var(--ring)}.tbz input:not([type=checkbox]):not([type=radio]),.tbz select{width:190px;box-sizing:border-box}.tbz input[type=number]{text-align:right}.tbz .erg{text-align:right}@media(max-width:800px){.tbz{grid-template-columns:1fr 1fr}}#tbInhalt table.fen{width:auto;margin:0 auto}#tbInhalt table.fen td,#tbInhalt table.fen th{padding:3px 12px;text-align:center}.tag24{display:grid;grid-template-columns:repeat(96,1fr);height:22px;border-radius:6px;overflow:hidden;border:1px solid var(--ring)}.achse24{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin:2px 0 6px}#tbInhalt>.card,#tbInhalt>.warnbox{margin:0 0 14px}.vWahl{align-items:center;gap:8px 12px}.vWahl .vwl{font-weight:600}#vVerb{min-width:340px}.blaettern{display:inline-flex;align-items:center;gap:8px;white-space:nowrap;flex:0 0 auto}.j14a{margin:12px 0}.z14{display:grid;grid-template-columns:280px 1fr 180px;gap:10px;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--ring)}.z14 b{text-align:right;font-size:16px}@media(max-width:800px){.z14{grid-template-columns:1fr}}.vKBox{border:1px solid var(--ring);border-radius:12px;padding:10px 12px;margin:10px 0}.vKKopf{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center}.vKBox.zu #vKarten{display:none}.vKBox #vKarten{margin-top:10px}body.druck .vKBox.zu{display:none}body.druck .vKKopf .note,body.druck .vKKopf button{display:none}table.matrix tr.vpZeile td{background:rgba(227,160,8,.06)}table.matrix tr.aktZeile td:first-child b{color:var(--ink)}.vjSchalter::before{content:"☐ "}.vjSchalter.sel::before{content:"☑ "}.vjTrenn{display:inline-block;width:1px;height:22px;background:var(--ring);margin:0 6px;vertical-align:middle}table.matrix .vDiff{margin-top:2px}.unternav button.on{background:#ffd3ad;color:#8a3c00;border-color:#ffd3ad;font-weight:600}.unternav button.on .note{color:#8a3c00;opacity:.75}.pane .btn.tas:not(.spBtn2){background:#ffd3ad;color:#8a3c00}.btn.sel{background:#ffd3ad;color:#8a3c00;border-color:#ffd3ad}.tabs button[aria-selected="true"]{background:#ffd3ad;color:#8a3c00;border-color:#ffd3ad;font-weight:600}
 .felder label.aus{display:none}
 .angebot.eigen{border-color:var(--good);box-shadow:0 0 0 1px var(--good)}
 table.matrix tr.eigen td:first-child{color:var(--good)}
@@ -182,7 +182,7 @@ table.matrix td.meins{outline:2px solid #1fa3ec;outline-offset:-2px}
 .m1tab td{border:0;padding:3px 10px 3px 0;text-align:left;font-size:13px}
 table.matrix .meinstag{display:inline-block;margin-top:3px;font-size:11px;background:#1fa3ec;color:#fff;border-radius:999px;padding:0 8px}
 .msg{background:var(--surface-2);border:1px dashed var(--muted);color:var(--ink-2);border-radius:8px;padding:8px 12px;font-size:13px;margin-bottom:12px;display:none}
-#druckKopf{display:none}@page{size:A4 portrait;margin:10mm}body.druck{background:#fff}body.druck header,body.druck nav.tabs,body.druck .pane .nav,body.druck .msg,body.druck .druckBtn,body.druck .pane button,body.druck .spMsg2,body.druck #ergWahl,body.druck .pane input[type=checkbox],body.druck .pane input[type=radio]{display:none!important}body.druck .wrap{max-width:none;width:1000px;margin:0;padding:0}body.druck #druckKopf{display:flex;justify-content:space-between;align-items:baseline;gap:12px;border-bottom:2px solid #1fa3ec;padding:0 0 6px;margin:0 0 10px;font-size:13px;color:#52514e}body.druck #druckKopf b{font-size:20px;color:#0b0b0b;margin-right:12px}body.druck .tblwrap{overflow:visible}body.druck .card,body.druck section,body.druck table{break-inside:avoid}body.druck .pane input,body.druck .pane select{border:0;background:transparent;color:inherit;padding:0;-webkit-appearance:none;appearance:none;-moz-appearance:textfield}body.druck .pane input::-webkit-outer-spin-button,body.druck .pane input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}body.druck *{-webkit-print-color-adjust:exact;print-color-adjust:exact}body.druck .unterkopf,body.druck .angebot:not(.aktiv),body.druck .angebot h3 label{display:none!important}body.druck input::-webkit-calendar-picker-indicator{display:none}body.druck input::placeholder{color:transparent}body.druck .g3v{grid-template-columns:repeat(var(--dsp,3),minmax(0,1fr))!important}body.druck .g2{grid-template-columns:repeat(2,minmax(0,1fr))!important}body.druck .g4{grid-template-columns:repeat(4,minmax(0,1fr))!important}@media print{body.druck .wrap{zoom:var(--dz,1)}}
+#druckKopf{display:none}@page{size:A4 portrait;margin:10mm}body.druck{background:#fff}body.druck header,body.druck nav.tabs,body.druck .pane .nav,body.druck .msg,body.druck .druckBtn,body.druck .pane button,body.druck .spMsg2,body.druck #ergWahl,body.druck .pane input[type=checkbox],body.druck .pane input[type=radio]{display:none!important}body.druck .wrap{max-width:none;width:1000px;margin:0;padding:0}body.druck #druckKopf{display:flex;justify-content:space-between;align-items:baseline;gap:12px;border-bottom:2px solid #1fa3ec;padding:0 0 6px;margin:0 0 10px;font-size:13px;color:#52514e}body.druck #druckKopf b{font-size:20px;color:#0b0b0b;margin-right:12px}body.druck #druckKopf{flex-wrap:wrap}body.druck #druckKopf .dkQuelle{flex-basis:100%;font-size:12px;color:#52514e}body.druck .tblwrap{overflow:visible}body.druck .card,body.druck section,body.druck table{break-inside:avoid}body.druck .pane input,body.druck .pane select{border:0;background:transparent;color:inherit;padding:0;-webkit-appearance:none;appearance:none;-moz-appearance:textfield}body.druck .pane input::-webkit-outer-spin-button,body.druck .pane input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}body.druck *{-webkit-print-color-adjust:exact;print-color-adjust:exact}body.druck .unterkopf,body.druck .angebot:not(.aktiv),body.druck .angebot h3 label{display:none!important}body.druck input::-webkit-calendar-picker-indicator{display:none}body.druck input::placeholder{color:transparent}body.druck .g3v{grid-template-columns:repeat(var(--dsp,3),minmax(0,1fr))!important}body.druck .g2{grid-template-columns:repeat(2,minmax(0,1fr))!important}body.druck .g4{grid-template-columns:repeat(4,minmax(0,1fr))!important}@media print{body.druck .wrap{zoom:var(--dz,1)}}
 </style>
 </head>
 <body>
@@ -205,15 +205,16 @@ table.matrix .meinstag{display:inline-block;margin-top:3px;font-size:11px;backgr
   <button role="tab" data-t="monat" aria-selected="true">Monatsrechnung</button>
   <button role="tab" data-t="jahr">Abrechnungsjahr</button>
   <button role="tab" data-t="frei">Zeitraum frei</button>
-  <span class="seitenwahl"><a href="/smgw">SMGW-Leser</a><a class="on" href="/smgwkosten">Stromkosten</a></span>
+  <span class="seitenwahl"><a class="sg" href="/smgw">SMGW-Leser</a><a class="sk on" href="/smgwkosten">Stromkosten</a></span>
   <button role="tab" data-t="tarif" class="rechts">Tarife &amp; Preise</button>
+  <button role="tab" data-t="einsp">Einspeisevergütung</button>
   <button role="tab" data-t="vergl">Tarifvergleich</button>
 </nav>
 
 <!-- ============ TAG ============ -->
 <div class="pane" data-p="tag">
   <div class="nav">
-    <button id="tPrev">◀</button><span class="lbl" id="tLbl"></span><button id="tNext">▶</button>
+    <span class="blaettern"><button id="tPrev">◀</button><span class="lbl" id="tLbl"></span><button id="tNext">▶</button></span>
     <input type="date" id="tDat"><button id="tGest">heute</button><button class="btn" id="tCsv">Viertelstunden als .csv</button>
   </div>
   <div class="grid g4" id="tKacheln"></div>
@@ -237,7 +238,7 @@ table.matrix .meinstag{display:inline-block;margin-top:3px;font-size:11px;backgr
 <!-- ============ MONATSRECHNUNG ============ -->
 <div class="pane on" data-p="monat">
   <div class="nav">
-    <button id="mPrev">◀</button><span class="lbl" id="mLbl"></span><button id="mNext">▶</button>
+    <span class="blaettern"><button id="mPrev">◀</button><span class="lbl" id="mLbl"></span><button id="mNext">▶</button></span>
     <button id="mAkt">akt. Monat</button><button class="btn" id="mCsv">Viertelstunden als .csv</button><button class="btn druckBtn" data-druck="monat" title="Druckdialog öffnen – dort „Als PDF speichern“ wählen; passt auf eine A4-Seite">Als PDF drucken</button>
   </div>
   <div class="grid g4" id="mKacheln"></div>
@@ -265,11 +266,12 @@ table.matrix .meinstag{display:inline-block;margin-top:3px;font-size:11px;backgr
     <span class="note">Abschlag je Monat</span><input type="text" inputmode="decimal" id="jAbschl" value="85,50" style="width:90px;text-align:right" title="Betrag mit Cent, z. B. 85,50"> <span class="note">€</span>
     <span class="note">Abschläge im Jahr</span><input type="number" id="jAnz" value="11" min="1" max="12" step="1" style="width:56px" title="Anzahl Abschläge je Abrechnungsjahr (1–12); fehlende entfallen in den letzten Monaten"><span class="note spMsg2" style="margin-left:8px"></span><button class="btn tas spBtn2" style="background:#2e7d32">Speichern</button>
     <span style="flex:1"></span>
-    <button id="jPrev">◀</button><span class="lbl" id="jLbl"></span><button id="jNext">▶</button><button class="btn druckBtn" data-druck="jahr" title="Druckdialog öffnen – dort „Als PDF speichern“ wählen; passt auf eine A4-Seite">Als PDF drucken</button>
+    <span class="blaettern"><button id="jPrev">◀</button><span class="lbl" id="jLbl"></span><button id="jNext">▶</button></span><button class="btn druckBtn" data-druck="jahr" title="Druckdialog öffnen – dort „Als PDF speichern“ wählen; passt auf eine A4-Seite">Als PDF drucken</button>
   </div>
   <div class="grid g4" id="jKacheln"></div>
   <div id="jSaldo"></div>
   <div id="jAbschlag"></div>
+  <div id="j14a"></div>
   <section class="card">
     <h2>Alle Monate des Abrechnungsjahres</h2>
     <div class="bars" id="jBars"></div><div class="achse" id="jAchse"></div>
@@ -300,98 +302,36 @@ table.matrix .meinstag{display:inline-block;margin-top:3px;font-size:11px;backgr
 
 <!-- ============ TARIFE & PREISE ============ -->
 <div class="pane" data-p="tarif">
-  <div class="unternav">
-    <button data-u="jahr" class="on">Netzentgelte, Abgaben, Steuern <span class="note">ab Datum</span></button>
-    <button data-u="lief">Lieferant (Bezug) <span class="note">ab Datum</span></button>
-    <button data-u="einsp">Einspeisung <span class="note">ab Datum</span></button>
-    <span style="flex:1"></span><span class="note spMsg2" id="spMsg" style="align-self:center"></span><button class="btn tas spBtn2" id="spBtn" style="background:#2e7d32;font-size:13px;padding:6px 16px">Speichern</button>
-  </div>
-  <div class="erkl" id="uErkl"></div>
+  <!-- v032: ein Tarifblatt je Jahr -->
+  <div class="jahre" id="tbJahre"></div>
+  <div id="tbInhalt"></div>
+  <div class="note" style="margin-top:4px">Gespeichert als <code>/smgw_tarif.json</code> auf der SD-Karte des Lesers (Dateiport 83, danach zurückgelesen und verglichen). Änderungen rechnen sofort mit; ohne Speichern gehen sie beim Neuladen verloren.
+    Grundpreis, Messstellenbetrieb und §14a-Pauschale je Monat:
+    <label><input type="radio" name="gpm" value="monat"> gleich – Jahresbetrag ÷ 12</label>
+    <label><input type="radio" name="gpm" value="tag"> tagesgenau – Jahresbetrag ÷ 365 × Tage</label></div>
+</div>
 
-  <!-- Abschnitte ab Datum (beliebiger Tag) -->
-  <div class="upane on" data-u="jahr">
-    <div class="nav"><span class="note">gültig ab:</span><span id="yKnoepfe" class="zeile"></span></div>
-    <div class="nav"><span class="note">Neuer Abschnitt – übernimmt alle Werte vom Abschnitt davor, dann nur das Geänderte eintragen:</span>
-      <input type="date" id="yNeuDat"><button class="btn tas" id="yNeuAnl">+ Änderung ab diesem Tag</button>
-      <button class="btn" id="yNeu">+ Folgejahr (01.01.)</button></div>
-    <div id="yInfo"></div>
-    <div class="grid g2">
-      <div class="card">
-        <h3>Netzentgelt Standard (24/7)</h3>
-        <table><tr><td>Arbeitspreis Netz netto</td><td><input type="number" data-y="ne" step="0.0001"></td><td class="e">ct/kWh</td></tr></table>
-        <p class="note">Aus dem Preisblatt des Netzbetreibers (Netzentgelte für Haushalt/SLP mit Leistungsmessung nein).</p>
-        <h3 style="margin-top:14px">Steuern</h3>
-        <table>
-          <tr><td>Stromsteuer</td><td><input type="number" data-y="stk" step="0.0001"></td><td class="e">ct/kWh</td></tr>
-          <tr><td>Mehrwertsteuer</td><td><input type="number" data-y="mwst" step="0.1"></td><td class="e">%</td></tr>
-        </table>
-      </div>
-      <div class="card">
-        <h3>Abgaben &amp; Umlagen im Strompreis (netto)</h3>
-        <table id="yAbg"></table>
-        <div class="zeile" style="margin-top:6px"><button class="btn" id="yAbgNeu">+ Abgabe / Umlage</button><span class="note">Name frei wählbar, × entfernt. So steht es auf der Rechnung bzw. im Preisblatt.</span></div>
-      </div>
-    </div>
-    <section class="card">
-      <h3>§14a EnWG – Werte des Netzbetreibers für diesen Abschnitt</h3>
-      <div class="note">Hier stehen nur die Preise aus dem Preisblatt. <b>Ob</b> Modul 1 bzw. Modul 3 bei dir gilt – oder keines –, ist deine Wahl und wird unter „Lieferant (Bezug)“ → „§14a gebucht“ eingestellt (auch ab einem bestimmten Tag).</div>
-      <div class="box m1">
-        <b>Modul 1</b> – pauschale Netzentgelt-Reduzierung <span class="tag" id="yM1Tag"></span>
-        <table class="m1tab">
-          <tr><td><label><input type="radio" name="m1art" value="auto"> nach Formel</label></td>
-              <td class="note">80 € brutto + 3.750 kWh × Netzentgelt brutto × 0,2 (BNetzA)</td>
-              <td>→ <span class="wert" id="yM1fn"></span> netto = <span class="wert" id="yM1fb"></span> brutto je Jahr</td></tr>
-          <tr><td><label><input type="radio" name="m1art" value="fest"> fester Betrag laut Preisblatt</label></td>
-              <td><input type="number" id="yM1fest" step="0.01" style="width:100px"> <span class="note">€/Jahr netto</span></td>
-              <td>→ <span class="wert" id="yM1n"></span> netto = <span class="wert" id="yM1b"></span> brutto je Jahr</td></tr>
-        </table>
-        <div class="note">Gerechnet wird mit der angewählten Zeile, tageweise gutgeschrieben.</div>
-      </div>
-      <div class="box m3">
-        <b>Modul 3</b> – zeitvariable Netzentgelte (nur zusammen mit Modul 1) <span class="tag" id="yM3Tag"></span>
-        <table id="yM3Tab"></table>
-        <h3 style="margin-top:10px">Zeitfenster <span class="note">(alles außerhalb = Standard)</span></h3>
-        <table id="yFenster"></table>
-        <div class="zeile" style="margin-top:6px"><button class="btn" id="yFNeu">+ Zeitfenster</button>
-          <span class="note">gilt in den Quartalen:</span><span id="yQuart" class="zeile"></span><span class="note">(sonst überall Standard)</span></div>
-        <div class="strip" id="yStrip"></div>
-        <div class="achse2"><span style="left:0;transform:none">0</span><span style="left:25%">6</span><span style="left:50%">12</span><span style="left:75%">18</span><span style="left:100%;transform:translateX(-100%)">24</span></div>
-        <div id="yFMsg" class="note"></div>
-      </div>
-    </section>
-  </div>
-
-  <!-- Lieferant -->
-  <div class="upane" data-u="lief">
-    <div class="abinfo"><span class="note">Grundpreis, Messstellenbetrieb und §14a-Pauschale je Monat:</span>
-      <label><input type="radio" name="gpm" value="monat"> gleich – Jahresbetrag ÷ 12</label>
-      <label><input type="radio" name="gpm" value="tag"> tagesgenau – Jahresbetrag ÷ 365 × Tage</label>
-      <span class="note">Bei einem Wechsel mitten im Monat wird der Monat nach Tagen aufgeteilt.</span></div>
-    <div id="lListe"></div>
-    <div class="zeile" style="margin-top:12px"><span class="note">Neuer Abschnitt (Tarifwechsel, Preisanpassung) – übernimmt den Abschnitt davor:</span><input type="date" id="lNeuDat"><button class="btn tas" id="lNeuAnl">+ ab diesem Tag</button></div>
-  </div>
-
-  <!-- Einspeisung -->
-  <div class="upane" data-u="einsp">
-    <div id="eListe"></div>
-    <div class="zeile" style="margin-top:12px"><span class="note">Neuer Abschnitt – übernimmt den Abschnitt davor:</span><input type="date" id="eNeuDat"><button class="btn tas" id="eNeuAnl">+ ab diesem Tag</button></div>
-  </div>
-
-  
-  <div class="note" style="margin-top:4px">Gespeichert als <code>/smgw_tarif.json</code> auf der SD-Karte des Lesers (Dateiport 83, danach zurückgelesen und verglichen). Änderungen rechnen sofort mit; ohne Speichern gehen sie beim Neuladen verloren.</div>
+<!-- v032: Einspeiseverguetung (gilt ueber alle Jahre) -->
+<div class="pane" data-p="einsp">
+  <div class="zeile" style="margin-bottom:8px"><span class="note">Vom Verteilnetzbetreiber – hängt an der Anlage, meist fest für 20 Jahre. Ändert sich die Anlage (Erweiterung, Verkleinerung), hier einen neuen Abschnitt anlegen.</span>
+    <span style="flex:1"></span><span class="note spMsg2"></span><button class="btn tas spBtn2" style="background:#2e7d32;font-size:13px;padding:6px 16px">Speichern</button></div>
+  <div id="eListe"></div>
+  <div class="zeile" style="margin-top:12px"><span class="note">Neuer Abschnitt – übernimmt den Abschnitt davor:</span><input type="date" id="eNeuDat"><button class="btn tas" id="eNeuAnl">+ ab diesem Tag</button></div>
 </div>
 
 <!-- ============ VERGLEICH: dein Tarif + je 2 Angebote Festpreis / Zeitvariabel / Dynamisch ============ -->
 <div class="pane" data-p="vergl">
   <div class="card">
     <h2>Tarifvergleich – dein tatsächlicher Verbrauch mit deinem Tarif und mit Angeboten anderer Anbieter</h2>
-    <p class="note">Gerechnet wird nur mit gemessenem Verbrauch je Viertelstunde und den Gebühren der Tage mit Messwerten. Netzentgelte, Abgaben und Steuern aus „Tarife &amp; Preise“ (für alle gleich). Börsenpreise: Day-Ahead DE-LU, Bundesnetzagentur | SMARD.de über energy-charts, CC BY 4.0.</p>
-    <div class="nav" style="margin-top:6px"><span class="note">Basis:</span>
-      <button class="btn" data-vb="jahr">dieses Jahr bis heute</button><button class="btn" data-vb="vorjahr">Vorjahr</button><button class="btn" data-vb="12">letzte 12 Monate</button>
-      <span class="note" style="margin-left:8px">oder frei:</span><select id="vVon"></select><span class="note">bis</span><select id="vBis"></select>
+    <p class="note">Gerechnet wird mit gemessenem Verbrauch je Viertelstunde. Alle Zeilen nehmen denselben Verbrauch, jede Zeile die Preise ihres Jahres aus „Tarife &amp; Preise“. Börsenpreise: Day-Ahead DE-LU, Bundesnetzagentur | SMARD.de über energy-charts, CC BY 4.0.</p>
+    <div class="nav vWahl" style="margin-top:6px">
+      <label class="vwl">Verbrauch aus</label><select id="vVerb"></select>
+      <span id="vFrei" style="display:none"><select id="vVon"></select><span class="note"> bis </span><select id="vBis"></select></span>
+      <label class="note" style="display:inline-flex;align-items:center;gap:4px" title="Zeile mit dem Tarif des Vorjahres (mit demselben Verbrauch)"><input type="checkbox" id="vVjC"> Vorjahr <span id="vVjJ"></span></label>
       <label class="note" style="display:inline-flex;align-items:center;gap:4px" title="Tage ohne Messwerte mit gemessenen Tagen auffüllen (Hochrechnung)"><input type="checkbox" id="vSchaetz"> fehlende Tage schätzen</label>
       <span style="flex:1"></span><button class="btn druckBtn" data-druck="vergl" title="Druckdialog öffnen – dort „Als PDF speichern“ wählen; passt auf eine A4-Seite">Als PDF drucken</button><span class="note" id="vNeuMsg"></span><span class="note spMsg2"></span><button class="btn tas spBtn2" style="font-size:13px;padding:6px 16px;background:#2e7d32">Speichern</button><button class="btn tas" id="vNeu" title="mit den aktuellen Eingaben neu rechnen" style="font-size:13px;padding:6px 16px">Neu berechnen</button></div>
-    <div class="grid g3v" id="vKarten"></div>
+    <div class="vKBox" id="vKBox"><div class="vKKopf"><b>Angebote zum Vergleichen</b> <span class="note" id="vKGeb"></span><span style="flex:1"></span><button class="btn" id="vKKnopf"></button><span class="note" id="vKPdf"></span></div>
+      <div class="grid g3v" id="vKarten"></div></div>
     <div class="tblwrap" style="margin-top:12px"><table id="vTab" class="matrix"></table></div>
     <div id="vInfo" class="note" style="margin-top:8px"></div>
   </div>
@@ -403,6 +343,42 @@ table.matrix .meinstag{display:inline-block;margin-top:3px;font-size:11px;backgr
 
 <script>
 'use strict';
+// smgw_kosten.html v038 (11.11.2026): ◀ Datum ▶ (Tag, Monat, Abrechnungsjahr) als feste Gruppe - bricht nur gemeinsam um (Andreas).
+// smgw_kosten.html v037 (11.11.2026): Abrechnungsjahr - Zeile "§14a EnWG - berechneter Vorteil": Modul 1 = Pauschale anteilig ab
+// "gilt ab", Modul 3 = Kosten mit Modul 1 - Kosten mit Modul 1 + 3 (eigene Viertelstunden, Tarifblatt des Jahres), unabhaengig
+// davon, was beim Lieferanten gebucht ist; nicht verfuegbar = leeres "gilt ab". Steht auch im PDF (Andreas).
+// smgw_kosten.html v036 (11.11.2026): Tarifvergleich neu - "Verbrauch aus" (Jahr mit Tagen/kWh, letzte 12 Monate, frei), Zeilen
+// Vorjahr (Haken) -> aktuelles Jahr -> Vorausplanung (Tarifblatt Folgejahr) -> angehakte Angebote; alle mit demselben Verbrauch, jede
+// Zeile mit den Preisen ihres Jahres; Angebote mit den Gebuehren des Vorausplanungsjahres; Angebotskarten auf-/zuklappbar (PDF) (Andreas).
+// smgw_kosten.html v035 (11.11.2026): erst zeigen, dann nachladen - laufendes Jahr zuerst, aeltere Monate und Boersenpreise im
+// Hintergrund; abgeschlossene Monate aus dem Browser-Speicher (IndexedDB), hoechstens einmal am Tag nachgeprueft (Andreas).
+// smgw_kosten.html v034 (11.11.2026): Modul 1 zeigt zusaetzlich den Anteil im Jahr ab "gilt ab" (Tage, brutto/netto, wie gerechnet).
+// smgw_kosten.html v033 (11.11.2026): Zaehlerstaende ab dem ersten Tarifblatt laden (hoechstens 7 Jahre), damit z. B. 2024 rechnet.
+// smgw_kosten.html v032 (11.11.2026): "Tarife & Preise" als Tarifblatt je Jahr (Knoepfe je Jahr, + naechstes Jahr): (1) Lieferant,
+// (2) Netzentgelte/Abgaben/Steuern, (3) §14a mit "Modul 1 gilt ab" / "Modul 3 gilt ab" (vorher ohne das Modul; leer = nicht
+// verfuegbar); Aenderung mitten im Jahr nur innerhalb des Jahres; Einspeiseverguetung eigener Reiter; Zeitfenster "bis"
+// ausschliesslich in Viertelstunden (alte Werte hh:59 werden beim Laden zu hh+1:00) (Andreas).
+// smgw_kosten.html v031 (11.11.2026): Ergaenzung verschwand, weil die Vorjahresdatei mit dem Stand 01.01. 00:00 endet (= Beginn der
+// Ergaenzung) und als "erster Gateway-Wert" galt; jetzt zaehlt erst ein Stand NACH dem Beginn der Ergaenzung.
+// smgw_kosten.html v030 (11.11.2026): mehr als 25 kWh in einer Viertelstunde (= 100 kW) gilt als Sprung (z. B. anderer Nullpunkt
+// beim Uebergang von eigenen Werten zu Gateway-Werten) und wird wie eine Luecke behandelt.
+// smgw_kosten.html v029 (11.11.2026): "Vorjahr" ist ein Schalter (vor "dieses Jahr bis heute"), unabhaengig von der Zeitwahl:
+// an = Zeile mit dem GANZEN Vorjahr (abgeschlossen) ueber deinem Tarif, aus = ohne; "dieses Jahr bis heute" vorausgewaehlt (Andreas).
+// smgw_kosten.html v028 (11.11.2026): "Vorjahr" zeigt EINE Tabelle (dieses Jahr bis heute) und darueber eine blasse Zeile
+// "dein Tarif - Vorjahr" mit den Vorjahreswerten; keine zweite Tabelle (Andreas).
+// smgw_kosten.html v027 (11.11.2026): Zaehlerstaende auch des Vorjahres laden (ab 01.01. Vorjahr, fehlende Monate = leer);
+// Tarifvergleich bei "Vorjahr": oben Block Vorjahr, darunter Block dieses Jahr bis heute - gleiche Angebote, beide Jahre untereinander (Andreas).
+// smgw_kosten.html v026 (11.11.2026): Tarifvergleich - Ueberschrift nennt die gewaehlte Grundlage vorn ("Vorjahr 2025",
+// "Dieses Jahr 2026 bis heute", "Letzte 12 Monate", "Zeitraum frei"), auch in der Meldung ohne Messwerte (Andreas).
+// smgw_kosten.html v025 (11.11.2026): Tarifvergleich - Zeitraum als Ueberschrift ueber der Tabelle (gross, eine Zeile), mit Hinweis
+// "Grundpreis und §14a anteilig fuer diese Tage" (Andreas).
+// smgw_kosten.html v024 (11.11.2026): Tarifvergleich - in jeder Zeile Ersparnis Modul 1 und Modul 1 + 3 gegenueber "ohne §14a",
+// bei Modul 1 + 3 zusaetzlich "davon Modul 3" gegenueber Modul 1 (Variante A); gruener Rahmen "am guenstigsten" nach innen (rechte Linie fehlte) (Andreas).
+// smgw_kosten.html v023 (11.11.2026): Druck/PDF-Kopf nennt die Datenherkunft: amtliche 15-Minuten-Zaehlerstaende des
+// Smart Meter Gateways, bei eingeschalteter Ergaenzung zusaetzlich deren Zeitraum "nicht amtlich" (Andreas).
+// smgw_kosten.html v022 (11.11.2026): Unterreiter, Aktionsknoepfe ("+ Aenderung ab diesem Tag" u.a.) und gewaehlter Abschnitt orange
+// statt Tasmota-blau/gelb; "<- Tasmota" bleibt blau, Speichern gruen (Andreas).
+// smgw_kosten.html v021 (11.11.2026): Seitenfarben - Stromkosten orange (gewaehlter Reiter + Link), SMGW-Leser gruen (Andreas).
 // smgw_kosten.html v020 (10.11.2026): Diagramm "Alle Monate" ins Abrechnungsjahr (dessen 12 Monate, Klick = Monatsrechnung);
 // Monatsrechnung zeigt rechts die Tage des oben gewaehlten Monats (Klick = Tag) (Andreas).
 // smgw_kosten.html v019 (10.11.2026): Druck Tarifvergleich - je Tarifart eine Spalte (Festpreis | Zeitvariabel | Dynamisch,
@@ -485,7 +461,7 @@ const m1Netto = R => R.m1art === 'auto' ? 80 / (1 + R.mwst / 100) + 3750 * R.ne 
 const minH = h => +h.slice(0, 2) * 60 + +h.slice(3);
 function stufeQ(R, t, q) {
   if (!R.quart[Math.floor((+t.slice(5, 7) - 1) / 3)]) return 1;
-  const m = q * 15; for (const f of R.fenster) if (m >= minH(f[0]) && m <= minH(f[1])) return f[2];
+  const m = q * 15; for (const f of R.fenster) if (m >= minH(f[0]) && m < minH(f[1])) return f[2];   // v032: bis ausschliesslich
   return 1;
 }
 
@@ -525,8 +501,11 @@ let GP_MODUS = 'monat';
 const jahrAnteil = x => GP_MODUS === 'monat' ? 1 / 12 / new Date(x.j, x.m + 1, 0).getDate() : 1 / 365;
 let TAG = [];
 function rechneTag(x, ueber) {
-  const L = Object.assign({}, abschnittAm(LIEF, x.t), ueber || {}), R = abschnittAm(REG, x.t), E = abschnittAm(EINSP, x.t), P = preise(L, R), v = viertel(x);
-  const kz = [0, 0, 0], arbZ = [0, 0, 0], pq = [], zq = [], ziq = [], pos = {}, mod3 = L.m1 && L.m3, zeit = L.modus === 'zeit';
+  const L = Object.assign({}, abschnittAm(LIEF, x.t), ueber || {}), R = (ueber && ueber.__R) || abschnittAm(REG, x.t),   // v036: Gebuehren des Zeilenjahres
+    E = abschnittAm(EINSP, x.t), P = preise(L, R), v = viertel(x);
+  const ab_ = (d) => d === '' ? false : !d ? true : R.__mmdd ? x.t.slice(5) >= d.slice(5) : x.t >= d;   // v036: Tarifblatt eines anderen Jahres -> nach Monat/Tag
+  const m1ok = L.m1 && ab_(R.m1ab), m3ok = m1ok && L.m3 && ab_(R.m3ab);   // v032: gilt ab
+  const kz = [0, 0, 0], arbZ = [0, 0, 0], pq = [], zq = [], ziq = [], pos = {}, mod3 = m3ok, zeit = L.modus === 'zeit';
   let boeFehlt = 0;
   const enZ = zeit ? [-1].concat(L.zonen.map((f, i) => i)).reduce((o, i) => (o[i] = enZone(L, i), o), {}) : null;
   for (let q = 0; q < 96; q++) {
@@ -540,7 +519,7 @@ function rechneTag(x, ueber) {
     if (!pos[k]) pos[k] = { name: nm, z: mod3 ? z : -1, dyn: P.dyn, kwh: 0, betrag: 0 };
     pos[k].kwh += v.b[q]; pos[k].betrag += v.b[q] * preis / 100;
   }
-  const arb = arbZ.reduce((a, b) => a + b, 0), tf = jahrAnteil(x), gp = L.gp * tf, msb = L.msb * tf, m1 = L.m1 ? m1Netto(R) * P.mw * tf : 0;
+  const arb = arbZ.reduce((a, b) => a + b, 0), tf = jahrAnteil(x), gp = L.gp * tf, msb = L.msb * tf, m1 = m1ok ? m1Netto(R) * P.mw * tf : 0;
   const kosten = arb + gp + msb - m1, verg = x.ein * E.ev / 100;
   return { x, L, R, E, P, v, kz, arbZ, pq, zq, ziq, pos, boeFehlt, arb, gp, msb, m1, kosten, verg, saldo: kosten - verg, mwst: kosten - kosten / P.mw };
 }
@@ -724,6 +703,21 @@ function zeigeJahr() {
   document.querySelectorAll('#jBars .b[data-i]').forEach(b => b.onclick = () => { mi = +b.dataset.i; document.querySelector('.tabs button[data-t="monat"]').click(); zeigeMonat(); });
   document.getElementById('jTab').innerHTML = t.h; klickMonate('jTab');
   document.getElementById('jHinw').textContent = 'Zeile anklicken = Monatsrechnung öffnen.';
+  // v037: §14a EnWG - berechneter Vorteil im Abrechnungsjahr (Anspruch, unabhaengig von "gebucht")
+  const tage14 = TAGE.filter(x => liste.some(e => e.j === x.j && e.m === x.m));
+  let m1s = 0, m1n = 0, m1erst = null, m3s = 0, m3n = 0, m3erst = null;
+  for (const x of tage14) {
+    const d1 = rechneTag(x, { m1: true, m3: false }), d3 = rechneTag(x, { m1: true, m3: true });
+    if (d1.m1 > 0) { m1s += d1.m1; m1n++; if (!m1erst) m1erst = x.t; }
+    if (d3.zq.some(z => z !== 1) || Math.abs(d1.kosten - d3.kosten) > 1e-9) { m3s += d1.kosten - d3.kosten; m3n++; if (!m3erst) m3erst = x.t; }
+  }
+  const jahre14 = [...new Set(liste.map(e => e.j))], blatt = jahre14.map(j => 'Preisblatt ' + j).join(' / ');
+  const giltAb = (erst, k) => { if (!erst) return ''; const R = abschnittAm(REG, erst), d = R[k]; return d && d > erst.slice(0, 4) + '-01-01' ? d : erst.slice(0, 4) + '-01-01'; };
+  const z14 = (name, betrag, n, erst, art, nv, k) => `<div class="z14"><span>${name}</span><span class="note">${n ? `${art} · gilt ab ${fmtDJ(giltAb(erst, k))} · ${n} Tage mit Werten` : nv}</span><b>${n ? '= ' + eur(betrag) + ' brutto' : '–'}</b></div>`;
+  document.getElementById('j14a').innerHTML = `<div class="card j14a"><h2>§14a EnWG – berechneter Vorteil ${MK[sm]} ${jJahr} – ${MK[bis.m]} ${bis.j} <span class="note" style="font-weight:normal">(mit deinem Verbrauch, ${blatt})</span></h2>` +
+    z14('Modul 1 – pauschale Reduzierung', m1s, m1n, m1erst, 'pauschal', 'in diesem Zeitraum nicht verfügbar', 'm1ab') +
+    z14('Modul 3 – zeitvariables Netzentgelt', m3s, m3n, m3erst, 'Kosten mit Modul 1 − mit Modul 1 + 3', 'in diesem Zeitraum nicht verfügbar', 'm3ab') +
+    `<div class="note" style="margin-top:4px">Berechneter Anspruch nach den Preisblättern – unabhängig davon, was beim Lieferanten gebucht oder tatsächlich gutgeschrieben wurde. Gezählt sind die Tage mit Messwerten.</div></div>`;
 }
 jStart.onchange = () => { jJahr = null; geaendert(); zeigeJahr(); };
 document.getElementById('jAnz').oninput = () => { geaendert(); zeigeJahr(); };
@@ -757,201 +751,188 @@ function zeigeFrei() {
 fVon.onchange = zeigeFrei; fBis.onchange = zeigeFrei;
 
 // ---------- Tarife & Preise ----------
-const ERKL = {
-  jahr: 'Was Gesetzgeber und Netzbetreiber festlegen: Netzentgelte, §14a, Abgaben und Umlagen, Stromsteuer, Mehrwertsteuer. Jeder Wert kann sich an jedem beliebigen Tag ändern – auch mitten im Monat. Dafür einen Abschnitt „ab Tag“ anlegen: er übernimmt alle Werte, du änderst nur, was sich geändert hat. Jeder Tag wird mit dem Abschnitt gerechnet, der an ihm gilt. Abgaben lassen sich hinzufügen und entfernen; zwei Reserveplätze stehen immer bereit.',
-  lief: 'Was dein Lieferant festlegt: Energieanteil bzw. Arbeitspreis, Grundpreis, Messstellenbetrieb und welche §14a-Module gebucht sind. Drei Arten: Festpreis, zeitvariabel (Tariffenster am Tag) oder dynamisch (Börse + Aufschlag). Du gibst immer den Bruttopreis laut Vertrag ein; der Netto-Energieanteil wird zurückgerechnet. Neuer Abschnitt bei Tarifwechsel oder Preisanpassung – an jedem beliebigen Tag, auch mitten im Monat (Beispiel: 15.07.).',
-  einsp: 'Was der Netzbetreiber für die Einspeisung zahlt. Hängt an der Anlage, meist fest für 20 Jahre.'
-};
-let uAkt = 'jahr';
-function zeigeUnter(u) {
-  uAkt = u;
-  document.querySelectorAll('.unternav button').forEach(b => b.classList.toggle('on', b.dataset.u === u));
-  document.querySelectorAll('.upane').forEach(p => p.classList.toggle('on', p.dataset.u === u));
-  document.getElementById('uErkl').textContent = ERKL[u];
-  if (u === 'jahr') zeigeReg(); if (u === 'lief') zeigeLief(); if (u === 'einsp') zeigeEinsp();
-}
-document.querySelectorAll('.unternav button').forEach(b => b.onclick = () => zeigeUnter(b.dataset.u));
-
-// (1) Netzentgelte/Abgaben/Steuern
-let yi = 0;
+// ---------- v032 (11.11.2026, Andreas): Tarife & Preise als TARIFBLATT JE JAHR ----------
+// Ein Jahr = eine Seite: (1) Lieferant, (2) Netzentgelte/Abgaben/Steuern, (3) §14a mit "Modul 1 gilt ab" und
+// "Modul 3 gilt ab". Datenmodell unveraendert (REG/LIEF = Abschnitte "ab Datum"); ein Tarifblatt bearbeitet die
+// Abschnitte, die in seinem Jahr beginnen. "Aenderung mitten im Jahr" legt in REG UND LIEF einen Abschnitt an.
+// Einspeiseverguetung im eigenen Reiter (gilt ueber alle Jahre).
 let GEAENDERT = false;
 function geaendert() { GEAENDERT = true; document.querySelectorAll('.spMsg2').forEach(m => { m.style.color = 'var(--warn)'; m.textContent = '● nicht gespeichert'; }); }
 const ruehrt = () => { geaendert(); neuRechnen(); alles(); };
 window.addEventListener('beforeunload', e => { if (GEAENDERT) { e.preventDefault(); e.returnValue = ''; } });
-function zeigeReg() {
-  const R = REG[yi];
-  document.getElementById('yKnoepfe').innerHTML = REG.map((x, i) => `<button class="btn${i === yi ? ' sel' : ''}" data-yi="${i}">ab ${fmtDJ(x.ab)}${x.vorl ? ' (vorläufig)' : ''}</button>`).join('');
-  document.querySelectorAll('[data-yi]').forEach(b => b.onclick = () => { yi = +b.dataset.yi; zeigeReg(); });
-  const bis = REG[yi + 1] ? (() => { const d = new Date(REG[yi + 1].ab + 'T12:00:00'); d.setDate(d.getDate() - 1); return fmtDJ(iso(d)); })() : 'auf Weiteres';
-  const V = REG[yi - 1], aend = V ? unterschiede(V, R) : [];
-  document.getElementById('yInfo').innerHTML = `<div class="abinfo"><div>Gilt vom <b>${fmtDJ(R.ab)}</b> bis <b>${bis}</b>.${R.vorl ? ' <span style="color:var(--warn)">Werte vorläufig, bis die Preisblätter veröffentlicht sind.</span>' : ''}${R.bsp ? ' <span class="note">(' + R.bsp + ')</span>' : ''}</div>` +
-    `<div class="note">${V ? (aend.length ? 'Geändert gegenüber ab ' + fmtDJ(V.ab) + ': <b style="color:var(--warn)">' + aend.join(' · ') + '</b>' : 'Noch keine Änderung gegenüber ab ' + fmtDJ(V.ab) + ' – Werte eintragen, die sich geändert haben.') : 'Erster Abschnitt.'}</div>` +
-    (yi > 0 ? `<button class="btn x" id="yDel" style="margin-left:auto">Abschnitt löschen</button>` : '') + `</div>`;
-  if (yi > 0) document.getElementById('yDel').onclick = () => { if (!confirm('Abschnitt ab ' + fmtDJ(R.ab) + ' löschen?')) return; REG.splice(yi, 1); yi = Math.max(0, yi - 1); zeigeReg(); ruehrt(); };
-  markiere(V, R);
-  document.querySelectorAll('[data-y]').forEach(inp => { inp.value = R[inp.dataset.y]; inp.oninput = () => { R[inp.dataset.y] = parseFloat(inp.value) || 0; if (inp.dataset.y === 'ne') R.ne3[1] = R.ne; regAnzeige(); ruehrt(); }; });
-  // Abgaben
-  document.getElementById('yAbg').innerHTML = R.abg.map((a, k) => `<tr><td><input type="text" data-an="${k}" value="${a.n}" style="width:100%"></td><td><input type="number" data-av="${k}" value="${a.v}" step="0.0001"></td><td class="e">ct/kWh</td><td><button class="btn x" data-ax="${k}" title="entfernen">×</button></td></tr>`).join('') +
-    '<tr class="sum"><td>Summe Abgaben &amp; Umlagen</td><td class="wert" id="yAbgSum"></td><td class="e">ct/kWh</td><td></td></tr>';
-  document.querySelectorAll('[data-an]').forEach(i => i.oninput = () => { R.abg[+i.dataset.an].n = i.value; });
-  document.querySelectorAll('[data-av]').forEach(i => i.oninput = () => { R.abg[+i.dataset.av].v = parseFloat(i.value) || 0; regAnzeige(); ruehrt(); });
-  document.querySelectorAll('[data-ax]').forEach(b => b.onclick = () => { R.abg.splice(+b.dataset.ax, 1); reserve(R); zeigeReg(); ruehrt(); });
-  // Modul 1
-  document.querySelectorAll('[name=m1art]').forEach(r => { r.checked = r.value === R.m1art; r.onchange = () => { R.m1art = r.value; regAnzeige(); ruehrt(); }; });
-  const mf = document.getElementById('yM1fest'); mf.value = R.m1fest; mf.oninput = () => { R.m1fest = parseFloat(mf.value) || 0; regAnzeige(); ruehrt(); };
-  // Modul 3 Fenster + Quartale
-  document.getElementById('yFenster').innerHTML = '<tr><th>von</th><th>bis</th><th>Stufe</th><th></th></tr>' + R.fenster.map((f, k) =>
-    `<tr><td><input type="time" value="${f[0]}" step="900" data-f="${k}" data-x="0"></td><td><input type="time" value="${f[1]}" data-f="${k}" data-x="1"></td><td><select data-f="${k}" data-x="2">${STUFE.map((n, z) => `<option value="${z}"${z === f[2] ? ' selected' : ''}>${n}</option>`).join('')}</select></td><td><button class="btn x" data-fx="${k}">×</button></td></tr>`).join('');
-  document.querySelectorAll('#yFenster [data-f]').forEach(e => e.onchange = () => { const f = R.fenster[+e.dataset.f]; f[+e.dataset.x] = +e.dataset.x === 2 ? +e.value : e.value; regAnzeige(); ruehrt(); });
-  document.querySelectorAll('[data-fx]').forEach(b => b.onclick = () => { R.fenster.splice(+b.dataset.fx, 1); zeigeReg(); ruehrt(); });
-  document.getElementById('yQuart').innerHTML = [0, 1, 2, 3].map(k => `<label><input type="checkbox" data-q="${k}"${R.quart[k] ? ' checked' : ''}> Q${k + 1}</label>`).join('');
-  document.querySelectorAll('[data-q]').forEach(c => c.onchange = () => { R.quart[+c.dataset.q] = c.checked; regAnzeige(); ruehrt(); });
-  regAnzeige();
-}
 function reserve(R) { const frei = R.abg.filter(a => !a.v && /^Reserve/.test(a.n)).length; for (let k = frei; k < 2; k++) R.abg.push({ n: 'Reserve ' + (R.abg.length + 1), v: 0 }); }
-document.getElementById('yAbgNeu').onclick = () => { const R = REG[yi]; R.abg.push({ n: 'neue Abgabe', v: 0 }); zeigeReg(); };
-document.getElementById('yFNeu').onclick = () => { REG[yi].fenster.push(['10:00', '13:59', 0]); zeigeReg(); ruehrt(); };
-document.getElementById('yNeuAnl').onclick = () => {
-  const d = document.getElementById('yNeuDat').value; if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) { alert('Bitte zuerst ein Datum wählen.'); return; }
-  if (REG.some(x => x.ab === d)) { yi = REG.findIndex(x => x.ab === d); zeigeReg(); return; }
-  const n = JSON.parse(JSON.stringify(abschnittAm(REG, d))); n.ab = d; n.vorl = false; delete n.bsp;
-  REG.push(n); REG.sort((a, b) => a.ab.localeCompare(b.ab)); yi = REG.indexOf(n); zeigeReg(); ruehrt();
-};
-document.getElementById('yNeu').onclick = () => {
-  const letzt = REG[REG.length - 1], n = JSON.parse(JSON.stringify(letzt)); n.ab = (+letzt.ab.slice(0, 4) + 1) + '-01-01'; n.vorl = true; delete n.bsp;
-  REG.push(n); yi = REG.length - 1; zeigeReg(); ruehrt();
-};
-function unterschiede(V, R) {
-  const a = [], f = v => (+v).toLocaleString('de-DE', { maximumFractionDigits: 4 });
-  if (V.ne !== R.ne) a.push('Netzentgelt ' + f(V.ne) + ' → ' + f(R.ne));
-  if (V.stk !== R.stk) a.push('Stromsteuer ' + f(V.stk) + ' → ' + f(R.stk));
-  if (V.mwst !== R.mwst) a.push('MwSt ' + f(V.mwst) + ' → ' + f(R.mwst) + ' %');
-  R.abg.forEach(x => { const y = V.abg.find(z => z.n === x.n); if (!y && x.v) a.push(x.n + ' neu ' + f(x.v)); else if (y && y.v !== x.v) a.push(x.n + ' ' + f(y.v) + ' → ' + f(x.v)); });
-  V.abg.forEach(y => { if (y.v && !R.abg.find(z => z.n === y.n)) a.push(y.n + ' entfällt'); });
-  if (V.m1art !== R.m1art || V.m1fest !== R.m1fest) a.push('Modul 1');
-  if (JSON.stringify([V.ne3, V.fenster, V.quart]) !== JSON.stringify([R.ne3, R.fenster, R.quart])) a.push('Modul 3');
+
+const JETZT_J = new Date().getFullYear();
+let TBJ = JETZT_J, TBAB = JETZT_J + '-01-01';
+const ersterTag = j => j + '-01-01';
+const imJahr = (x, j) => x.ab.slice(0, 4) === String(j);
+function tbJahre() {
+  const s = new Set([JETZT_J]);
+  REG.forEach(x => s.add(+x.ab.slice(0, 4))); LIEF.forEach(x => s.add(+x.ab.slice(0, 4)));
+  TAGE.forEach(x => s.add(x.j));
+  const a = [...s].filter(j => j >= JETZT_J - 6 && j <= JETZT_J + 1).sort((x, y) => x - y);
   return a;
 }
-function markiere(V, R) {
-  document.querySelectorAll('[data-y]').forEach(i => i.classList.toggle('geaendert', !!V && V[i.dataset.y] !== R[i.dataset.y]));
-  document.querySelectorAll('[data-av]').forEach(i => { const x = R.abg[+i.dataset.av], y = V && V.abg.find(z => z.n === x.n); i.classList.toggle('geaendert', !!V && (!y ? !!x.v : y.v !== x.v)); });
-}
-function regAnzeige() {
-  { // gebucht? (Lieferanten-Abschnitt, der am Beginn dieses Abschnitts gilt)
-    const Lg = abschnittAm(LIEF, REG[yi].ab), t1 = document.getElementById('yM1Tag'), t3 = document.getElementById('yM3Tag');
-    t1.textContent = Lg.m1 ? 'bei dir gebucht' : 'bei dir nicht gebucht'; t1.style.background = Lg.m1 ? 'var(--good)' : 'var(--muted)';
-    t3.textContent = Lg.m1 && Lg.m3 ? 'bei dir gebucht' : 'bei dir nicht gebucht'; t3.style.background = Lg.m1 && Lg.m3 ? 'var(--good)' : 'var(--muted)';
-    document.querySelector('.box.m1').style.opacity = Lg.m1 ? 1 : .5; document.querySelector('.box.m3').style.opacity = Lg.m1 && Lg.m3 ? 1 : .5;
+// Abschnitt fuer genau diesen Tag in REG und LIEF sicherstellen (Kopie des davor geltenden)
+function sichereAb(d, neu) {
+  for (const liste of [REG, LIEF]) {
+    if (liste.some(x => x.ab === d)) continue;
+    const v = JSON.parse(JSON.stringify(abschnittAm(liste, d))); v.ab = d; delete v.bsp;
+    if (liste === REG) { if (neu) { v.m1ab = d; v.m3ab = d; } v.vorl = +d.slice(0, 4) > JETZT_J; }
+    liste.push(v); liste.sort((a, b) => a.ab.localeCompare(b.ab));
   }
-  const R = REG[yi], mw = 1 + R.mwst / 100, S = abS(R);
-  { const V = REG[yi - 1]; markiere(V, R); const el = document.querySelector('#yInfo .abinfo > .note'); if (el && V) { const a = unterschiede(V, R); el.innerHTML = a.length ? 'Geändert gegenüber ab ' + fmtDJ(V.ab) + ': <b style="color:var(--warn)">' + a.join(' · ') + '</b>' : 'Noch keine Änderung gegenüber ab ' + fmtDJ(V.ab) + ' – Werte eintragen, die sich geändert haben.'; } }
-  document.getElementById('yAbgSum').textContent = c4(S);
-  const m1 = m1Netto(R);
-  { const mf = 80 / mw + 3750 * R.ne / 100 * 0.2, fe = +R.m1fest || 0;   // beide Zeilen zeigen ihr eigenes Ergebnis
-    document.getElementById('yM1fn').textContent = eur(mf); document.getElementById('yM1fb').textContent = eur(mf * mw);
-    document.getElementById('yM1n').textContent = eur(fe); document.getElementById('yM1b').textContent = eur(fe * mw);
-    document.querySelectorAll('.m1tab tr').forEach((tr, k) => tr.style.opacity = (k === 0) === (R.m1art === 'auto') ? 1 : .5); }
-  document.getElementById('yM1fest').disabled = R.m1art !== 'fest';
-  // Beispielpreise mit dem heutigen Lieferanten
-  const P = preise(abschnittAm(LIEF, R.ab), R);
-  document.getElementById('yM3Tab').innerHTML = '<tr><th>Stufe</th><th>Netzentgelt netto</th><th>Arbeitspreis brutto*</th></tr>' + STUFE.map((n, z) =>
-    `<tr><td style="color:${STUFE_F[z]}"><b>${n}</b></td><td><input type="number" data-z="${z}" value="${R.ne3[z]}" step="0.0001"> ct</td><td><b>${ct(P.stufe[z])}</b></td></tr>`).join('') +
-    `<tr><td colspan="3" class="note" style="text-align:left">* mit dem Lieferanten-Abschnitt, der am ${fmtDJ(R.ab)} gilt (Energieanteil ${c4(P.en)} ct netto)</td></tr>`;
-  document.querySelectorAll('#yM3Tab input').forEach(inp => inp.onchange = () => { R.ne3[+inp.dataset.z] = parseFloat(inp.value) || 0; regAnzeige(); ruehrt(); });
-  let h = '', lz = 0, ov = 0;
-  for (let q = 0; q < 96; q++) { const m = q * 15; let z = 1, n = 0; for (const f of R.fenster) if (m >= minH(f[0]) && m <= minH(f[1])) { if (!n) z = f[2]; n++; } if (n > 1) ov++; h += `<i style="background:${STUFE_F[z]}" title="${pad(Math.floor(m / 60))}:${pad(m % 60)} ${STUFE[z]}"></i>`; }
-  document.getElementById('yStrip').innerHTML = h;
-  document.getElementById('yFMsg').innerHTML = (ov ? `<span style="color:var(--warn)">Überschneidung in ${ov} Viertelstunden – es gilt das erste passende Fenster.</span> ` : '') +
-    'Quartale: ' + R.quart.map((q, k) => q ? 'Q' + (k + 1) : null).filter(Boolean).join(', ') + ' (sonst ganztägig Standard)';
 }
-
-// (2) Lieferant
-function zeigeLief() {
-  const heuteT = iso(heute);
-  document.querySelectorAll('[name=gpm]').forEach(r => { r.checked = r.value === GP_MODUS; r.onchange = () => { GP_MODUS = r.value; ruehrt(); }; });
-  document.getElementById('lListe').innerHTML = LIEF.map((L, i) => {
-    const akt = abschnittAm(LIEF, heuteT) === L;
-    const bis = L.ab > heuteT ? null : LIEF[i + 1] ? (() => { const d = new Date(LIEF[i + 1].ab + 'T12:00:00'); d.setDate(d.getDate() - 1); return fmtDJ(iso(d)); })() : 'heute';
-    return `<div class="abschn${akt ? ' akt' : ''}"><h3>ab <input type="date" value="${L.ab}" data-lf2="${i}" data-k="ab"> <span class="note">${bis ? 'bis ' + bis : 'noch nicht gültig'}</span> ${akt ? '<span class="tag">gilt heute</span>' : ''}<span style="flex:1"></span>${i > 0 ? `<button class="btn x" data-ldel="${i}" title="Abschnitt löschen">×</button>` : ''}<input type="text" data-lf2="${i}" data-k="name" value="${L.name}" style="width:320px"></h3>
-      <div class="zeile" style="margin-bottom:8px">
-        <label><input type="radio" name="lm${i}" value="brutto" data-lm="${i}"${L.modus === 'brutto' ? ' checked' : ''}> <b>Festpreis</b> – Arbeitspreis brutto laut Vertrag</label>
-        <label><input type="radio" name="lm${i}" value="zeit" data-lm="${i}"${L.modus === 'zeit' ? ' checked' : ''}> <b>Zeitvariabel</b> – Tariffenster am Tag, je eigener Bruttopreis</label>
-        <label><input type="radio" name="lm${i}" value="dyn" data-lm="${i}"${L.modus === 'dyn' ? ' checked' : ''}> <b>Dynamisch</b> – Börsenpreis + Aufschlag brutto laut Vertrag</label>
-        <label><input type="radio" name="lm${i}" value="energie" data-lm="${i}"${L.modus === 'energie' ? ' checked' : ''}> Energieanteil netto bekannt</label>
-      </div>
-      <div class="felder">
-        <label${L.modus === 'brutto' || L.modus === 'zeit' ? '' : ' class="aus"'}>${L.modus === 'zeit' ? 'Arbeitspreis übrige Zeit' : 'Arbeitspreis brutto'}<span><input type="number" data-l="${i}" data-k="ap" value="${L.ap}" step="0.01"${L.modus === 'brutto' || L.modus === 'zeit' ? '' : ' disabled'}><span class="einh">ct/kWh</span></span></label>
-        <label${L.modus === 'dyn' ? '' : ' class="aus"'}>Aufschlag brutto<span><input type="number" data-l="${i}" data-k="auf" value="${L.auf}" step="0.01"${L.modus === 'dyn' ? '' : ' disabled'}><span class="einh">ct/kWh</span></span></label>
-        <label${L.modus === 'energie' ? '' : ' class="aus"'}>Energieanteil netto<span><input type="number" data-l="${i}" data-k="en" value="${L.en}" step="0.0001"${L.modus === 'energie' ? '' : ' disabled'}><span class="einh">ct/kWh</span></span></label>
-        <label${L.modus === 'brutto' ? '' : ' class="aus"'}>Bruttopreis bleibt fest<span><label><input type="checkbox" data-lf="${i}"${L.fest ? ' checked' : ''}${L.modus === 'brutto' ? '' : ' disabled'}> Preisgarantie inkl. Steuern und Abgaben</label></span></label>
-        <label>Grundpreis brutto<span><input type="number" data-l="${i}" data-k="gp" value="${L.gp}" step="0.01"><span class="einh">€/Jahr</span></span></label>
-        <label title="Nur wenn ein eigener (externer) Messstellenbetreiber getrennt abrechnet. Beim grundzuständigen Messstellenbetreiber steckt er im Grundpreis – dann 0.">Messstellenbetrieb extra (sonst 0)<span><input type="number" data-l="${i}" data-k="msb" value="${L.msb}" step="0.01"><span class="einh">€/Jahr</span></span></label>
-        <label>§14a gebucht<span><label><input type="radio" name="l14${i}" data-l14="${i}" value="0"${!L.m1 ? ' checked' : ''}> keins</label> <label><input type="radio" name="l14${i}" data-l14="${i}" value="1"${L.m1 && !L.m3 ? ' checked' : ''}> Modul 1</label> <label><input type="radio" name="l14${i}" data-l14="${i}" value="3"${L.m1 && L.m3 ? ' checked' : ''}> Modul 1 + 3</label></span></label>
-      </div>
-      ${(() => { const R = abschnittAm(REG, L.ab), nf = (k, v, st) => `<input type="number" data-ln="${i}" data-k="${k}" value="${v}" step="${st}">`;
-        const zeile = (name, k, v, farbe, extra) => `<tr><td style="color:${farbe};font-weight:600">${name}</td><td>${nf(k, v, '0.0001')}</td><td class="einh">ct/kWh</td><td>${extra || ''}</td></tr>`;
-        const m1 = L.m1 ? `<span class="note" style="margin-left:14px">Modul-1-Pauschale</span> ${nf('m1fest', R.m1art === 'fest' ? R.m1fest : +m1Netto(R).toFixed(2), '0.01')} <span class="einh">€/Jahr netto</span> <span class="note">= <b data-m1b="${i}">${eur(m1Netto(R) * (1 + R.mwst / 100))}</b>/Jahr brutto ${R.m1art === 'fest' ? '(fest laut Preisblatt)' : '(nach Formel – eintragen = fester Betrag)'}</span>` : '';
-        const m3 = L.m1 && L.m3;
-        return `<div class="netzrow"><div class="nt">Netzentgelte<div class="note">Netzbetreiber, netto<br>Abschnitt ab ${fmtDJ(R.ab)}</div></div>
-        <table class="netztab">${m3 ? zeile('Hochlast', 'ht', R.ne3[2], STUFE_F[2]) : ''}${zeile('Standard', 'ne', R.ne, STUFE_F[1], m1)}${m3 ? zeile('Niedriglast', 'nt', R.ne3[0], STUFE_F[0]) : ''}</table>
-        <div class="note" style="flex-basis:100%">Standard gilt für alle Tarife${m3 ? ' und ist zugleich die Modul-3-Standardstufe' : ''} · Uhrzeiten, Quartale und Abgaben unter „Netzentgelte, Abgaben, Steuern“</div></div>`; })()}
-      ${L.modus === 'zeit' ? `<div class="box" style="border:1px solid var(--ring);margin-top:10px"><b>Tariffenster des Lieferanten</b> <span class="note">(außerhalb gilt „Arbeitspreis übrige Zeit“)</span>
-        <table><tr><th>von</th><th>bis</th><th>Arbeitspreis brutto</th><th>Energieanteil netto*</th><th></th></tr>${L.zonen.map((f, k) => `<tr><td><input type="time" value="${f[0]}" data-zl="${i}" data-zk="${k}" data-zx="0"></td><td><input type="time" value="${f[1]}" data-zl="${i}" data-zk="${k}" data-zx="1"></td><td><input type="number" value="${f[2]}" step="0.01" data-zl="${i}" data-zk="${k}" data-zx="2"> ct/kWh</td><td>${c4(enZone(L, k))} ct</td><td><button class="btn x" data-zdel="${i}|${k}">×</button></td></tr>`).join('')}
-        <tr><td colspan="2" class="note">übrige Zeit</td><td>${ct(L.ap)}</td><td>${c4(enZone(L, -1))} ct</td><td></td></tr></table>
-        <div class="zeile" style="margin-top:6px"><button class="btn" data-zneu="${i}">+ Tariffenster</button><span class="note">* zurückgerechnet am ${fmtDJ(L.ab)}</span></div>
-        <div class="strip">${Array.from({ length: 96 }, (_, q) => { const zi = zoneQ(L, q); return `<i style="background:${zi < 0 ? '#5c6bc0' : ['#26a69a', '#ab47bc', '#ff7043', '#8d6e63'][zi % 4]}" title="${pad(Math.floor(q / 4))}:${pad(q % 4 * 15)} ${zi < 0 ? 'übrige Zeit' : 'Fenster ' + (zi + 1)}"></i>`; }).join('')}</div>
-        <div class="achse2"><span style="left:0;transform:none">0</span><span style="left:25%">6</span><span style="left:50%">12</span><span style="left:75%">18</span><span style="left:100%;transform:translateX(-100%)">24</span></div></div>` : ''}
-      <div class="grid g2" style="margin-top:10px"><div id="lRueck${i}"></div><div class="note" id="lErg${i}"></div></div></div>`;
-  }).join('');
-  document.querySelectorAll('[data-l]').forEach(inp => inp.oninput = () => { LIEF[+inp.dataset.l][inp.dataset.k] = parseFloat(inp.value) || 0; liefAnzeige(); ruehrt(); });
-  document.querySelectorAll('[data-lm]').forEach(r => r.onchange = () => { LIEF[+r.dataset.lm].modus = r.value; zeigeLief(); ruehrt(); });
-  document.querySelectorAll('[data-ln]').forEach(inp => inp.oninput = () => {
-    const R = abschnittAm(REG, LIEF[+inp.dataset.ln].ab), v = parseFloat(inp.value) || 0, k = inp.dataset.k;
-    if (k === 'ne') { R.ne = v; R.ne3[1] = v; }
-    if (k === 'nt') R.ne3[0] = v;
-    if (k === 'ht') R.ne3[2] = v;
-    if (k === 'm1fest') { R.m1art = 'fest'; R.m1fest = v; }
-    document.querySelectorAll('[data-m1b]').forEach(el => { const R2 = abschnittAm(REG, LIEF[+el.dataset.m1b].ab); el.textContent = eur(m1Netto(R2) * (1 + R2.mwst / 100)); });
-    liefAnzeige(); ruehrt(); });
-  document.querySelectorAll('[data-lf2]').forEach(inp => inp.onchange = () => {
-    const L = LIEF[+inp.dataset.lf2]; L[inp.dataset.k] = inp.value;
-    if (inp.dataset.k === 'ab') { LIEF.sort((a, b) => a.ab.localeCompare(b.ab)); zeigeLief(); ruehrt(); } });
-  document.querySelectorAll('[data-ldel]').forEach(b => b.onclick = () => { const L = LIEF[+b.dataset.ldel]; if (!confirm('Abschnitt ab ' + fmtDJ(L.ab) + ' löschen?')) return; LIEF.splice(+b.dataset.ldel, 1); zeigeLief(); ruehrt(); });
-  document.querySelectorAll('[data-zl]').forEach(e => e.onchange = () => { const f = LIEF[+e.dataset.zl].zonen[+e.dataset.zk]; f[+e.dataset.zx] = +e.dataset.zx === 2 ? (parseFloat(e.value) || 0) : e.value; zeigeLief(); ruehrt(); });
-  document.querySelectorAll('[data-zdel]').forEach(b => b.onclick = () => { const [l, k] = b.dataset.zdel.split('|'); LIEF[+l].zonen.splice(+k, 1); zeigeLief(); ruehrt(); });
-  document.querySelectorAll('[data-zneu]').forEach(b => b.onclick = () => { LIEF[+b.dataset.zneu].zonen.push(['12:00', '14:59', 25.00]); zeigeLief(); ruehrt(); });
-  document.querySelectorAll('[data-lf]').forEach(c => c.onchange = () => { LIEF[+c.dataset.lf].fest = c.checked; liefAnzeige(); ruehrt(); });
-  document.querySelectorAll('[data-l14]').forEach(r => r.onchange = () => { const L = LIEF[+r.dataset.l14]; L.m1 = r.value !== '0'; L.m3 = r.value === '3'; zeigeLief(); ruehrt(); });
-  document.querySelectorAll('[data-lc]').forEach(c => c.onchange = () => {
-    const L = LIEF[+c.dataset.lc]; L[c.dataset.k] = c.checked; if (c.dataset.k === 'm3' && c.checked) L.m1 = true; if (c.dataset.k === 'm1' && !c.checked) L.m3 = false; zeigeLief(); ruehrt(); });
-  liefAnzeige();
+function jahrStatus(j) { return j < JETZT_J - 1 ? 'abgerechnet' : j === JETZT_J - 1 ? 'Vorjahr · abgerechnet' : j === JETZT_J ? 'laufendes Jahr' : 'Folgejahr · vorläufig'; }
+function zeitWahl(w, ende, attr) {
+  let h = '<select ' + attr + '>';
+  for (let q = ende; q < 96 + ende; q++) { const t = pad(Math.floor(q / 4)) + ':' + pad(q % 4 * 15); h += `<option${t === w ? ' selected' : ''}>${t}</option>`; }
+  return h + '</select>';
 }
-function liefAnzeige() {
-  LIEF.forEach((L, i) => {
-    const el = document.getElementById('lErg' + i); if (!el) return;
-    const ende = LIEF[i + 1] ? LIEF[i + 1].ab : '9999';
-    const rs = REG.filter((R, k) => R.ab < ende && (!REG[k + 1] || REG[k + 1].ab > L.ab));
-    el.innerHTML = '<b>Ergibt</b> (je Abschnitt Netzentgelte/Abgaben):<br>' + rs.map(R => { const P = preise(L, R); return `ab ${fmtDJ(R.ab > L.ab ? R.ab : L.ab)}: ` +
-      (P.dyn ? `Börsenpreis + ${ct(P.std)} brutto` : L.modus === 'zeit' ? [-1].concat(L.zonen.map((f, k) => k)).map(k => `${k < 0 ? 'übrige Zeit' : 'Fenster ' + (k + 1)} <b>${ct((enZone(L, k) + P.S + R.stk + R.ne) * P.mw)}</b>`).join(' · ') : `Standard <b>${ct(P.std)}</b>`) +
-      (L.m1 && L.m3 ? ` · <span style="color:${STUFE_F[0]}">Niedrig ${P.dyn ? '+ ' : ''}${ct(P.stufe[0])}</span> · <span style="color:${STUFE_F[2]}">Hoch ${P.dyn ? '+ ' : ''}${ct(P.stufe[2])}</span>` : '') + (P.dyn ? '' : ' brutto'); }).join('<br>') +
-      (L.modus === 'brutto' && !L.fest ? '<br><span class="note">Steuer- und Abgabenänderungen werden weitergegeben (Energieanteil bleibt).</span>' : '') +
-      (L.modus === 'brutto' && L.fest ? '<br><span class="note">Bruttopreis bleibt; Änderungen bei Steuern/Abgaben gehen zu Lasten/Gunsten des Energieanteils.</span>' : '');
-    const rz = document.getElementById('lRueck' + i), w = rueck(L), R0 = w.R0;
-    if (L.modus === 'brutto' || L.modus === 'zeit') rz.innerHTML = `<table><tr><th colspan="2">Rückrechnung am ${fmtDJ(L.ab)}${L.modus === 'zeit' ? ' (übrige Zeit; Fenster genauso)' : ''}</th><th></th></tr>
-      <tr><td>Arbeitspreis brutto laut Vertrag</td><td>${c4(L.ap)}</td><td class="note">ct/kWh</td></tr>
-      <tr><td>÷ (1 + ${R0.mwst} % MwSt) = netto</td><td>${c4(w.netto)}</td><td class="note">ct/kWh</td></tr>
-      <tr><td>− Netzentgelt Standard</td><td>${c4(R0.ne)}</td><td class="note">ct/kWh</td></tr>
-      <tr><td>− Abgaben &amp; Umlagen</td><td>${c4(w.S0)}</td><td class="note">ct/kWh</td></tr>
-      <tr><td>− Stromsteuer</td><td>${c4(R0.stk)}</td><td class="note">ct/kWh</td></tr>
-      <tr class="sum"><td>= Energieanteil des Lieferanten (netto)</td><td>${c4(w.en)}</td><td class="note">ct/kWh</td></tr></table>` +
-      (w.en < 0 ? '<div style="color:var(--crit);font-size:12px">Energieanteil negativ – Bruttopreis oder Abgaben prüfen.</div>' : '');
-    else if (L.modus === 'dyn') rz.innerHTML = `<table><tr><th colspan="2">Rückrechnung am ${fmtDJ(L.ab)}</th><th></th></tr>
-      <tr><td>Aufschlag brutto laut Vertrag</td><td>${c4(L.auf)}</td><td class="note">ct/kWh</td></tr>
-      <tr><td>÷ (1 + ${R0.mwst} % MwSt) = Aufschlag netto</td><td>${c4(w.aufN)}</td><td class="note">ct/kWh</td></tr>
-      <tr class="sum"><td>Preis je Viertelstunde</td><td colspan="2" style="text-align:left;white-space:normal">(Börsenpreis + Aufschlag netto + Netzentgelt + Abgaben + Stromsteuer) × (1 + MwSt)</td></tr></table>
-      <div class="note">Börsenpreise (Day-Ahead DE-LU) holt Slot 2, den Folgetag ab 14:00. Quelle: Bundesnetzagentur | SMARD.de über energy-charts.info, CC BY 4.0.</div>`;
-    else rz.innerHTML = '';
-  });
+function zeigeBlatt() {
+  const jahre = tbJahre();
+  if (!jahre.includes(TBJ)) TBJ = JETZT_J;
+  const hatEigenes = REG.some(x => x.ab === ersterTag(TBJ)) && LIEF.some(x => x.ab === ersterTag(TBJ));
+  const kn = jahre.map(j => { const R = REG.find(x => x.ab === ersterTag(j)); return `<button data-tbj="${j}" class="${j === TBJ ? 'on' : ''}">${j}<span class="tag">${jahrStatus(j)}${R && R.fehlt ? ' · <b style="color:var(--warn)">● fehlt</b>' : ''}</span></button>`; }).join('');
+  const naechst = jahre[jahre.length - 1] + 1;
+  document.getElementById('tbJahre').innerHTML = kn + (naechst <= JETZT_J + 1 ? `<button data-tbneu="${naechst}" class="plus">+ ${naechst}<span class="tag">neues Tarifblatt</span></button>` : '') +
+    `<span style="flex:1"></span><span class="note spMsg2"></span><button class="btn tas spBtn2" style="background:#2e7d32;font-size:13px;padding:6px 16px">Speichern</button>`;
+  document.querySelectorAll('[data-tbj]').forEach(b => b.onclick = () => { TBJ = +b.dataset.tbj; TBAB = ersterTag(TBJ); zeigeBlatt(); });
+  document.querySelectorAll('[data-tbneu]').forEach(b => b.onclick = () => { const j = +b.dataset.tbneu; sichereAb(ersterTag(j), true); TBJ = j; TBAB = ersterTag(j); zeigeBlatt(); ruehrt(); });
+  document.querySelectorAll('#tbJahre .spBtn2').forEach(b => b.onclick = speichern);
+  if (GEAENDERT) geaendert();
+  const el = document.getElementById('tbInhalt');
+  if (!hatEigenes) {
+    const R0 = abschnittAm(REG, ersterTag(TBJ));
+    el.innerHTML = `<div class="card"><h2>Tarifblatt ${TBJ}</h2><p>Für ${TBJ} gibt es noch kein eigenes Tarifblatt. Gerechnet wird ${TBJ} zurzeit mit dem Blatt ab ${fmtDJ(R0.ab)}.</p>
+      <button class="btn tas" id="tbAnlegen">Tarifblatt ${TBJ} anlegen</button> <span class="note">übernimmt alle Werte als Vorlage – dann die Werte aus den Preisblättern ${TBJ} eintragen.</span></div>`;
+    document.getElementById('tbAnlegen').onclick = () => { sichereAb(ersterTag(TBJ), true); const R = REG.find(x => x.ab === ersterTag(TBJ)); if (TBJ < JETZT_J) R.fehlt = true; zeigeBlatt(); ruehrt(); };
+    return;
+  }
+  const staende = [...new Set(REG.filter(x => imJahr(x, TBJ)).map(x => x.ab).concat(LIEF.filter(x => imJahr(x, TBJ)).map(x => x.ab)))].sort();
+  if (!staende.includes(TBAB)) TBAB = ersterTag(TBJ);
+  sichereAb(TBAB, false);
+  const R = REG.find(x => x.ab === TBAB), L = LIEF.find(x => x.ab === TBAB);
+  if (!R.ne3) R.ne3 = [R.ne, R.ne, R.ne];
+  if (!R.fenster) R.fenster = [];
+  if (!R.quart) R.quart = [true, true, true, true];
+  const mw = 1 + R.mwst / 100, j = TBJ;
+  const fi = (k, v, st, attr) => `<input type="number" ${attr || ''} data-k="${k}" value="${v}" step="${st || '0.01'}">`;
+  const zeile = (lab, inp, einh, rest) => `<div class="tbz"><label>${lab}</label>${inp}<span class="note">${einh || ''}</span><span class="note">${rest || ''}</span></div>`;
+  const P = preise(L, R);
+  el.innerHTML = `
+  <div class="card tbkopf"><b>Tarifblatt ${j}</b>${R.vorl ? ' <span class="vorlTag">vorläufig</span>' : ''}<span class="note">gilt 01.01.${j} – 31.12.${j}</span>
+    <span class="note">· Lieferant: <b>${L.name}</b> · ${L.m1 ? (L.m3 ? 'Modul 1 + 3' : 'Modul 1') : 'kein Modul'} gebucht</span>
+    ${staende.length > 1 ? `<span class="note" style="flex-basis:100%">Stand: ${staende.map(d => `<button class="btn${d === TBAB ? ' sel' : ''}" data-tbab="${d}">ab ${fmtDJ(d)}</button>`).join(' ')}</span>` : ''}
+    <span class="note" style="flex-basis:100%">Nur was sich jedes Jahr ändert: Lieferant, Netzentgelte/Abgaben/Steuern, §14a. Die Einspeisevergütung steht im eigenen Reiter.</span></div>
+  ${R.fehlt ? `<div class="warnbox">Tarifblatt ${j} ist eine Kopie – bitte die Werte aus den Preisblättern ${j} eintragen (Netzentgelt, Abgaben, Modul 1/3, Lieferant). <label><input type="checkbox" id="tbFehltAus"> Werte sind eingetragen</label></div>` : ''}
+  ${R.vorl && !R.fehlt ? `<div class="warnbox"><b>Vorläufig:</b> Netzentgelte, Abgaben und Steuern ${j} sind eine Kopie, bis die Preisblätter veröffentlicht sind. <label><input type="checkbox" id="tbVorlAus"> Preisblätter ${j} sind eingetragen</label></div>` : ''}
+  <div class="card"><h2><span class="nr">1</span>Lieferant (Bezug)</h2>
+    ${zeile('Name', `<input type="text" data-lk="name" value="${L.name}">`)}
+    ${zeile('Tarifart', `<select data-lk="modus">${[['brutto', 'Festpreis'], ['zeit', 'zeitvariabel'], ['dyn', 'dynamisch'], ['energie', 'Energieanteil netto']].map(([v, n]) => `<option value="${v}"${L.modus === v ? ' selected' : ''}>${n}</option>`).join('')}</select>`)}
+    ${L.modus === 'brutto' || L.modus === 'zeit' ? zeile(L.modus === 'zeit' ? 'Arbeitspreis übrige Zeit brutto' : 'Arbeitspreis brutto', fi('ap', L.ap, '0.001', 'data-ln'), 'ct/kWh', `= Energieanteil ${c4(rueck(L).en)} ct netto`) : ''}
+    ${L.modus === 'dyn' ? zeile('Aufschlag brutto', fi('auf', L.auf, '0.001', 'data-ln'), 'ct/kWh', 'Preis = Börse + Aufschlag + Netz + Abgaben + Steuer') : ''}
+    ${L.modus === 'energie' ? zeile('Energieanteil netto', fi('en', L.en, '0.0001', 'data-ln'), 'ct/kWh') : ''}
+    ${zeile('Grundpreis brutto', fi('gp', L.gp, '0.01', 'data-ln'), '€/Jahr')}
+    ${zeile('Messstellenbetrieb extra', fi('msb', L.msb, '0.01', 'data-ln'), '€/Jahr', 'nur bei eigenem Messstellenbetreiber, sonst 0')}
+    ${zeile('§14a gebucht', `<select id="tbL14"><option value="0"${!L.m1 ? ' selected' : ''}>keins</option><option value="1"${L.m1 && !L.m3 ? ' selected' : ''}>Modul 1</option><option value="3"${L.m1 && L.m3 ? ' selected' : ''}>Modul 1 + 3</option></select>`)}
+    ${L.modus === 'brutto' ? `<div class="tbz"><label style="grid-column:1 / span 4"><input type="checkbox" id="tbFest"${L.fest ? ' checked' : ''}> Bruttopreis bleibt fest (Preisgarantie inkl. Steuern/Abgaben)</label></div>` : ''}
+    ${L.modus === 'zeit' ? `<div class="sub">Tariffenster des Lieferanten <span class="note">(außerhalb gilt der Arbeitspreis übrige Zeit)</span></div>
+      <table class="fen">${L.zonen.map((f, k) => `<tr><td><input type="time" value="${f[0]}" data-zk="${k}" data-zx="0"></td><td><input type="time" value="${f[1]}" data-zk="${k}" data-zx="1"></td><td><input type="number" value="${f[2]}" step="0.01" data-zk="${k}" data-zx="2"> ct/kWh brutto</td><td><button class="btn x" data-zdel="${k}">×</button></td></tr>`).join('')}</table>
+      <div style="text-align:center"><button class="btn" id="tbZNeu">+ Tariffenster</button></div>` : ''}
+    <div class="note" style="margin-top:6px">Ergibt brutto: ${P.dyn ? 'Börsenpreis + ' + ct(P.std) : 'Standard ' + ct(P.std)}${L.m1 && L.m3 ? ` · Niedrig ${ct(P.stufe[0])} · Hoch ${ct(P.stufe[2])}` : ''}</div>
+  </div>
+  <div class="card"><h2><span class="nr">2</span>Netzentgelte, Abgaben, Steuern <span class="note">(für alle Lieferanten gleich)</span></h2>
+    <div class="sub">Netzentgelt &amp; Steuern</div>
+    ${zeile('Netzentgelt Standard netto', fi('ne', R.ne, '0.0001', 'data-rk'), 'ct/kWh')}
+    ${zeile('Stromsteuer', fi('stk', R.stk, '0.0001', 'data-rk'), 'ct/kWh')}
+    ${zeile('Mehrwertsteuer', fi('mwst', R.mwst, '0.1', 'data-rk'), '%')}
+    <div class="sub">Abgaben &amp; Umlagen netto</div>
+    ${R.abg.map((a, k) => `<div class="tbz"><input type="text" data-an="${k}" value="${a.n}"><input type="number" data-av="${k}" value="${a.v}" step="0.0001"><span class="note">ct/kWh</span><span><button class="btn x" data-ax="${k}" title="entfernen">×</button></span></div>`).join('')}
+    <div class="tbz"><span><button class="btn" id="tbAbgNeu">+ Abgabe</button></span><b id="tbAbgSum" style="text-align:right">${c4(abS(R))}</b><span class="note">ct/kWh</span><span></span></div>
+  </div>
+  <div class="card"><h2><span class="nr">3</span>§14a EnWG – steuerbare Verbrauchseinrichtungen <span class="note">(Preisblatt des Netzbetreibers ${j})</span></h2>
+    <div class="note" style="margin:-4px 0 10px">„gilt ab“ = Inbetriebnahme der steuerbaren Verbrauchseinrichtung bzw. Start beim Netzbetreiber; vorher rechnet die Seite ohne das Modul. Neues Jahr: 01.01., leer = in diesem Jahr nicht verfügbar.</div>
+    <div class="sub">Modul 1 – pauschale Reduzierung des Netzentgelts</div>
+    ${zeile('Modul 1 gilt ab', `<input type="date" id="tbM1ab" value="${R.m1ab == null ? ersterTag(j) : R.m1ab}" min="${j}-01-01" max="${j}-12-31">`, R.m1ab === '' ? 'nicht verfügbar' : '', R.m1ab && R.m1ab > ersterTag(j) ? 'Pauschale nur anteilig ab diesem Tag' : '')}
+    <div class="tbz m1z"><label><input type="radio" name="tbM1" value="auto"${R.m1art !== 'fest' ? ' checked' : ''}> nach Formel (BNetzA)</label><span class="note" style="grid-column:2 / span 2">80 € + 3.750 kWh × ${c4(R.ne)} ct × ${mw.toLocaleString('de-DE')} × 0,2</span><span class="erg" id="tbM1F"></span></div>
+    <div class="tbz m1z"><label><input type="radio" name="tbM1" value="fest"${R.m1art === 'fest' ? ' checked' : ''}> fester Betrag laut Preisblatt</label>${fi('m1fest', R.m1fest, '0.01', 'data-rk')}<span class="note">€/Jahr netto</span><span class="erg" id="tbM1S"></span></div>
+    <div class="tbz m1z"><label><b>Anteil ${j}</b></label><span class="note" style="grid-column:2 / span 2" id="tbM1AntT"></span><span class="erg" id="tbM1Ant"></span></div>
+    <div class="note" style="margin:2px 0 10px">Gutschrift tageweise, nur an Tagen ab „gilt ab“ und wenn beim Lieferanten Modul 1 gebucht ist. Der Anteil gilt, wenn an allen Tagen Messwerte da sind.</div>
+    <div class="sub">Modul 3 – zeitvariables Netzentgelt</div>
+    ${zeile('Modul 3 gilt ab', `<input type="date" id="tbM3ab" value="${R.m3ab == null ? ersterTag(j) : R.m3ab}" min="${j}-01-01" max="${j}-12-31">`, R.m3ab === '' ? 'nicht verfügbar' : '', R.m3ab && R.m3ab > ersterTag(j) ? 'vorher ganzer Tag Standard-Netzentgelt' : '')}
+    <div class="note" style="margin:6px 0 2px">Netzentgelt je Stufe (netto)</div>
+    ${zeile('<span style="color:' + STUFE_F[2] + '">Hochlast</span>', `<input type="number" data-z="2" value="${R.ne3[2]}" step="0.0001">`, 'ct/kWh')}
+    ${zeile('<span style="color:' + STUFE_F[1] + '">Standard</span>', `<input type="number" value="${R.ne}" disabled>`, 'ct/kWh', 'wie Netzentgelt Standard in ②')}
+    ${zeile('<span style="color:' + STUFE_F[0] + '">Niedriglast</span>', `<input type="number" data-z="0" value="${R.ne3[0]}" step="0.0001">`, 'ct/kWh')}
+    <div class="tbz"><label><b>Modul 3 gilt in den Quartalen</b></label><span style="grid-column:2 / span 3">${[0, 1, 2, 3].map(k => `<label style="margin-right:12px"><input type="checkbox" data-q="${k}"${R.quart[k] ? ' checked' : ''}> Q${k + 1}</label>`).join('')}<span class="note">· nicht angehakt = ganzer Tag Standard</span></span></div>
+    <div class="sub" style="margin-top:8px">Modul 3 – Zeitfenster <span class="note" style="font-weight:normal">(Viertelstunden; „bis“ gehört nicht mehr dazu – 09:00 bis 13:00 = letzte Viertelstunde 12:45–13:00; alles außerhalb = Standard)</span></div>
+    <table class="fen"><tr><th>von</th><th>bis (ausschließlich)</th><th>Stufe</th><th></th></tr>${R.fenster.map((f, k) => `<tr><td>${zeitWahl(f[0], 0, `data-f="${k}" data-x="0"`)}</td><td>${zeitWahl(f[1], 1, `data-f="${k}" data-x="1"`)}</td><td><select data-f="${k}" data-x="2">${[0, 2, 1].map(z => `<option value="${z}"${z === f[2] ? ' selected' : ''}>${['Niedrig', 'Standard', 'Hoch'][z]}</option>`).join('')}</select></td><td><button class="btn x" data-fx="${k}">×</button></td></tr>`).join('')}</table>
+    <div style="text-align:center"><button class="btn" id="tbFNeu">+ Zeitfenster</button></div>
+    <div class="sub" style="margin-top:10px">So sieht ein Tag aus</div>
+    <div class="tag24">${Array.from({ length: 96 }, (_, q) => { const z = stufeQ(Object.assign({}, R, { quart: [true, true, true, true] }), j + '-01-01', q); return `<i style="background:${STUFE_F[z]}" title="${pad(Math.floor(q / 4))}:${pad(q % 4 * 15)} ${STUFE[z]}"></i>`; }).join('')}</div>
+    <div class="achse24"><span>0</span><span>3</span><span>6</span><span>9</span><span>12</span><span>15</span><span>18</span><span>21</span><span>24</span></div>
+    <div class="note">Modul 3 rechnet nur, wenn beim Lieferanten „Modul 1 + 3“ gebucht ist.</div>
+  </div>
+  <div class="card"><h2>Änderung mitten im Jahr <span class="note">(selten – z. B. neuer Preis ab 01.07.)</span></h2>
+    <div class="zeile"><span class="note">Neuer Stand in ${j} – übernimmt alle Werte, dann nur das Geänderte eintragen:</span>
+      <input type="date" id="tbAbNeu" min="${j}-01-02" max="${j}-12-31"><button class="btn tas" id="tbAbAnl">+ ab diesem Tag (nur in ${j})</button>
+      ${TBAB !== ersterTag(j) ? `<button class="btn x" id="tbAbDel">Stand ab ${fmtDJ(TBAB)} löschen</button>` : ''}</div>
+    <p class="note" style="margin:6px 0 0">Eine Änderung gilt nur bis zum Jahresende. Das nächste Jahr hat sein eigenes Tarifblatt.</p>
+  </div>`;
+  // --- Ergebnisse Modul 1
+  const m1Erg = () => {
+    const mwx = 1 + R.mwst / 100, f = 80 / mwx + 3750 * R.ne / 100 * 0.2;
+    document.getElementById('tbM1F').innerHTML = `= <b>${eur(f * mwx)}</b> brutto · ${eur(f)} netto je Jahr`;
+    document.getElementById('tbM1S').innerHTML = `= <b>${eur((+R.m1fest || 0) * mwx)}</b> brutto je Jahr`;
+    // v034: Anteil im Jahr ab "Modul 1 gilt ab" - wie in rechneTag (GP_MODUS monat/tag), ueber alle Tage bis 31.12.
+    const ab = R.m1ab == null ? ersterTag(j) : R.m1ab, ant = document.getElementById('tbM1Ant'), antT = document.getElementById('tbM1AntT');
+    if (!ab) { antT.textContent = 'Modul 1 in ' + j + ' nicht verfügbar'; ant.innerHTML = '= <b>0,00 €</b>'; return; }
+    let summe = 0, tage = 0, alle = 0;
+    for (let d = new Date(j, 0, 1, 12); d.getFullYear() === j; d.setDate(d.getDate() + 1)) {
+      alle++; const t = iso(d); if (t < ab) continue; tage++;
+      summe += GP_MODUS === 'monat' ? 1 / 12 / new Date(j, d.getMonth() + 1, 0).getDate() : 1 / 365;
+    }
+    const netto = m1Netto(R) * summe;
+    antT.textContent = `${fmtDJ(ab)} – 31.12.${j} = ${tage} von ${alle} Tagen (${GP_MODUS === 'monat' ? 'je Monat ein Zwölftel' : 'je Tag 1/365'})`;
+    ant.innerHTML = `= <b>${eur(netto * mwx)}</b> brutto · ${eur(netto)} netto`;
+  };
+  m1Erg();
+  // --- Ereignisse
+  const neu = () => { zeigeBlatt(); ruehrt(); };
+  document.querySelectorAll('[data-tbab]').forEach(b => b.onclick = () => { TBAB = b.dataset.tbab; zeigeBlatt(); });
+  document.querySelectorAll('[data-ln]').forEach(i => i.onchange = () => { L[i.dataset.k] = parseFloat(i.value) || 0; neu(); });
+  document.querySelectorAll('[data-lk]').forEach(i => i.onchange = () => { L[i.dataset.lk] = i.value; neu(); });
+  document.getElementById('tbL14').onchange = e => { L.m1 = e.target.value !== '0'; L.m3 = e.target.value === '3'; neu(); };
+  const fe = document.getElementById('tbFest'); if (fe) fe.onchange = () => { L.fest = fe.checked; neu(); };
+  document.querySelectorAll('[data-zk]').forEach(e => e.onchange = () => { const f = L.zonen[+e.dataset.zk]; f[+e.dataset.zx] = +e.dataset.zx === 2 ? (parseFloat(e.value) || 0) : e.value; neu(); });
+  document.querySelectorAll('[data-zdel]').forEach(b => b.onclick = () => { L.zonen.splice(+b.dataset.zdel, 1); neu(); });
+  const zn = document.getElementById('tbZNeu'); if (zn) zn.onclick = () => { L.zonen.push(['12:00', '14:59', 25.00]); neu(); };
+  document.querySelectorAll('[data-rk]').forEach(i => i.onchange = () => { const v = parseFloat(i.value) || 0; R[i.dataset.k] = v; if (i.dataset.k === 'ne') R.ne3[1] = v; if (i.dataset.k === 'm1fest') R.m1art = 'fest'; neu(); });
+  document.querySelectorAll('[data-rk]').forEach(i => i.oninput = () => { if (i.dataset.k === 'm1fest') { R.m1fest = parseFloat(i.value) || 0; m1Erg(); } });
+  document.querySelectorAll('[data-an]').forEach(i => i.onchange = () => { R.abg[+i.dataset.an].n = i.value; geaendert(); });
+  document.querySelectorAll('[data-av]').forEach(i => i.onchange = () => { R.abg[+i.dataset.av].v = parseFloat(i.value) || 0; neu(); });
+  document.querySelectorAll('[data-ax]').forEach(b => b.onclick = () => { R.abg.splice(+b.dataset.ax, 1); reserve(R); neu(); });
+  document.getElementById('tbAbgNeu').onclick = () => { R.abg.push({ n: 'neue Abgabe', v: 0 }); neu(); };
+  document.querySelectorAll('[name=tbM1]').forEach(r => r.onchange = () => { R.m1art = r.value; neu(); });
+  const datum = (id, k) => { const d = document.getElementById(id); d.onchange = () => { R[k] = d.value; REG.filter(x => imJahr(x, j) && x !== R && x.ab > R.ab).forEach(x => x[k] = d.value); neu(); }; };
+  datum('tbM1ab', 'm1ab'); datum('tbM3ab', 'm3ab');
+  document.querySelectorAll('[data-z]').forEach(i => i.onchange = () => { R.ne3[+i.dataset.z] = parseFloat(i.value) || 0; neu(); });
+  document.querySelectorAll('[data-q]').forEach(c => c.onchange = () => { R.quart[+c.dataset.q] = c.checked; neu(); });
+  document.querySelectorAll('.fen [data-f]').forEach(e => e.onchange = () => { const f = R.fenster[+e.dataset.f]; f[+e.dataset.x] = +e.dataset.x === 2 ? +e.value : e.value; neu(); });
+  document.querySelectorAll('[data-fx]').forEach(b => b.onclick = () => { R.fenster.splice(+b.dataset.fx, 1); neu(); });
+  document.getElementById('tbFNeu').onclick = () => { R.fenster.push(['10:00', '14:00', 0]); neu(); };
+  document.getElementById('tbAbAnl').onclick = () => {
+    const d = document.getElementById('tbAbNeu').value;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || d.slice(0, 4) !== String(j) || d === ersterTag(j)) { alert('Bitte einen Tag in ' + j + ' (nicht den 01.01.) wählen.'); return; }
+    sichereAb(d, false); TBAB = d; neu();
+  };
+  const dl = document.getElementById('tbAbDel'); if (dl) dl.onclick = () => {
+    if (!confirm('Stand ab ' + fmtDJ(TBAB) + ' löschen? Danach gelten die Werte ab dem Stand davor.')) return;
+    for (const liste of [REG, LIEF]) { const k = liste.findIndex(x => x.ab === TBAB); if (k > 0) liste.splice(k, 1); }
+    TBAB = ersterTag(j); neu();
+  };
+  const fa = document.getElementById('tbFehltAus'); if (fa) fa.onchange = () => { if (fa.checked) { delete R.fehlt; neu(); } };
+  const va = document.getElementById('tbVorlAus'); if (va) va.onchange = () => { if (va.checked) { R.vorl = false; neu(); } };
 }
 
 // (3) Einspeisung
@@ -1006,22 +987,39 @@ function zeigeKarten() {
   document.querySelectorAll('[data-oa]').forEach(c => c.onchange = () => { ANGEBOTE[+c.dataset.oa].aktiv = c.checked; geaendert(); zeigeKarten(); zeigeVergl(); });
 }
 // Basis-Schnellwahl (Monatsnummern j*12+m)
-let vBasis = 'jahr';
+// ---------- v036 (11.11.2026, Andreas): Tarifvergleich ----------
+// Ein Verbrauch fuer alle Zeilen ("Verbrauch aus": Jahr, letzte 12 Monate, frei). Zeilen fest: Vorjahr (Haken) ->
+// aktuelles Jahr -> Vorausplanung (sobald es ein Tarifblatt fuer das Folgejahr gibt) -> angehakte Angebote.
+// Jede Zeile rechnet mit den Preisen IHRES Jahres (Lieferant + Tarifblatt); Tage aus demselben Jahr exakt wie die
+// Abrechnung (Abschnitte, "gilt ab"), Tage aus anderen Jahren mit dem Tarifblatt ab 01.01. des Zeilenjahres
+// ("gilt ab" dann nach Monat/Tag). Angebote mit den Gebuehren des Vorausplanungsjahres (sonst des laufenden Jahres).
+let vBasis = String(new Date().getFullYear());   // 'JJJJ' | '12' | '' (frei)
 function setzeBasis(w) {
+  if (w === 'jahr') w = String(heute.getFullYear());
   vBasis = w; const n = heute.getFullYear() * 12 + heute.getMonth();
-  if (w === 'jahr') { vVon.value = heute.getFullYear() * 12; vBis.value = n; }
-  if (w === 'vorjahr') { vVon.value = (heute.getFullYear() - 1) * 12; vBis.value = (heute.getFullYear() - 1) * 12 + 11; }
+  if (/^\d{4}$/.test(w)) { const j = +w; vVon.value = j * 12; vBis.value = Math.min(j * 12 + 11, n); }
   if (w === '12') { vVon.value = n - 11; vBis.value = n; }
-  document.querySelectorAll('[data-vb]').forEach(b => b.classList.toggle('sel', b.dataset.vb === w));
+  const s = document.getElementById('vVerb'); if (s && [...s.options].some(o => o.value === w)) s.value = w;
+  const fr = document.getElementById('vFrei'); if (fr) fr.style.display = w ? 'none' : '';
 }
-document.querySelectorAll('[data-vb]').forEach(b => b.onclick = () => { setzeBasis(b.dataset.vb); zeigeVergl(); });
+function fuelleVerb() {
+  const s = document.getElementById('vVerb'), jh = heute.getFullYear(), jahre = [...new Set(TAGE.map(x => x.j))].sort();
+  s.innerHTML = jahre.map(j => {
+    const t = TAGE.filter(x => x.j === j), kw = t.reduce((a, x) => a + x.bez, 0);
+    const art = j === jh ? 'bis heute' : t.length >= 360 ? 'volles Jahr' : 'unvollständig';
+    return `<option value="${j}">${j} – ${art} · ${t.length} Tage · ${kwh(kw)}</option>`;
+  }).join('') + '<option value="12">letzte 12 Monate</option><option value="">frei von … bis …</option>';
+  s.value = vBasis;
+  document.getElementById('vVjJ').textContent = jh - 1;
+}
+let VJ_AN = false;
+try { VJ_AN = localStorage.getItem('smgw_vorjahr') === '1'; } catch (x) { }
 function vergleichsTage(a, b, schaetzen) {
   const tmap = {}; for (const x of TAGE) tmap[x.t] = x;
   const jeMonat = {}; for (const x of TAGE) { if (x.n < 96) continue; (jeMonat[x.m] = jeMonat[x.m] || []).push(x); }   // nur volle Tage als Vorlage
   const tage = [], quellen = {}; let gemessen = 0, geschaetzt = 0;
   for (let n = a; n <= b; n++) {
     const j = Math.floor(n / 12), m = n % 12, ml = new Date(j, m + 1, 0).getDate();
-    // Vorlagemonat: derselbe Kalendermonat (>= 7 volle Tage), sonst der naechstliegende
     let qm = -1;
     for (let d = 0; d <= 6 && qm < 0; d++) for (const k of d ? [m - d, m + d] : [m]) { const kk = (k + 12) % 12; if (qm < 0 && jeMonat[kk] && jeMonat[kk].length >= 7) qm = kk; }
     for (let tg = 1; tg <= ml; tg++) {
@@ -1035,39 +1033,88 @@ function vergleichsTage(a, b, schaetzen) {
   }
   return { tage, gemessen, geschaetzt, quellen };
 }
+const hatBlatt = j => REG.some(x => x.ab === j + '-01-01');
+// Uebersteuerung "Preise des Jahres j" fuer einen Tag aus einem ANDEREN Jahr
+function jahrUeber(j, L) {
+  const R0 = REG.find(x => x.ab === j + '-01-01') || abschnittAm(REG, j + '-01-01');
+  return Object.assign({}, L, { __R: Object.assign({}, R0, { __mmdd: true }), ab: j + '-01-01' });
+}
 function zeigeVergl() {
   let a = +vVon.value, b = +vBis.value; if (b < a) [a, b] = [b, a];
   if (isNaN(a) || isNaN(b)) return;
+  fuelleVerb();
+  const tab = document.getElementById('vTab'), info = document.getElementById('vInfo'), jh = heute.getFullYear();
   const { tage, gemessen, geschaetzt, quellen } = vergleichsTage(a, b, document.getElementById('vSchaetz').checked);
-  const tab = document.getElementById('vTab'), info = document.getElementById('vInfo');
-  if (!tage.length) { tab.innerHTML = '<tr><td class="note">Für diesen Zeitraum gibt es noch keine Messwerte.</td></tr>'; info.innerHTML = ''; return; }
-  const Lnow = abschnittAm(LIEF, tage[tage.length - 1].t);
-  const zeilen = [{ name: Lnow.name, art: ART_N[Lnow.modus] || 'Festpreis', eigen: true, ueber: {} }]
-    .concat([0, 3, 1, 4, 2, 5].map(i => ({ o: ANGEBOTE[i], i })).filter(z => z.o.aktiv).map(z => ({ name: z.o.name || '(ohne Namen)', art: ART_N[z.o.art] + ' ' + (z.i < 3 ? 1 : 2), ueber: angebotUeber(z.o) })));
+  const sel = document.getElementById('vVerb'), basisTxt = sel.value === '' ? 'Zeitraum frei' : sel.options[sel.selectedIndex].text.split(' · ')[0];
+  if (!tage.length) { tab.innerHTML = `<tr class="vAbschn"><td colspan="4"><b class="vBasisTxt">Verbrauch ${basisTxt}</b><div class="note">Für diesen Zeitraum gibt es keine Messwerte.</div></td></tr>`; info.innerHTML = ''; return; }
+  const vpJ = hatBlatt(jh + 1) ? jh + 1 : null, gebJ = vpJ || jh;
   const mods = [['ohne §14a', { m1: false, m3: false }], ['Modul 1', { m1: true, m3: false }], ['Modul 1 + 3', { m1: true, m3: true }]];
-  const meinSp = !Lnow.m1 ? 0 : Lnow.m3 ? 2 : 1;
-  // Angebot ohne Preise: Festpreis/Zeitvariabel ohne Arbeitspreis, Zeitvariabel ohne Niedrigtarif, Dynamisch ohne Aufschlag und Grundpreis
+  // Zeilen
+  const zeilen = [];
+  const jahrZeile = (j, art) => { const L0 = abschnittAm(LIEF, j + '-01-01'), ov = jahrUeber(j, L0); const R0 = REG.find(x => x.ab === j + '-01-01');
+    return { j, art, L: L0, name: L0.name, vorl: !!(R0 && R0.vorl), fn: x => x.j === j ? {} : ov }; };
+  if (VJ_AN) zeilen.push(Object.assign(jahrZeile(jh - 1, 'vj'), { tag: 'Vorjahr ' + (jh - 1) }));
+  zeilen.push(Object.assign(jahrZeile(jh, 'akt'), { tag: 'aktuelles Jahr ' + jh }));
+  if (vpJ) zeilen.push(Object.assign(jahrZeile(vpJ, 'vp'), { tag: 'Vorausplanung ' + vpJ }));
+  const ref = zeilen[zeilen.length - 1];   // "dein Tarif" = Vorausplanung, sonst aktuelles Jahr
   const ohnePreis = o => !o || (o.art === 'brutto' ? !(o.ap > 0) : o.art === 'zeit' ? !(o.ap > 0 && o.nt > 0) : !(o.auf > 0 || o.gp > 0));
-  zeilen.forEach((z, k) => { z.leer = k > 0 && ohnePreis(ANGEBOTE[[0, 3, 1, 4, 2, 5].filter(i => ANGEBOTE[i].aktiv)[k - 1]]); });
-  for (const z of zeilen) z.c = mods.map(([m, mo]) => { let k = 0, bez = 0, arb = 0, fehlt = 0; for (const x of tage) { const d = rechneTag(x, Object.assign({}, z.ueber, mo)); k += d.kosten; bez += x.bez; arb += d.arb; fehlt += d.boeFehlt; } return { k, bez, arb, fehlt }; });
-  const eigen = zeilen[0].c[meinSp].k;
-  // feste Reihenfolge (Andreas): dein Tarif, Festpreis 1/2, Zeitvariabel 1/2, Dynamisch 1/2
-  let min = Infinity; zeilen.forEach(z => { if (!z.leer) z.c.forEach(c => { if (!c.fehlt && c.k < min) min = c.k; }); });
-  const kw = tage.reduce((s, x) => s + x.bez, 0);
-  tab.innerHTML = `<tr><th>${fmtDJ(tage[0].t)} – ${fmtDJ(tage[tage.length - 1].t)}<div class="note" style="font-weight:normal">${gemessen} Tage gemessen${geschaetzt ? ` + ${geschaetzt} geschätzt` : ''} · ${kwh(kw)}${geschaetzt ? ' · geschätzt: ' + Object.entries(quellen).map(([k, v]) => k + ' ' + v).join(' · ') : ''}</div></th>${mods.map((m, sp) => `<th>${m[0]}${sp === meinSp ? '<div class="meinstag">deine Wahl</div>' : ''}</th>`).join('')}</tr>` +
-    zeilen.map(z => `<tr${z.eigen ? ' class="eigen"' : ''}><td><b>${z.name}</b>${z.eigen ? ' <span class="tag">dein Tarif</span>' : ''}<div class="note">${z.art}</div></td>` +
-      (z.leer ? '<td colspan="3" class="note" style="text-align:center;color:var(--warn)">Preise eintragen (oben in der Karte)</td>' : z.c.map((c, sp) => c.fehlt ? `<td><div class="vk" style="color:var(--muted)">${eur(c.k)}</div><div class="note" style="color:var(--warn)">unvollständig – für ${Math.round(c.fehlt / 96)} Tage fehlen Börsenpreise</div></td>`
-        : `<td class="${Math.abs(c.k - min) < 0.005 ? 'best' : ''}${z.eigen && sp === meinSp ? ' meins' : ''}"><div class="vk">${eur(c.k)}</div><div class="note">Ø ${ct(c.arb / c.bez * 100)}/kWh${sp === meinSp && !z.eigen ? ` · <b style="color:${c.k < eigen ? 'var(--good)' : 'var(--crit)'}">${c.k < eigen ? '−' : '+'} ${eur(Math.abs(c.k - eigen))}</b> gegenüber deinem Tarif` : ''}${Math.abs(c.k - min) < 0.005 ? ' · am günstigsten' : ''}</div></td>`).join('')) + '</tr>').join('') +
-    (zeilen.length === 1 ? '<tr><td colspan="4" class="note" style="text-align:left">Noch kein Angebot zum Vergleichen: oben bei einem Angebot Anbieter und Preise eintragen und „vergleichen“ anhaken.</td></tr>' : '');
+  [0, 3, 1, 4, 2, 5].forEach(i => { const o = ANGEBOTE[i]; if (!o.aktiv) return;
+    const u = angebotUeber(o), Lg = abschnittAm(LIEF, gebJ + '-01-01'), ov = Object.assign(jahrUeber(gebJ, Lg), u, { ab: gebJ + '-01-01' });
+    zeilen.push({ art: 'ang', name: o.name || '(ohne Namen)', unter: ART_N[o.art] + ' ' + (i < 3 ? 1 : 2) + ' · Gebühren Tarifblatt ' + gebJ, leer: ohnePreis(o), L: u, fn: x => x.j === gebJ ? u : ov }); });
+  for (const z of zeilen) {
+    if (z.leer) continue;
+    z.c = mods.map(([m, mo]) => { let k = 0, bez = 0, arb = 0, fehlt = 0; for (const x of tage) { const d = rechneTag(x, Object.assign({}, z.fn(x), mo)); k += d.kosten; bez += x.bez; arb += d.arb; fehlt += d.boeFehlt; } return { k, bez, arb, fehlt }; });
+    z.sp = z.art === 'ang' ? (ref.L.m1 ? (ref.L.m3 ? 2 : 1) : 0) : (!z.L.m1 ? 0 : z.L.m3 ? 2 : 1);
+  }
+  let min = Infinity; zeilen.forEach(z => { if (!z.leer && z.art !== 'vj') z.c.forEach(c => { if (!c.fehlt && c.k < min) min = c.k; }); });
+  const kw = tage.reduce((s, x) => s + x.bez, 0), meinSp = ref.sp;
+  const dz = (d, txt) => `<b style="color:${d <= 0 ? 'var(--good)' : 'var(--crit)'}">${d <= 0 ? '−' : '+'} ${eur(Math.abs(d))}</b> ${txt}`;
+  const diff14a = (z, sp) => { if (sp === 0 || z.c[0].fehlt) return ''; let h = `<div class="note vDiff">${dz(z.c[sp].k - z.c[0].k, 'gegenüber ohne §14a')}`; if (sp === 2 && !z.c[1].fehlt) h += `<br><span style="opacity:.8">davon Modul 3: ${dz(z.c[2].k - z.c[1].k, 'gegenüber Modul 1')}</span>`; return h + '</div>'; };
+  const vergl = (z, sp) => {   // Vergleich in der Spalte der eigenen Wahl
+    let v = null, txt = '';
+    const vj = zeilen.find(x => x.art === 'vj'), akt = zeilen.find(x => x.art === 'akt');
+    if (z.art === 'akt' && vj && vj.c) { v = vj.c[vj.sp].k; txt = 'gegenüber ' + vj.j; }
+    if (z.art === 'vp' && akt.c) { v = akt.c[akt.sp].k; txt = 'gegenüber ' + akt.j; }
+    if (z.art === 'ang') { v = ref.c[ref.sp].k; txt = 'gegenüber deinem Tarif ' + (ref.j || ''); }
+    if (v == null || sp !== z.sp) return '';
+    const d = z.c[sp].k - v; return ` · <b style="color:${d <= 0 ? 'var(--good)' : 'var(--crit)'}">${d <= 0 ? '−' : '+'} ${eur(Math.abs(d))}</b> ${txt}`;
+  };
+  const kopf = `<tr class="vAbschn"><td colspan="4"><b class="vBasisTxt">Verbrauch ${basisTxt}</b> <span class="vTrenn">·</span> <b>${fmtDJ(tage[0].t)} – ${fmtDJ(tage[tage.length - 1].t)}</b> <span>· ${gemessen} Tage gemessen${geschaetzt ? ` + ${geschaetzt} geschätzt` : ''} · ${kwh(kw)}</span>` +
+    `<div class="note">Alle Zeilen rechnen mit diesem Verbrauch – jede mit den Preisen ihres Jahres (Tarifblatt). Grundpreis und §14a-Gutschrift anteilig für diese Tage.${geschaetzt ? ' Geschätzt: ' + Object.entries(quellen).map(([k, v]) => k + ' ' + v).join(' · ') : ''}</div></td></tr>` +
+    `<tr><th></th>${mods.map((m, sp) => `<th>${m[0]}${sp === meinSp ? '<div class="meinstag">deine Wahl</div>' : ''}</th>`).join('')}</tr>`;
+  const zeileHtml = z => {
+    const cls = z.art === 'vj' ? 'vjZeile' : z.art === 'vp' ? 'vpZeile' : z.art === 'akt' ? 'aktZeile' : '';
+    const eig = z === ref ? ' eigen' : '';
+    const tagH = z.tag ? ` <span class="tag${z.art === 'vp' ? ' vorlTag' : ''}">${z.tag}${z.vorl ? ' · vorläufig' : ''}</span>` : '';
+    const unter = z.unter || ('Preise Tarifblatt ' + z.j + (vBasis === String(z.j) ? ' · = echte Kosten ' + z.j + (z.j === jh ? ' bis heute' : '') : '') + (z === ref ? ' · dein Tarif' : ''));
+    let h = `<tr class="${cls}${eig}"><td><b>${z.name}</b>${tagH}<div class="note">${unter}</div></td>`;
+    if (z.leer) return h + '<td colspan="3" class="note" style="text-align:center;color:var(--warn)">Preise eintragen (oben in der Karte)</td></tr>';
+    return h + z.c.map((c, sp) => c.fehlt ? `<td><div class="vk" style="color:var(--muted)">${eur(c.k)}</div><div class="note" style="color:var(--warn)">unvollständig – für ${Math.round(c.fehlt / 96)} Tage fehlen Börsenpreise</div></td>`
+      : `<td class="${z.art !== 'vj' && Math.abs(c.k - min) < 0.005 ? 'best' : ''}${z === ref && sp === meinSp ? ' meins' : ''}"><div class="vk">${eur(c.k)}</div><div class="note">Ø ${ct(c.arb / c.bez * 100)}/kWh${vergl(z, sp)}${z.art !== 'vj' && Math.abs(c.k - min) < 0.005 ? ' · am günstigsten' : ''}</div>${diff14a(z, sp)}</td>`).join('') + '</tr>';
+  };
+  tab.innerHTML = kopf + zeilen.map(zeileHtml).join('') +
+    (zeilen.filter(z => z.art === 'ang').length === 0 ? '<tr><td colspan="4" class="note" style="text-align:left">Noch kein Angebot zum Vergleichen: oben bei einem Angebot Anbieter und Preise eintragen und „vergleichen“ anhaken.</td></tr>' : '');
   let sb = 0, sw = 0, n = 0, sum = 0;
   for (const x of tage) for (let q = 0; q < 96; q++) { const p = boerse(x, q); if (p === null) continue; sum += p; n++; sb += p * x.b[q]; sw += x.b[q]; }
-  info.innerHTML = 'Reihenfolge fest: dein Tarif, dann Festpreis 1/2, Zeitvariabel 1/2, Dynamisch 1/2 (nur angehakte). ± gegenüber deinem Tarif in der Spalte „deine Wahl“. Alle Angebote mit denselben Netzentgelten, Abgaben und Steuern wie dein Tarif.' +
+  info.innerHTML = `Reihenfolge fest: ${VJ_AN ? 'Vorjahr · ' : ''}aktuelles Jahr${vpJ ? ' · Vorausplanung ' + vpJ : ''} · Festpreis 1/2 · Zeitvariabel 1/2 · Dynamisch 1/2 (nur angehakte). ` +
+    `Angebote rechnen mit Netzentgelten, Abgaben, Steuern und §14a aus Tarifblatt ${gebJ}. Dynamische Tarife mit den Börsenpreisen der Verbrauchstage.` +
+    (vpJ ? ` Vorausplanung ${vpJ} = dein Verbrauch mit den Preisen ${vpJ}; ab 01.01.${vpJ} wird ${vpJ} das aktuelle Jahr.` : ` Eine Vorausplanung erscheint, sobald unter „Tarife &amp; Preise“ ein Tarifblatt ${jh + 1} angelegt ist.`) +
     (n ? ` · Börsenpreis im Zeitraum Ø <b>${ct(sum / n)}</b>/kWh netto, gewichtet mit deinem Verbrauch Ø <b>${ct(sb / sw)}</b>` : '');
+  const kg = document.getElementById('vKGeb'); if (kg) kg.textContent = `(rechnen mit den Gebühren aus Tarifblatt ${gebJ})`;
 }
+// Bedienung
+document.getElementById('vVerb').onchange = e => { setzeBasis(e.target.value); zeigeVergl(); };
+document.getElementById('vVjC').checked = VJ_AN;
+document.getElementById('vVjC').onchange = e => { VJ_AN = e.target.checked; try { localStorage.setItem('smgw_vorjahr', VJ_AN ? '1' : '0'); } catch (x) { } zeigeVergl(); };
+{ let zu = false; try { zu = localStorage.getItem('smgw_angebote_zu') === '1'; } catch (x) { }
+  const box = document.getElementById('vKBox'), kn = document.getElementById('vKKnopf'), pdf = document.getElementById('vKPdf');
+  const setz = () => { box.classList.toggle('zu', zu); kn.textContent = zu ? '▸ Angebote (Eingabe) anzeigen' : '▾ Angebote (Eingabe) ausblenden'; pdf.textContent = zu ? 'im PDF: nur Ergebnistabelle' : 'im PDF: mit Angebotskarten'; };
+  kn.onclick = () => { zu = !zu; try { localStorage.setItem('smgw_angebote_zu', zu ? '1' : '0'); } catch (x) { } setz(); };
+  setz(); }
 document.getElementById('vNeu').onclick = () => { neuRechnen(); alles(); zeigeVergl(); const m = document.getElementById('vNeuMsg'); m.textContent = 'neu berechnet ' + new Date().toLocaleTimeString('de-DE'); };
-['vSchaetz', 'vVon', 'vBis'].forEach(id => document.getElementById(id).onchange = () => { if (id !== 'vSchaetz') { vBasis = ''; document.querySelectorAll('[data-vb]').forEach(b => b.classList.remove('sel')); } zeigeVergl(); });
+['vSchaetz', 'vVon', 'vBis'].forEach(id => document.getElementById(id).onchange = () => { if (id !== 'vSchaetz') vBasis = ''; zeigeVergl(); });
 
-function alles() { zeigeTag(); zeigeMonat(); zeigeJahr(); zeigeFrei(); if (document.querySelector('.pane[data-p="vergl"]').classList.contains('on')) zeigeVergl(); if (uAkt === 'lief') liefAnzeige(); }
+function alles() { zeigeTag(); zeigeMonat(); zeigeJahr(); zeigeFrei(); if (document.querySelector('.pane[data-p="vergl"]').classList.contains('on')) zeigeVergl(); }
 // ---------- Laden der echten Daten ----------
 const $ = id => document.getElementById(id);
 const F82 = p => 'http://' + location.hostname + ':82/ufs/sdfs' + p;
@@ -1079,29 +1126,99 @@ const zeilen = txt => txt.split('\n').map(z => z.trim()).filter(z => z.length > 
 const ymPlus = (j, m) => (m === 11 ? (j + 1) + '-01' : j + '-' + pad(m + 2));
 
 // Zaehlerstaende aller Monate ab Start -> TAGE
-async function ladeMessdaten() {
-  const start = (STATUS && STATUS.start) || '2026-01-30';
+// ---------- v035 (11.11.2026, Andreas): erst zeigen, dann nachladen; abgeschlossene Monate im Browser (IndexedDB) ----------
+// Stufe 1: laufendes Jahr (+ Vormonat) holen, rechnen, anzeigen - die Seite ist sofort bedienbar.
+// Stufe 2 im Hintergrund: aeltere Monate (zuerst aus dem Browser-Speicher), Boersenpreise, dann neu rechnen.
+// Laufender und letzter Monat kommen immer frisch vom Geraet; aeltere hoechstens einmal am Tag im Hintergrund
+// nachgeprueft (z. B. nachgetragene Zaehlerstaende) - aendert sich etwas, wird neu gerechnet.
+const CDB = { p: null };
+function cdb() {
+  if (CDB.p) return CDB.p;
+  CDB.p = new Promise(res => { try { const r = indexedDB.open('smgw_kosten', 1); r.onupgradeneeded = () => r.result.createObjectStore('m'); r.onsuccess = () => res(r.result); r.onerror = () => res(null); } catch (e) { res(null); } });
+  return CDB.p;
+}
+async function cGet(k) { const db = await cdb(); if (!db) return null; return new Promise(res => { try { const q = db.transaction('m').objectStore('m').get(k); q.onsuccess = () => res(q.result || null); q.onerror = () => res(null); } catch (e) { res(null); } }); }
+async function cPut(k, v) { const db = await cdb(); if (!db) return; try { db.transaction('m', 'readwrite').objectStore('m').put(v, k); } catch (e) { } }
+const HEUTE_ISO = iso(new Date());
+const VORMONAT = (() => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.getFullYear() + '-' + pad(d.getMonth() + 1); })();
+const PRUEF = [];   // aus dem Speicher genommene Monate, die heute noch nicht nachgeprueft sind
+// Text eines Monats: ym < Vormonat = abgeschlossen -> Speicher; sonst immer frisch
+async function holeMonat(url, ym) {
+  const k = location.host + '|' + url;
+  if (ym < VORMONAT) {
+    const c = await cGet(k);
+    if (c && typeof c.t === 'string') { if (c.d !== HEUTE_ISO) PRUEF.push({ url, k, t: c.t }); return c.t; }
+  }
+  const t = await holeText(url);
+  if (ym < VORMONAT || ym === VORMONAT) cPut(k, { t, d: HEUTE_ISO });
+  return t;
+}
+const MON_ROWS = {};   // 'JJJJ-MM' -> Zeilen
+let HEUTE_ROWS = [], ERG_RAW = [];
+let ROWS_SMGW = [], ERG_ROWS = [], ERG_AN = false;
+try { ERG_AN = localStorage.getItem('smgw_ergaenzung') === '1'; } catch (x) { }
+function alleMonate() {
+  const vj = (new Date().getFullYear() - 1) + '-01';
+  const tb = REG.concat(LIEF).map(x => x.ab.slice(0, 4) + '-01').filter(x => x >= (new Date().getFullYear() - 6) + '-01');   // v033: ab erstem Tarifblatt (hoechstens 7 Jahre)
+  const start = [(STATUS && STATUS.start) || '2026-01-30', vj].concat(tb).sort()[0];
   const jetzt = new Date(); const ende = jetzt.getFullYear() + '-' + pad(jetzt.getMonth() + 1);
   const monate = []; let ym = start.slice(0, 7);
   while (ym <= ende) { monate.push(ym); const [j, m] = ym.split('-').map(Number); ym = ymPlus(j, m - 1); }
-  const rows = [];
-  for (let i = 0; i < monate.length; i++) {
-    meldung(`Lade Zählerstände ${i + 1} von ${monate.length} (${monate[i]}) …`);
-    try { for (const f of zeilen(await holeText('/smgwf?n=' + monate[i]))) if (f.length >= 3) rows.push(f); } catch (e) { }
-  }
-  try { const letzt = rows.length ? rows[rows.length - 1][0] : ''; for (const f of zeilen(await holeText('/smgwf?n=heute'))) if (f.length >= 3 && f[0] > letzt) rows.push(f); } catch (e) { }
-  ROWS_SMGW = rows;
-  try {   // Ergaenzung (nur Zeilen vor dem ersten Gateway-Wert), Port 82 wie die Tarifdatei
-    const erst = rows.length ? rows[0][0] : '9999';
-    ERG_ROWS = zeilen(await holeText(F82('/smgw_ergaenzung.txt') + '?_=' + Date.now())).filter(f => f.length >= 3 && f[0][0] !== '#' && f[0] < erst);
-  } catch (e) { ERG_ROWS = []; }
-  baueTage();
   return monate;
 }
-let ROWS_SMGW = [], ERG_ROWS = [], ERG_AN = false;
-try { ERG_AN = localStorage.getItem('smgw_ergaenzung') === '1'; } catch (x) { }
+async function ladeZaehlerMonat(ym) {
+  try { MON_ROWS[ym] = zeilen(await holeMonat('/smgwf?n=' + ym, ym)).filter(f => f.length >= 3); } catch (e) { MON_ROWS[ym] = []; }
+}
+function setzeRows() {
+  const rows = [];
+  Object.keys(MON_ROWS).sort().forEach(ym => { for (const f of MON_ROWS[ym]) rows.push(f); });
+  const letzt = rows.length ? rows[rows.length - 1][0] : '';
+  for (const f of HEUTE_ROWS) if (f[0] > letzt) rows.push(f);
+  ROWS_SMGW = rows;
+  const e0 = ERG_RAW.length ? ERG_RAW[0][0] : '9999', erst = (rows.find(r => r[0] > e0) || ['9999'])[0];   // v031
+  ERG_ROWS = ERG_RAW.filter(f => f[0] < erst);
+}
+function parseBoerse(text) {
+  const tmp = {};
+  for (const f of zeilen(text)) {
+    if (f.length < 2) continue;
+    const t = f[0].slice(0, 10), q = +f[0].slice(11, 13) * 4 + Math.floor(+f[0].slice(14, 16) / 15), v = parseFloat(f[1]);
+    if (!(q >= 0 && q < 96) || isNaN(v)) continue;
+    if (!tmp[t]) tmp[t] = { s: new Array(96).fill(0), n: new Array(96).fill(0) };
+    tmp[t].s[q] += v; tmp[t].n[q]++;                       // Oktober: doppelte Viertelstunde gemittelt
+  }
+  for (const t in tmp) {
+    const a = tmp[t].s.map((v, q) => tmp[t].n[q] ? v / tmp[t].n[q] : null);
+    for (let q = 8; q < 12; q++) if (a[q] === null && a[7] !== null && a[12] !== null) a[q] = a[7];   // Maerz: 02:xx gibt es nicht
+    BOE[t] = a;
+  }
+}
+async function ladeBoerseMonat(ym) { if (!BSTAT) return; try { parseBoerse(await holeMonat('/smgwb?n=' + ym, ym)); } catch (e) { } }
+// alles neu aufbauen und die Auswahl (Tag, Monat, Vergleich) behalten
+function neuAufbau(erstes) {
+  const tSel = !erstes && TAGE[ti] ? TAGE[ti].t : null, mSel = !erstes && MONATE[mi] ? MONATE[mi].j * 12 + MONATE[mi].m : null;
+  const vAlt = erstes ? null : { von: vVon.value, bis: vBis.value, basis: vBasis, fv: fVon.value, fb: fBis.value, fn: fVon.options.length };
+  setzeRows(); baueTage(); bauMonate(); fuelleAuswahl();
+  ti = TAGE.length - 1; mi = MONATE.length - 1;
+  if (tSel) { const k = TAGE.findIndex(x => x.t === tSel); if (k >= 0) ti = k; }
+  if (mSel != null) { const k = MONATE.findIndex(x => x.j * 12 + x.m === mSel); if (k >= 0) mi = k; }
+  if (vAlt) {
+    if (vAlt.basis) setzeBasis(vAlt.basis); else { vBasis = ''; vVon.value = vAlt.von; vBis.value = vAlt.bis; document.querySelectorAll('[data-vb]').forEach(b => b.classList.remove('sel')); }
+    const neuN = fVon.options.length - vAlt.fn;   // aeltere Monate vorn angefuegt -> Indizes verschieben
+    fVon.value = Math.max(0, +vAlt.fv + neuN); fBis.value = Math.max(0, +vAlt.fb + neuN);
+  }
+  neuRechnen(); alles(); zeigeHinweis();
+}
+function ergSchalter() {
+  if (!ERG_ROWS.length) return;
+  const w = $('ergWahl'), c = $('ergAn');
+  w.style.display = ''; c.checked = ERG_AN;
+  $('ergInfo').textContent = `${ERG_ROWS[0][0].slice(0, 10).split('-').reverse().join('.')} – ${ERG_ROWS[ERG_ROWS.length - 1][0].slice(0, 10).split('-').reverse().join('.')}`;
+  c.onchange = () => { ERG_AN = c.checked; try { localStorage.setItem('smgw_ergaenzung', ERG_AN ? '1' : '0'); } catch (x) { } neuAufbau(false); };
+}
 function baueTage() {
-  const rows = (ERG_AN ? ERG_ROWS.map(f => f.concat(['erg'])) : []).concat(ROWS_SMGW);
+
+  const rows = (ERG_AN ? ERG_ROWS.map(f => f.concat(['erg'])) : []).concat(ROWS_SMGW).sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0);
   // Viertelstunden: Differenz zum naechsten Zaehlerstand, der Zeile des frueheren Stands zugeordnet
   const map = {};
   for (let i = 0; i + 1 < rows.length; i++) {
@@ -1112,32 +1229,12 @@ function baueTage() {
     const ta = Date.parse(a[0].replace(' ', 'T') + ':00'), tb = Date.parse(b[0].replace(' ', 'T') + ':00');
     if (!(tb - ta <= 75 * 60000) && !(tb === ta)) continue;
     if (!map[t]) { const d = new Date(t + 'T12:00:00'); map[t] = { t, j: d.getFullYear(), m: d.getMonth(), b: new Array(96).fill(0), e: new Array(96).fill(0), bez: 0, ein: 0, n: 0 }; }
+    if (b1 - b0 > 25 || e1 - e0 > 25) continue;   // v030: Sprung (anderer Nullpunkt) = Luecke
     const db = Math.max(0, b1 - b0), de = Math.max(0, e1 - e0), x = map[t];
     x.b[q] += db; x.e[q] += de; x.bez += db; x.ein += de; x.n++; if (a[3] === 'erg') x.erg = (x.erg || 0) + 1;
   }
   TAGE.length = 0;
   Object.keys(map).sort().forEach(t => TAGE.push(map[t]));
-}
-// Boersenpreise der Monate (Slot 2)
-async function ladeBoerse(monate) {
-  try { BSTAT = JSON.parse(await holeText('/smgwb?n=status')); } catch (e) { BSTAT = null; return; }
-  for (const ym of monate) {
-    try {
-      const tmp = {};
-      for (const f of zeilen(await holeText('/smgwb?n=' + ym))) {
-        if (f.length < 2) continue;
-        const t = f[0].slice(0, 10), q = +f[0].slice(11, 13) * 4 + Math.floor(+f[0].slice(14, 16) / 15), v = parseFloat(f[1]);
-        if (!(q >= 0 && q < 96) || isNaN(v)) continue;
-        if (!tmp[t]) tmp[t] = { s: new Array(96).fill(0), n: new Array(96).fill(0) };
-        tmp[t].s[q] += v; tmp[t].n[q]++;                       // Oktober: doppelte Viertelstunde gemittelt
-      }
-      for (const t in tmp) {
-        const a = tmp[t].s.map((v, q) => tmp[t].n[q] ? v / tmp[t].n[q] : null);
-        for (let q = 8; q < 12; q++) if (a[q] === null && a[7] !== null && a[12] !== null) a[q] = a[7];   // Maerz: 02:xx gibt es nicht
-        BOE[t] = a;
-      }
-    } catch (e) { }
-  }
 }
 // Tarife
 function tarifDaten() {
@@ -1150,8 +1247,11 @@ async function ladeTarif() {
   try { const t = await holeText('/smgwb?n=tarif'); if (t.trim()) j = JSON.parse(t); } catch (e) { j = null; }
   if (!j || !Array.isArray(j.reg) || !j.reg.length || !Array.isArray(j.lief) || !j.lief.length || !Array.isArray(j.einsp) || !j.einsp.length) return false;
   REG.splice(0, REG.length, ...j.reg); LIEF.splice(0, LIEF.length, ...j.lief); EINSP.splice(0, EINSP.length, ...j.einsp);
+  // v032: Zeitfenster-Ende jetzt ausschliesslich - alte Angabe "05:59" (letzte Minute) wird "06:00", "23:59" wird "24:00"
+  REG.forEach(R => (R.fenster || []).forEach(f => { const m = minH(f[1]); if (m % 15 === 14) { const n = m + 1; f[1] = pad(Math.floor(n / 60)) + ':' + pad(n % 60); } }));
   const e = j.einst || {};
   if (e.gpModus) GP_MODUS = e.gpModus;
+  document.querySelectorAll('[name=gpm]').forEach(r => r.checked = r.value === GP_MODUS);
   if (e.jStart != null) jStart.value = e.jStart;
   if (e.abschlag != null) $('jAbschl').value = (+e.abschlag).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   if (e.anzAbschlaege) $('jAnz').value = e.anzAbschlaege;
@@ -1175,6 +1275,7 @@ async function speichern() {
   } catch (e) { sp.style.color = 'var(--crit)'; sp.textContent = 'NICHT gespeichert: ' + e.message; }
 }
 document.querySelectorAll('.spBtn2').forEach(b => b.onclick = speichern);
+document.querySelectorAll('[name=gpm]').forEach(r => r.onchange = () => { GP_MODUS = r.value; ruehrt(); });
 
 // neue Abschnitte Lieferant / Einspeisung (uebernehmen den Abschnitt davor)
 function neuAb(liste, d, zeige) {
@@ -1182,7 +1283,6 @@ function neuAb(liste, d, zeige) {
   if (liste.some(x => x.ab === d)) { alert('Für diesen Tag gibt es schon einen Abschnitt.'); return; }
   const n = JSON.parse(JSON.stringify(abschnittAm(liste, d))); n.ab = d; liste.push(n); liste.sort((a, b) => a.ab.localeCompare(b.ab)); zeige(); ruehrt();
 }
-$('lNeuAnl').onclick = () => neuAb(LIEF, $('lNeuDat').value, zeigeLief);
 $('eNeuAnl').onclick = () => neuAb(EINSP, $('eNeuDat').value, zeigeEinsp);
 
 // CSV: alle Viertelstunden eines Zeitraums mit Preisen und Kosten je Tarifart
@@ -1234,21 +1334,31 @@ async function start() {
   kopfZeit(); setInterval(kopfZeit, 1000); ladeLaufzeit(); setInterval(ladeLaufzeit, 60000);
   try { STATUS = JSON.parse(await holeText('/smgwj')); } catch (e) { STATUS = null; }
   TARIF_GELADEN = await ladeTarif();
-  const monate = await ladeMessdaten();
+  const monate = alleMonate(), jahr = String(new Date().getFullYear());
+  try { BSTAT = JSON.parse(await holeText('/smgwb?n=status')); } catch (e) { BSTAT = null; }
+  // Stufe 1: laufendes Jahr + Vormonat, dann sofort anzeigen
+  const zuerst = monate.filter(ym => ym >= VORMONAT || ym.startsWith(jahr)), spaeter = monate.filter(ym => !zuerst.includes(ym)).reverse();
+  for (let i = 0; i < zuerst.length; i++) { meldung(`Lade Zählerstände ${zuerst[i]} …`); await ladeZaehlerMonat(zuerst[i]); }
+  try { HEUTE_ROWS = zeilen(await holeText('/smgwf?n=heute')).filter(f => f.length >= 3); } catch (e) { HEUTE_ROWS = []; }
+  try { ERG_RAW = zeilen(await holeText(F82('/smgw_ergaenzung.txt') + '?_=' + Date.now())).filter(f => f.length >= 3 && f[0][0] !== '#'); } catch (e) { ERG_RAW = []; }
+  setzeRows(); baueTage();
   if (!TAGE.length) { meldung('Keine Zählerstände gefunden (/smgwf) – läuft Slot 1 (slot1-smgwweb)?', 'fehler'); return; }
-  meldung('Lade Börsenpreise …');
-  await ladeBoerse(monate);
-  bauMonate(); fuelleAuswahl();
-  ti = TAGE.length - 1; mi = MONATE.length - 1;
-  neuRechnen(); zeigeKarten(); zeigeUnter('jahr'); alles();
-  zeigeHinweis();
-  if (ERG_ROWS.length) {
-    const w = $('ergWahl'), c = $('ergAn');
-    w.style.display = ''; c.checked = ERG_AN;
-    $('ergInfo').textContent = `${ERG_ROWS[0][0].slice(0, 10).split('-').reverse().join('.')} – ${ERG_ROWS[ERG_ROWS.length - 1][0].slice(0, 10).split('-').reverse().join('.')}`;
-    c.onchange = () => { ERG_AN = c.checked; try { localStorage.setItem('smgw_ergaenzung', ERG_AN ? '1' : '0'); } catch (x) { }
-      baueTage(); bauMonate(); fuelleAuswahl(); ti = TAGE.length - 1; mi = MONATE.length - 1; neuRechnen(); alles(); zeigeHinweis(); };
+  for (const ym of zuerst) { meldung(`Lade Börsenpreise ${ym} …`); await ladeBoerseMonat(ym); }
+  neuAufbau(true); zeigeKarten(); zeigeBlatt(); zeigeEinsp(); ergSchalter();
+  // Stufe 2 im Hintergrund: aeltere Monate (neueste zuerst) und ihre Boersenpreise
+  if (spaeter.length) meldung(`Bedienbar – ältere Monate werden im Hintergrund geladen (${spaeter.length}) …`);
+  for (let i = 0; i < spaeter.length; i++) {
+    meldung(`Bedienbar – lade im Hintergrund ${spaeter[i]} (${i + 1} von ${spaeter.length}) …`);
+    await ladeZaehlerMonat(spaeter[i]); await ladeBoerseMonat(spaeter[i]);
+    if (i === spaeter.length - 1 || spaeter[i].endsWith('-01')) { neuAufbau(false); ergSchalter(); zeigeBlatt(); }   // je Jahr einmal neu rechnen
   }
+  meldung('');
+  // Nachpruefen (einmal am Tag): aus dem Speicher genommene Monate frisch holen und vergleichen
+  let anders = 0;
+  for (const p of PRUEF.splice(0)) {
+    try { const t = await holeText(p.url); cPut(p.k, { t, d: HEUTE_ISO }); if (t !== p.t) { anders++; const ym = p.url.split('n=')[1]; if (p.url.startsWith('/smgwf')) MON_ROWS[ym] = zeilen(t).filter(f => f.length >= 3); else parseBoerse(t); } } catch (e) { }
+  }
+  if (anders) { neuAufbau(false); zeigeBlatt(); }
 }
 start();
 
@@ -1261,7 +1371,9 @@ function druckVorbereiten(v) {
               vergl: 'Tarifvergleich' };
   const zusatz = v === 'jahr' ? `Abschlag ${$('jAbschl').value} € × ${$('jAnz').value} im Jahr` : '';
   $('druckKopf').innerHTML = `<div><b>Stromkosten – ${T[v]}</b>${zusatz ? `<span>${zusatz}</span>` : ''}</div>` +
-    `<span>gedruckt ${new Date().toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })} · SMGW-Leser</span>`;
+    `<span>gedruckt ${new Date().toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })} · SMGW-Leser</span>` +
+    `<div class="dkQuelle">Daten: amtliche 15-Minuten-Zählerstände des Smart Meter Gateways (Bezug 1.8.0 · Einspeisung 2.8.0)` +
+    (ERG_AN && ERG_ROWS.length ? ` · ergänzt ${$('ergInfo').textContent} aus eigener Messung (nicht amtlich)` : '') + `</div>`;
   const vk = $('vKarten'), K = [...vk.children];
   if (v === 'vergl') {   // je Tarifart eine Spalte, darin 1 ueber 2; nur Arten mit angehaktem Angebot
     const arten = ['brutto', 'zeit', 'dyn'].filter(a => ANGEBOTE.some(o => o.aktiv && o.art === a)), zeile = {};

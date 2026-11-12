@@ -45,12 +45,15 @@ h1{font-size:22px;margin:0;font-weight:650}
 .dot.ok{background:var(--good)} .dot.wa{background:var(--warn)} .dot.no{background:var(--crit)}
 .tabs{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 14px;border-bottom:1px solid var(--ring);padding-bottom:8px;position:sticky;top:0;background:var(--page);z-index:5;padding-top:6px}
 .tabs button{background:var(--surface);color:var(--ink-2);border:1px solid var(--ring);border-radius:8px;padding:6px 12px;font:inherit;font-size:13px;cursor:pointer}
-.tabs button[aria-selected="true"]{background:#FFEB9C;color:#9C5700;border-color:#FFEB9C;font-weight:600}
+/* v060 11.11.2026: Zertifikatszeile - "bis zu diesem Tag ..." in eigener Zeile (Andreas) */
+/* v059 11.11.2026: Status - Zeile "Zertifikat der TLS-Verbindung" (gueltig von/bis in Ortszeit, Restzeit, Seriennummer, ausgestellt fuer nur 4 Stellen) aus /smgw_gateway.json (slot0 v021 + Firmware TinyCTlsGueltig); ab 6 Monaten vor Ablauf gelb, danach rot (Andreas) */
+/* v058 11.11.2026: Seitenfarben - SMGW-Leser gruen (gewaehlter Reiter + Link), Stromkosten orange; Gelb bleibt dem Hell/Dunkel-Umschalter (Andreas) */
+.tabs button[aria-selected="true"]{background:#a5e8a8;color:#14531a;border-color:#a5e8a8;font-weight:600}
 /* v057 10.11.2026: Seitenwahl nur, wenn Slot 2 (slot2-smgwkosten) geladen ist - /smgwb?n=status antwortet; sonst wie ohne Kostenrechnung (Andreas) */
 /* v056 10.11.2026: Seitenwahl mittig in der Reiterzeile: SMGW-Leser | Stromkosten, offene Seite hellgruen (Andreas) */
 .seitenwahl{margin-left:auto;display:inline-flex;gap:6px;align-self:center}
 .seitenwahl a{background:var(--surface);color:var(--ink-2);border:1px solid var(--ring);border-radius:8px;padding:6px 14px;font-size:13px;text-decoration:none}
-.seitenwahl a.on{background:#a5e8a8;color:#14531a;border-color:#a5e8a8;font-weight:600}
+.seitenwahl a.sg{background:#e2f6e3;color:#14531a;border-color:#a5e8a8}.seitenwahl a.sk{background:#ffe9d6;color:#8a3c00;border-color:#ffd3ad}.seitenwahl a.sg.on{background:#a5e8a8;border-color:#14531a;font-weight:600}.seitenwahl a.sk.on{background:#ffd3ad;border-color:#8a3c00;font-weight:600}.seitenwahl a:not(.on){opacity:.75}.seitenwahl a:not(.on):hover{opacity:1}
 /* v055 10.11.2026: Knopf "Stromkosten" aus dem Kopf in die Reiterzeile, mittig zwischen den Reitergruppen (Andreas) */
 .tabs a.kosten{margin-left:auto;background:#FFEB9C;color:#9C5700;border:0;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600;text-decoration:none;align-self:center}
 /* v054 10.11.2026: Knopf "Stromkosten" im Kopf -> /smgwkosten (Slot 2 slot2-smgwkosten, Seite smgw_kosten.html) */
@@ -173,7 +176,7 @@ footer a{color:var(--ink-2)}
   <button role="tab" data-t="monat">Monat</button>
   <button role="tab" data-t="jahr">Jahr</button>
   <button role="tab" data-t="jahre">Jahre</button>
-  <span class="seitenwahl" id="seitenwahl" style="display:none"><a class="on" href="/smgw">SMGW-Leser</a><a href="/smgwkosten" title="Stromkosten aus den Viertelstunden (Slot 2)">Stromkosten</a></span>
+  <span class="seitenwahl" id="seitenwahl" style="display:none"><a class="sg on" href="/smgw">SMGW-Leser</a><a class="sk" href="/smgwkosten" title="Stromkosten aus den Viertelstunden (Slot 2)">Stromkosten</a></span>
   <button role="tab" data-t="einst" class="rechts">Einstellungen</button>   <!-- v030: rechtsbuendig -->
   <button role="tab" data-t="status">Status</button>
   <button role="tab" data-t="taf">TAF</button>
@@ -298,6 +301,7 @@ footer a{color:var(--ink-2)}
     <h2>Gateway (SMGW)</h2>
     <div class="kv">
       <span>Gateway-Firmware</span><span id="gwFw"><span class="note">noch nicht gelesen – kommt beim ersten Abruf des Tages vom Gateway</span></span>
+      <span>Zertifikat der TLS-Verbindung</span><span id="gwCert"><span class="note">noch nicht gelesen – kommt beim ersten Abruf des Tages (Firmware ab 11.11.2026, slot0-smgw ab v021)</span></span>
       <span>Werte</span><span>je Viertelstunde signiert, Status „valid“, vorhanden seit <span id="gwSeit">–</span></span>
     </div>
   </section>
@@ -1324,6 +1328,25 @@ async function zeigeGateway(){
   if (s.gwboot || s.gwsvc) {
     $('gwFw').innerHTML = `smgw-bootstream <b>${esc(s.gwboot || '–')}</b> · smgw-services <b>${esc(s.gwsvc || '–')}</b> <span class="note">(live gelesen am ${esc(s.gwfwtag ? deDate(s.gwfwtag) : '–')})</span>`;
   }
+  // v059: Gueltigkeit des TLS-Zertifikats des Gateways (= bis wann es getauscht/erneuert sein muss)
+  try {
+    const r = await fetch('http://' + location.hostname + ':82/ufs/smgw_gateway.json?_=' + Date.now(), { cache: 'no-store' });
+    const c = r.ok ? await r.json() : null;
+    if (c && c.certbis) {
+      const utc = t => new Date(String(t).replace(' ', 'T') + 'Z');
+      const ort = t => utc(t).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+      const bis = utc(c.certbis), tage = Math.floor((bis - Date.now()) / 86400000);
+      let rest, farbe = '';
+      if (tage < 0) { rest = 'abgelaufen – das Gateway muss getauscht oder erneuert werden'; farbe = 'color:var(--crit);font-weight:600'; }
+      else {
+        const j = Math.floor(tage / 365.25), m = Math.floor((tage - j * 365.25) / 30.44);
+        rest = 'noch ' + (j ? j + (j === 1 ? ' Jahr ' : ' Jahre ') : '') + (m ? m + (m === 1 ? ' Monat' : ' Monate') : (j ? '' : tage + ' Tage'));
+        if (tage < 183) { farbe = 'color:var(--warn);font-weight:600'; rest += ' – Tausch des Gateways steht an'; }
+      }
+      $('gwCert').innerHTML = `gültig vom <b>${esc(c.certvon ? ort(c.certvon) : '–')}</b> bis <b style="${farbe}">${esc(ort(c.certbis))}</b> <span style="${farbe}">(${esc(rest)})</span>` +
+        `<br><span class="note">Seriennummer ${esc(c.seriennr || '–')} · ausgestellt für …${esc(c.fuer4 || '')} · gelesen am ${esc(c.gelesen ? deDate(c.gelesen.slice(0, 10)) + ' ' + c.gelesen.slice(11, 16) : '–')}<br>bis zu diesem Tag muss das Gateway getauscht oder erneuert sein (wie TRuDI „Zertifikat der TLS-Verbindung“)</span>`;
+    }
+  } catch (e) { }
   let roh = '';
   try { roh = await holeText('/smgwf?n=gwtaf'); } catch(e){ roh = ''; }
   const prof = [...new Set((roh.match(/[A-Z0-9]*_?TAF\d{1,2}_[A-Z0-9_]+/g) || []))];
