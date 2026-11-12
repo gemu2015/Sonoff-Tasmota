@@ -292,33 +292,49 @@ void dcol(int fg) {
     if (dspWidth() <= 128) { dspColor(1, 0); } else { dspColor(fg, 0x0000); }
 }
 
-int dpage = 0;   // OLED page counter: state page for 4 updates, then IP page for 2
+// Li-ion charge in percent from the pack voltage (3S, per-cell curve, resting voltage; under motor load it reads lower).
+// 3.10 V/cell = 0 % = same as VBAT_MIN_MV, where the motors are refused.
+int lerp(int v, int v0, int v1, int p0, int p1) {
+    return p0 + (v - v0) * (p1 - p0) / (v1 - v0);
+}
+int bat_pct(int mv) {
+    int c = mv / 3;
+    if (mv <= 0) { return -1; }
+    if (c >= 4200) { return 100; }
+    if (c >= 4000) { return lerp(c, 4000, 4200, 80, 100); }
+    if (c >= 3800) { return lerp(c, 3800, 4000, 55, 80); }
+    if (c >= 3600) { return lerp(c, 3600, 3800, 25, 55); }
+    if (c >= 3400) { return lerp(c, 3400, 3600, 8, 25); }
+    if (c >= 3100) { return lerp(c, 3100, 3400, 0, 8); }
+    return 0;
+}
 
-// 128x32 OLED: big text (size 2 = 10 characters per line), two lines, alternating pages
+int dpage = 0;   // OLED page counter: battery + IP page for 4 updates, then the state page for 2
+
+// 128x32 OLED, big text (size 2 = 10 characters per line). Page 1: battery in percent + IP. Page 2: state.
 void display_mono() {
     int ph = dpage % 6;
     dpage++;
     dspFont(0);
     dcol(0xFFFF);
     if (ph == 0 || ph == 4) { dspClear(); }          // clear on every page switch (pads differ)
+    if (ph == 0) { tasmInfo(2, ip); }                // the IP is not known yet when the program starts at boot
     if (ph < 4) {
         dspSize(2);
-        dsp_state(dl);
-        dl[10] = 0;
+        if (vbat_mv > 0) { sprintf(dl, "BAT %d%%", bat_pct(vbat_mv)); } else { strcpy(dl, "BAT --"); }
         dsp_line(0, 0, 10, dl);
-        if (vbat_mv > 0) {
-            sprintf(dl, "%d.%02dV %dmA", vbat_mv / 1000, (vbat_mv % 1000) / 10, ina_ma);
-        } else {
-            strcpy(dl, "V:--");
-        }
-        dl[10] = 0;
-        dsp_line(0, 16, 10, dl);
-    } else {
-        dspSize(2);
-        dsp_line(0, 0, 10, "WAVE ROVER");
         dspSize(1);
         sprintf(dl, "IP %s", ip);
         dsp_line(0, 20, 21, dl);
+    } else {
+        dsp_state(dl);
+        if (strlen(dl) <= 10) {
+            dspSize(2);
+            dsp_line(0, 8, 10, dl);
+        } else {
+            dspSize(1);
+            dsp_line(0, 12, 21, dl);
+        }
     }
 }
 
@@ -424,7 +440,7 @@ void WebCall() {
     sprintf(ob, "{s}Rover{m}%s   motors L / R %d / %d  (watchdog stops %d){e}", dl, motL, motR, stops);
     webSend(ob);
     if (vbat_mv > 0) {
-        sprintf(ob, "{s}Battery{m}%d.%02d V   %d mA{e}", vbat_mv / 1000, (vbat_mv % 1000) / 10, ina_ma);
+        sprintf(ob, "{s}Battery{m}%d.%02d V  %d %%  %d mA{e}", vbat_mv / 1000, (vbat_mv % 1000) / 10, bat_pct(vbat_mv), ina_ma);
         webSend(ob);
     } else {
         webSend("{s}Battery (INA219){m}no data{e}");
@@ -595,6 +611,12 @@ int main() {
     rover_off();
     enc_init();
     lastcmd = millis();
+    // A reload (unload + run) leaves the I2C addresses of the previous run claimed, then every init below fails
+    // silently (Vbat 0, no yaw): give them back first, through the drivers' own release functions.
+    ina_addr = INA_ADDR;  ina_bus = I2C_BUS;  ina_release();
+    qmi_addr = 0x6B;      qmi_bus = I2C_BUS;  qmi_release();
+    ak_addr = AK_ADDR;    ak_bus = I2C_BUS;   ak_release();
+    vl_bus = I2C_BUS;  vl_claimed = 1;  vl_mux_ok = 1;  vl_release();
     ina_init(INA_ADDR, I2C_BUS);
     qmi_init(I2C_BUS, 2, 5, 3);
     ak_init(I2C_BUS, 8);
