@@ -877,6 +877,8 @@ static void tlspc_zeit(const uint8_t *p, size_t len, uint8_t tag, char *out) {
   } else if (tag == 0x18 && n >= 14) {   // GeneralizedTime YYYYMMDDhhmmssZ
     memcpy(j, d, 4); j[4] = 0; s = d + 4;
   } else { out[0] = 0; return; }
+  // The server controls these bytes and the result goes into a JSON answer and the log: digits only (UTCTime has 12 before the 'Z', GeneralizedTime 14).
+  for (size_t i = 0; i < ((tag == 0x17) ? 12u : 14u); i++) { if (d[i] < '0' || d[i] > '9') { out[0] = 0; return; } }
   snprintf(out, 24, "%s-%.2s-%.2s %.2s:%.2s:%.2s", j, s, s + 2, s + 4, s + 6, s + 8);
 }
 
@@ -917,7 +919,7 @@ static void tlspc_auswerten(void) {
     while (p < ae) {
       if (!tlspc_tl(p, ae, t, l) || p + l > ae) { return; }
       const uint8_t *ve = p + l, *o = p; uint8_t t3; size_t l3;
-      if (tlspc_tl(o, ve, t3, l3) && t3 == 0x06 && l3 == 3 && o[0] == 0x55 && o[1] == 0x04 && o[2] == 0x03) {  // CN
+      if (tlspc_tl(o, ve, t3, l3) && t3 == 0x06 && l3 == 3 && o + 3 <= ve && o[0] == 0x55 && o[1] == 0x04 && o[2] == 0x03) {  // CN
         o += l3;
         if (tlspc_tl(o, ve, t3, l3) && o + l3 <= ve) {
           size_t n = (l3 < sizeof(tlspc_fuer) - 1) ? l3 : sizeof(tlspc_fuer) - 1;
