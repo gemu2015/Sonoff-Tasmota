@@ -2,17 +2,18 @@
 
 TinyC ist ein C-Subset-Compiler und eine VM, die auf ESP32/ESP8266 als Tasmota-Treiber `XDRV_124` laeuft. C-Code im Browser-IDE schreiben, zu Bytecode kompilieren, hochladen und ausfuehren — kein Firmware-Rebuild noetig.
 
-> **Aktuelle Firmware: v1.6.78** — vorgebaute `.bin` / `.factory.bin` fuer ESP32 / ESP32-S3 / ESP32-C3 / ESP32-C6 / ESP8266 sowie das passende `tinyc_ide.html.gz` haengen an jedem Release.
+> **Aktuelle Firmware: v1.6.79** — vorgebaute `.bin` / `.factory.bin` fuer ESP32 / ESP32-S3 / ESP32-C3 / ESP32-C6 / ESP8266 sowie das passende `tinyc_ide.html.gz` haengen an jedem Release.
 >
 > * [**Alle Releases**](https://github.com/gemu2015/Sonoff-Tasmota/releases) — je Bau ein eigenes `v<version>`-Release. Wer das Repository beobachtet (*Custom → Releases*), wird ueber neue benachrichtigt.
 > * [`testing`](https://github.com/gemu2015/Sonoff-Tasmota/releases/tag/testing) — ein rollender Zeiger, der immer die neuesten Dateien traegt, fuer gleichbleibende Download-Adressen. Er wird absichtlich wiederverwendet und loest deshalb **keine** Release-Benachrichtigung aus.
 >
 > Jede Version steht in [**CHANGELOG.md**](CHANGELOG.md) (englisch), samt Tabelle der Syscall-ABI (welche Firmware eine `.tcb` braucht).
 
-## Was ist neu (v1.6.29 – v1.6.78)
+## Was ist neu (v1.6.29 – v1.6.79)
 
 Die Highlights; Einzelheiten je Version in [CHANGELOG.md](CHANGELOG.md).
 
+- **1.6.79:** der Upload-Server haelt keinen 8-KB-Task mehr am Leben (mehr freier RAM im Ruhezustand), ⚠️ jeder Programmstart verliert kein 1 KB RAM mehr, `TinyCStack` / `TinyCHeap` zeigen Tasks und Strukturgroessen, `TinyCTlsGueltig` (Zertifikatsgueltigkeit fuer Smart-Meter-Gateways), PCA9685-Servotreiber, EEBUS-Seiten mit Reiter "Status", neu gebaute `eebus-eth`-Images.
 - **1.6.78:** UDP-Port und serielle Schnittstellen werden nicht mehr geschlossen, wenn ein ANDERER Slot geladen oder angehalten wird (#142), ESP-NOW für Batterietaster und Pakete zwischen Geräten (ABI 34), GPIO16/17 ohne PSRAM nutzbar, WAVE ROVER am echten Rover (Radgeber, Joystick-Seite als Datei), SMGW-Leser und EEBUS-Updates von Andreas, `TinyCTlsCert`, Programme über 64 KB, LD19-Lidar-Treiber, Elementlesen eines Textes über einen `char[]`-Parameter — siehe [CHANGELOG.md](CHANGELOG.md).
 - **1.6.77:** USB-Host auf dem ESP32-S3 (USB-Stick als `/usb`, USB-Audio-Stick für Wiedergabe und Mikrofon, FTDI, Hub), TinyC-Dateimanager (Flash/SD/USB, Drag and Drop, Umbenennen, Bearbeiten, `.pvs` → CSV, läuft in jedem Slot mit Knopf auf der Hauptseite), `webOn()` wird vom registrierenden Slot beantwortet, `.secret`-Dateien bleiben im Gerät, EEBUS-Identität sichern — siehe [CHANGELOG.md](CHANGELOG.md).
 - **1.6.76:** `sensorGetNaN()` / `isNan()` (fehlender Sensorwert ist NaN statt 0), große Uploads halten die Slots nur noch beim Schreiben in den Flash an, eBUS-Slave-Antworten werden per CRC geprüft, `tcpSelect()` je Slot — siehe [CHANGELOG.md](CHANGELOG.md).
