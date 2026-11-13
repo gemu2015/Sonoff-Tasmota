@@ -3385,6 +3385,27 @@ int main() {
 
 Examples: `espnow_receiver.tc`, `espnow_sender_test.tc` (round trip in ms), `espnow_button_node.tc`. Header: `include/xdrv_124_tinyc_espnow.h`.
 
+### Hardware pulse counter (PCNT): wheel encoders and flow meters next to noise
+
+Tasmota's own counters (`Counter1..4`) count in a GPIO interrupt and can only filter in **milliseconds**. A geared motor with an encoder gives 2000..5000 pulses per second, so such a debounce cannot tell a pulse from a spike that the motor PWM couples into the encoder wire (WAVE ROVER, 13.11.2026: the counters ran at full speed with the wheel held still). The ESP32's **PCNT** counts in hardware, costs no VM time and ignores every pulse shorter than a given time.
+
+| Function | Description |
+|---|---|
+| `int pcntBegin(unit, pinA, pinB, filter_ns)` | Start counting on `pinA`. `pinB < 0`: **one channel**, the rising edges of `pinA` are counted. `pinB >= 0`: **quadrature** with `pinB` (x4 resolution, the count goes down when the direction reverses). `filter_ns` = pulses shorter than this are ignored (0 = no filter; the hardware limit is about **12 000 ns**, a larger value is clipped). `unit` 0..3. Answers 1, or 0 when the unit or a pin is invalid, a pin is claimed by Tasmota, or the chip has no PCNT (ESP32-C3, ESP8266, `-DTINYC_NO_PCNT`) |
+| `int pcntRead(unit)` | The count as a 32 bit integer (the hardware counter is 16 bit, the driver accumulates the overflow). 0 when the unit is not running |
+| `int pcntClear(unit)` | Count := 0 |
+| `int pcntEnd(unit)` | Stop and release the unit and its pins. A slot's units are also released when the slot is stopped or unloaded |
+
+The pins must be **free in Tasmota** (the same rule as `pinMode()`): `Gpio34 0`, not `Gpio34 352` (that is `Counter1`), then `Restart 1`. The pull-up is switched on (GPIO34..39 have none, use an external one). The wheel encoder library `common/wheel_enc.tc` uses it with `ENC_PCNT 1`.
+
+```c
+int main() {
+    if (pcntBegin(0, 34, -1, 3000) == 0) { addLog("PCNT failed"); }    // one channel on GPIO34, spikes under 3 us ignored
+    return 0;
+}
+void EverySecond() { addLog("ticks %d", pcntRead(0)); }
+```
+
 ### TCP Server
 
 Start a TCP stream server to accept incoming connections. Only one client is served at a time.

@@ -3293,6 +3293,27 @@ Ohne Schluessel kann jeder in Reichweite ein Paket schicken. Wenn das zaehlt: Za
 
 Beispiele: `espnow_receiver.tc`, `espnow_sender_test.tc` (Umlaufzeit in ms), `espnow_button_node.tc`. Kopf: `include/xdrv_124_tinyc_espnow.h`.
 
+### Hardware-Impulszaehler (PCNT): Radgeber und Durchflussmesser neben Stoerungen
+
+Die Zaehler von Tasmota (`Counter1..4`) zaehlen in einem GPIO-Interrupt und koennen nur in **Millisekunden** entprellen. Ein Getriebemotor mit Geber liefert 2000..5000 Impulse pro Sekunde, eine solche Entprellung kann einen Impuls nicht von einer Spitze unterscheiden, die das Motor-PWM in die Geberleitung einkoppelt (WAVE ROVER, 13.11.2026: die Zaehler liefen auf voller Geschwindigkeit, obwohl das Rad festgehalten wurde). Der **PCNT** des ESP32 zaehlt in Hardware, kostet keine VM-Zeit und ignoriert jeden Impuls, der kuerzer als eine vorgegebene Zeit ist.
+
+| Funktion | Beschreibung |
+|---|---|
+| `int pcntBegin(unit, pinA, pinB, filter_ns)` | Zaehlen an `pinA` starten. `pinB < 0`: **ein Kanal**, die steigenden Flanken von `pinA` werden gezaehlt. `pinB >= 0`: **Quadratur** mit `pinB` (vierfache Aufloesung, der Zaehler laeuft rueckwaerts, wenn die Richtung wechselt). `filter_ns` = kuerzere Impulse werden ignoriert (0 = kein Filter; die Hardware-Grenze liegt bei etwa **12 000 ns**, ein groesserer Wert wird gekappt). `unit` 0..3. Antwort 1, oder 0, wenn Einheit oder Pin ungueltig sind, ein Pin von Tasmota belegt ist oder der Chip keinen PCNT hat (ESP32-C3, ESP8266, `-DTINYC_NO_PCNT`) |
+| `int pcntRead(unit)` | Der Zaehlerstand als 32-Bit-Zahl (der Hardware-Zaehler hat 16 Bit, der Treiber addiert den Ueberlauf). 0, wenn die Einheit nicht laeuft |
+| `int pcntClear(unit)` | Zaehler := 0 |
+| `int pcntEnd(unit)` | Einheit und Pins freigeben. Die Einheiten eines Slots werden auch beim Anhalten oder Entladen des Slots freigegeben |
+
+Die Pins muessen in Tasmota **frei** sein (dieselbe Regel wie bei `pinMode()`): `Gpio34 0`, nicht `Gpio34 352` (das ist `Counter1`), danach `Restart 1`. Der Pull-up ist eingeschaltet (GPIO34..39 haben keinen, dort einen externen verwenden). Die Radgeber-Bibliothek `common/wheel_enc.tc` benutzt es mit `ENC_PCNT 1`.
+
+```c
+int main() {
+    if (pcntBegin(0, 34, -1, 3000) == 0) { addLog("PCNT failed"); }    // ein Kanal an GPIO34, Spitzen unter 3 us werden ignoriert
+    return 0;
+}
+void EverySecond() { addLog("ticks %d", pcntRead(0)); }
+```
+
 ### TCP-Server
 
 Einen TCP-Stream-Server starten, um eingehende Verbindungen anzunehmen. Es wird nur ein Client gleichzeitig bedient.

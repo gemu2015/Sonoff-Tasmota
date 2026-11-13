@@ -382,8 +382,9 @@ extern uint16_t tc_vm_stack_bytes;
 #include "xdrv_124_tinyc_spp.h"
 #include "xdrv_124_tinyc_usb.h"
 #include "xdrv_124_tinyc_espnow.h"   // ESP-NOW (USE_TINYC_ESPNOW): espnowBegin/Key/Peer/Send/Available/Recv/Rssi/End
+#include "xdrv_124_tinyc_pcnt.h"     // hardware pulse counter with glitch filter (USE_TINYC_PCNT, ESP32 PCNT): pcntBegin/Read/Clear/End
 
-#define TC_SYSCALL_ABI     34    // V34: ESP-NOW (569-576). V33: sensorGetNaN/isNan (567-568). V32: FTP client (556-566). Every ABI step is listed in tasmota/tinyc/CHANGELOG.md
+#define TC_SYSCALL_ABI     35    // V35: pcnt* hardware pulse counter (577-580). V34: ESP-NOW (569-576). V33: sensorGetNaN/isNan (567-568). V32: FTP client (556-566). Every ABI step is listed in tasmota/tinyc/CHANGELOG.md
 extern uint32_t Touch_Status(int32_t sel);   // xdrv_55_touch: 0=pressed,1=x,2=y, -1/-2=raw (SYS_TOUCH_GET); declared even on no-touch builds (call is guarded)
 // When bumping TC_RELEASE or TC_SYSCALL_ABI, add the entry to tasmota/tinyc/CHANGELOG.md
 // (and to its ABI table) -- the release text is taken from there. Keep these comments short.
@@ -1483,6 +1484,10 @@ enum TcSyscall {
   SYS_ESPNOW_RECV      = 574, // (mac_out, data_out, max)      -> int len / 0   pops the oldest packet, mac as "AA:BB:CC:DD:EE:FF"
   SYS_ESPNOW_RSSI      = 575, // ()                            -> int           RSSI of the last packet read (dBm)
   SYS_ESPNOW_END       = 576, // ()                            -> int 1         stop ESP-NOW
+  SYS_PCNT_BEGIN       = 577, // (unit, pinA, pinB, filter_ns) -> int 1 ok / 0  hardware pulse counter; pinB < 0: one channel (rising edges of pinA), else quadrature x4
+  SYS_PCNT_READ        = 578, // (unit)                        -> int           32 bit count
+  SYS_PCNT_CLEAR       = 579, // (unit)                        -> int 1 ok / 0  count := 0
+  SYS_PCNT_END         = 580, // (unit)                        -> int 1 ok / 0  stop and release the unit and its pins
   SYS_WEB_REPO_PULLDOWN = 280, // (gref, label_c, json_url_c, index_key_c, dest_path_c) -> void — Scripter smlpd()-style remote JSON directory picker
   SYS_SML_APPLY_PINS    = 281, // (path_c, rx, tx, smlf) -> int — idempotent SML descriptor pin substitution (%0?rxpin%/%0?txpin%/%0?smlf%, leading 0 optional). Inserts "; <template>" comment line above each active line on first call; rebuilds active line from template on subsequent calls. Values are substituted verbatim (e.g. tx=-1 becomes the literal "-1" which SML accepts as "no tx pin"); the original placeholder text is preserved only in the template comment. Returns # subs done, 0 = no change, -1 = err.
   SYS_SML_SCRIPTER_LOAD = 282, // (path_c) -> int — extract >F/>S sections from descriptor, compile to bytecode, run on EverySecond/Every100ms ticks. Subset: lnv0..lnv9, +=/-=/*=//=/=, +-*/% < <= > >= == !=, switch/case/ends, if/endif, sml(m,0,baud), sml(m,1,"HEX"). Returns # sections compiled (0..2), -1 = err.
@@ -12317,6 +12322,39 @@ static int tc_syscall_impl(TcVM *vm, uint16_t id) {
       TC_PUSH(vm, 0); break;
 #endif  // ESP32 && USE_TINYC_ESPNOW
 
+    // ── PCNT hardware pulse counter (USE_TINYC_PCNT, ESP32 with PCNT) ─────────────
+    // Counts in hardware and ignores pulses shorter than filter_ns: wheel encoders next to a motor PWM. See xdrv_124_tinyc_pcnt.h.
+#ifdef USE_TINYC_PCNT
+    case SYS_PCNT_BEGIN: {               // pcntBegin(unit, pinA, pinB, filter_ns) -> 1 / 0
+      int32_t ns = TC_POP(vm);
+      int32_t pb = TC_POP(vm);
+      int32_t pa = TC_POP(vm);
+      int32_t u  = TC_POP(vm);
+      TC_PUSH(vm, tc_pcnt_begin((int)u, (int)pa, (int)pb, (int)ns, (void *)tc_slot_of_vm(vm)));
+      break;
+    }
+    case SYS_PCNT_READ: {                // pcntRead(unit) -> count
+      int32_t u = TC_POP(vm);
+      TC_PUSH(vm, tc_pcnt_read((int)u));
+      break;
+    }
+    case SYS_PCNT_CLEAR: {               // pcntClear(unit) -> 1 / 0
+      int32_t u = TC_POP(vm);
+      TC_PUSH(vm, tc_pcnt_clear((int)u));
+      break;
+    }
+    case SYS_PCNT_END: {                 // pcntEnd(unit) -> 1 / 0
+      int32_t u = TC_POP(vm);
+      TC_PUSH(vm, tc_pcnt_end((int)u));
+      break;
+    }
+#else
+    case SYS_PCNT_BEGIN:                                                // not built in: 4 arguments, answer 0
+      TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_POP(vm); TC_PUSH(vm, 0); break;
+    case SYS_PCNT_READ: case SYS_PCNT_CLEAR: case SYS_PCNT_END:         // 1 argument
+      TC_POP(vm); TC_PUSH(vm, 0); break;
+#endif  // USE_TINYC_PCNT
+
     // ── Generic JSON parsing on an arbitrary script buffer (JsonParser-backed) ──
     // Unlike sensorGet (this device's own sensor JSON only), these parse ANY
     // char[] the script holds — e.g. an httpGet response from a remote device.
@@ -22745,6 +22783,9 @@ static void TinyCStopVM(TcSlot *s) {
   tc_tcp_server_stop_if_unused((void *)s);
   tc_spi_cleanup();
   tc_serial_close_all((void *)s);
+#ifdef USE_TINYC_PCNT
+  tc_pcnt_close_all((void *)s);                       // the PCNT units this slot opened
+#endif
   tc_img_store_free();
   // Clear mini-scripter state — otherwise the >F/>S bytecode from the previous
   // .tcb keeps firing on EverySecond/Every100ms ticks and (e.g.) re-emits the

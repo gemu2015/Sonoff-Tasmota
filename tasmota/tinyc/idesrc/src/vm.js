@@ -3358,6 +3358,17 @@ export class VM {
                 this.push(0);
                 break;
             }
+            case 577: { // PCNT_BEGIN (4 arguments): the simulator has no pulse counter
+                this.pop(); this.pop(); this.pop(); this.pop();
+                this.onOutput('[PCNT] not available in the simulator\n');
+                this.push(0);
+                break;
+            }
+            case 578: case 579: case 580: { // PCNT_READ / CLEAR / END (1 argument)
+                this.pop();
+                this.push(0);
+                break;
+            }
             case 568: { // IS_NAN
                 const buf = new ArrayBuffer(4);
                 new Int32Array(buf)[0] = this.pop();

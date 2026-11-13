@@ -1,5 +1,12 @@
 // wheel_enc.tc - two wheel encoders (one per drive side) -> ticks, distance, speed, odometry and a stall detector. Pure TinyC on top of
-// Tasmota's own pulse counters (interrupt driven), so it counts at kHz rates without loading the VM.
+// the ESP32's hardware pulse counter (pcntBegin, with a glitch filter) or, as a fallback, Tasmota's own counters (interrupt driven); both
+// count at kHz rates without loading the VM.
+//
+// WHY THE HARDWARE COUNTER (13.11.2026): next to the motor PWM Tasmota's counters ran at full speed with the wheel held still (4826 / 8093
+// ticks in 3 s): spikes in the encoder wire count as ticks, and Tasmota can only debounce in milliseconds, which would also swallow the
+// 2000..5000 real pulses per second. pcntBegin() ignores every pulse shorter than ENC_FILTER_NS (hardware limit about 12 us). With ENC_PCNT 1
+// (default) the pins MUST be free in Tasmota:  Gpio34 0   Gpio27 0   Restart 1   (NOT Counter1 / Counter2). If pcntBegin() fails (pin still
+// claimed by Tasmota, a firmware without PCNT) the library falls back to Tasmota's counters and logs it. ENC_BOTH 1 uses Tasmota's counters.
 //
 // WIRING (WAVE ROVER "General Driver for Robots", motor sockets H3 / H4, Waveshare DCGM-N20-12V-EN-200RPM):
 //   side A (left):  C1 = GPIO34, C2 = GPIO35      side B (right): C1 = GPIO27, C2 = GPIO16     (GPIO34/35 are input only; the sockets
@@ -19,14 +26,28 @@
 //   then  enc_ticks[0..1] (signed, since enc_zero()), enc_mm[0..1], enc_v[0..1] (mm/s, low passed), enc_x / enc_y (mm), enc_th (rad,
 //   positive = turned RIGHT = clockwise, like  l = d + t,  r = d - t  in rover.tc),  enc_stall (bit 0 = left, bit 1 = right)
 //
-// ENC_TPR = ticks per WHEEL revolution as counted here. It is an ESTIMATE until measured: 7 pulses per motor revolution x 50 : 1 =
-// 350 (channel A, one edge type). Calibrate:  RoverEncZero, roll the rover a measured distance, RoverEncCal <mm>.
+// ENC_TPR = ticks per WHEEL revolution as counted here (channel A, one edge type). MEASURED 13.11.2026 on the WAVE ROVER with its geared encoder
+// motors by turning each wheel ONE revolution by hand: 1031 (one side) and 1125 (other side), mean 1078. The older estimate (7 pulses per motor
+// revolution x 50 : 1 = 350) was three times too low. For a better value turn a wheel 5 revolutions and divide, or roll a measured distance:
+// RoverEncZero, roll the rover, RoverEncCal <mm>.
 //
 // ENC_SIM 1: no counters; the ticks are made up from the command (ENC_SIM_TPS ticks per second at full command), to try the rest
 // without a rover. NOT yet run on the rover (the encoder motors were still on their way).
 
 #ifndef ENC_TPR
-#define ENC_TPR 350              // ticks per wheel revolution (ESTIMATE, calibrate)
+#define ENC_TPR 1078             // ticks per wheel revolution (measured by hand, mean of 1031 / 1125; calibrate for more accuracy)
+#endif
+#ifndef ENC_PCNT
+#define ENC_PCNT 1               // 1 = try the hardware pulse counter first (pins free in Tasmota), 0 = Tasmota's counters only
+#endif
+#ifndef ENC_FILTER_NS
+#define ENC_FILTER_NS 10000      // pulses shorter than this are ignored by the hardware counter (limit about 12 000 ns)
+#endif
+#ifndef ENC_PIN_A
+#define ENC_PIN_A 34             // channel A of side A (left)
+#endif
+#ifndef ENC_PIN_B
+#define ENC_PIN_B 27             // channel A of side B (right)
 #endif
 #ifndef ENC_BOTH
 #define ENC_BOTH 0               // 1 = also count channel B (Counter3 / Counter4): twice the resolution
@@ -52,6 +73,7 @@
 
 int   enc_on = ENC_ON;
 int   enc_last[2];               // last raw counter reading
+int   enc_pcnt = 0;              // 1 = the hardware counter is running (units 0 / 1), 0 = Tasmota's counters
 int   enc_ticks[2];              // signed ticks since enc_zero()
 int   enc_dir[2];                // last non-zero direction: +1 forward, -1 backward
 int   enc_idle[2];               // ms commanded without a tick
@@ -71,6 +93,7 @@ int   enc_sim_cnt[2];
 int enc_raw(int s) {
     int c = 0;
     if (ENC_SIM == 1) { return enc_sim_cnt[s]; }
+    if (enc_pcnt == 1) { return pcntRead(s); }
     c = tasmCounter(s);
     if (ENC_BOTH == 1) { c = c + tasmCounter(s + 2); }
     return c;
@@ -99,6 +122,17 @@ void enc_zero() {
 void enc_init() {
     int s = 0;
     enc_set_tpr(ENC_TPR);
+    enc_pcnt = 0;
+    if (ENC_PCNT == 1 && ENC_SIM == 0 && ENC_BOTH == 0) {
+        if (pcntBegin(0, ENC_PIN_A, -1, ENC_FILTER_NS) == 1 && pcntBegin(1, ENC_PIN_B, -1, ENC_FILTER_NS) == 1) {
+            enc_pcnt = 1;
+            addLog("ENC: hardware pulse counter on GPIO%d / GPIO%d, filter %d ns", ENC_PIN_A, ENC_PIN_B, ENC_FILTER_NS);
+        } else {
+            pcntEnd(0);
+            pcntEnd(1);
+            addLog("ENC: pcntBegin failed (pins still Counter1/2 in Tasmota? 'Gpio%d 0', 'Gpio%d 0', Restart 1) - using Tasmota's counters", ENC_PIN_A, ENC_PIN_B);
+        }
+    }
     while (s < 2) {
         enc_dir[s] = 1;
         enc_seen[s] = 0;
