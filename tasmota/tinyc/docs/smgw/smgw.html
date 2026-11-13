@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Smart Meter Gateway</title>
+<title>SMGW-Leser</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2234%22%20r%3D%2220%22%20fill%3D%22none%22%20stroke%3D%22%2337c871%22%20stroke-width%3D%226%22%2F%3E%3Cg%20transform%3D%22translate(32%2034)%20scale(1.5)%22%3E%3Cpath%20d%3D%22M2-9L-5%201H0L-2%209L6-2H1Z%22%20fill%3D%22%2337c871%22%2F%3E%3C%2Fg%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2213%22%20r%3D%2212%22%20fill%3D%22%23f5c518%22%2F%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2249%22%20r%3D%2212%22%20fill%3D%22%2342a5f5%22%2F%3E%3Ccircle%20cx%3D%2252%22%20cy%3D%2249%22%20r%3D%2212%22%20fill%3D%22%23ff9800%22%2F%3E%3C%2Fsvg%3E">   <!-- v010 07.11.2026 (Andreas): Logo im Browser-Tab wie HEMS, Steuerbox, SteuVE -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" integrity="sha512-CQBWl4fJHWbryGE+Pc7UAxWMUMNMWzWxF4SQo9CgkJIN1kx6djDQZjh3Y8SZ1d+6I+1zze6Z7kHXO7q3UyZAWw==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <style>
@@ -45,6 +45,21 @@ h1{font-size:22px;margin:0;font-weight:650}
 .dot.ok{background:var(--good)} .dot.wa{background:var(--warn)} .dot.no{background:var(--crit)}
 .tabs{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 14px;border-bottom:1px solid var(--ring);padding-bottom:8px;position:sticky;top:0;background:var(--page);z-index:5;padding-top:6px}
 .tabs button{background:var(--surface);color:var(--ink-2);border:1px solid var(--ring);border-radius:8px;padding:6px 12px;font:inherit;font-size:13px;cursor:pointer}
+/* v069 13.11.2026: Ueberschrift "Smart Meter Gateway Leser" statt "Smart Meter Gateway" (die Seite ist der Leser, nicht das Gateway);
+   Browser-Tab und Druck-Kopfzeile "SMGW-Leser" (Andreas). */
+/* v068 13.11.2026: aufgeraeumt - Reste der Balken-Markierung (Parameter akt, Farbe --akt-rand) entfernt; keine sichtbare Aenderung. */
+/* v067 13.11.2026: Knopf "Als PDF drucken" in Tag, Monat, Jahr und Jahre - Bildschirmansicht hell, auf eine A4-Seite verkleinert (Andreas). */
+/* v066 13.11.2026: Viertelstunde als Zeitspanne "08:45 – 09:00 Uhr" (Info-Fenster Tagesdiagramm, Tabelle, hoechste Leistung);
+   der Balken "08:45" ist 08:45 bis 09:00 (Andreas). Achsenbeschriftung bleibt der Anfang. */
+/* v065 12.11.2026: keine Markierung des aktuellen Balkens mehr (kein Rand, keine fette Beschriftung); bleibt: Info-Fenster ueber der Grafik,
+   nur wo Werte sind, Farbkaestchen ohne Rand, Bestwerte 12 (Andreas) */
+/* v064 12.11.2026: aktueller Balken nur mit kraeftigem orangem Rand (2 px), Farbe wie alle; kein Hintergrund-Streifen, keine Schraffur (Andreas) */
+/* v063 12.11.2026: aktueller Balken deutlich auffaelliger - schraeg gestreift (kraeftige Farbe / hell) + heller Hintergrund-Streifen ueber die
+   ganze Hoehe der Spalte, damit auch kleine Balken auffallen; kein Info-Fenster ueber Zeiten ohne Werte (Zukunft) (Andreas) */
+/* v062 12.11.2026: aktueller Balken ohne weissen Rand und ohne gestrichelte Linie, dafuer kraeftigere Farbe (--s-bez-akt/--s-einb-akt); Beschriftung unten bleibt fett (Andreas) */
+/* v061 12.11.2026: Diagramme - Info-Fenster steht in einem Streifen UEBER der Grafik (verdeckt keine Balken mehr), Legende unten;
+   Bestwerte-Tabellen (Tag/Monat/Jahr) 12 statt 5 Eintraege;
+   aktuelle Viertelstunde / heutiger Tag / laufender Monat / laufendes Jahr kraeftig mit Rand + senkrechter Linie und Beschriftung (Andreas) */
 /* v060 11.11.2026: Zertifikatszeile - "bis zu diesem Tag ..." in eigener Zeile (Andreas) */
 /* v059 11.11.2026: Status - Zeile "Zertifikat der TLS-Verbindung" (gueltig von/bis in Ortszeit, Restzeit, Seriennummer, ausgestellt fuer nur 4 Stellen) aus /smgw_gateway.json (slot0 v021 + Firmware TinyCTlsGueltig); ab 6 Monaten vor Ablauf gelb, danach rot (Andreas) */
 /* v058 11.11.2026: Seitenfarben - SMGW-Leser gruen (gewaehlter Reiter + Link), Stromkosten orange; Gelb bleibt dem Hell/Dunkel-Umschalter (Andreas) */
@@ -115,7 +130,7 @@ h1{font-size:22px;margin:0;font-weight:650}
 .hero small{font-size:14px;font-weight:500;color:var(--ink-2);margin-left:4px}
 .note{font-size:12px;color:var(--muted)}
 section{margin-top:16px}
-.chartbox{position:relative;height:320px}
+.chartbox{position:relative;height:380px}
 table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px;font-variant-numeric:tabular-nums}
 th,td{padding:4px 6px;border-bottom:1px solid var(--grid);text-align:right;white-space:nowrap}
 th:first-child,td:first-child{text-align:left}
@@ -155,6 +170,7 @@ h2.ftph{color:#1fa3ec}
 footer{margin:22px 0 8px;color:var(--muted);font-size:12px;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center}
 footer a{color:var(--ink-2)}
 .msg{background:var(--surface-2);border:1px dashed var(--muted);color:var(--ink-2);border-radius:8px;padding:8px 12px;font-size:13px;margin-bottom:12px;display:none}
+#druckKopf{display:none}@page{size:A4 portrait;margin:10mm}.nav .druckBtn{margin-left:auto}body.druck{background:#fff}body.druck header,body.druck #chips,body.druck #msg,body.druck nav.tabs,body.druck .unterkopf,body.druck .pane .nav button,body.druck .pane .nav input,body.druck details:not([open]),body.druck details>summary{display:none!important}body.druck .wrap{max-width:none;width:1000px;margin:0;padding:0}body.druck #druckKopf{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:12px;border-bottom:2px solid #1fa3ec;padding:0 0 6px;margin:0 0 10px;font-size:13px;color:#52514e}body.druck #druckKopf b{font-size:20px;color:#0b0b0b;margin-right:12px}body.druck #druckKopf .dkQuelle{flex-basis:100%;font-size:12px}body.druck .pane .nav{display:none}body.druck .tblwrap{overflow:visible;max-height:none}body.druck .card,body.druck section{break-inside:avoid}body.druck *{-webkit-print-color-adjust:exact;print-color-adjust:exact}body.druck .g4{grid-template-columns:repeat(4,minmax(0,1fr))!important}body.druck .g2{grid-template-columns:repeat(2,minmax(0,1fr))!important}body.druck .g5{grid-template-columns:repeat(3,minmax(0,1fr))!important}body.druck footer .btn,body.druck footer button{display:none!important}@media print{body.druck .wrap{zoom:var(--dz,1)}}
 </style>
 </head>
 <body>
@@ -162,7 +178,7 @@ footer a{color:var(--ink-2)}
 <header>   <!-- v004 07.11.2026 (Andreas): Kopf wie HEMS, Steuerbox und SteuVE - Logo, Adresse darunter, Datum/Uhrzeit/Laufzeit daneben -->
   <div style="display:grid;grid-template-columns:auto auto;column-gap:14px;align-items:center;justify-items:start">
     <span style="justify-self:center;line-height:0"><svg width="36" height="36" role="img" aria-label="HEMS-Logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><circle cx="32" cy="32" r="22" fill="none" stroke="#37c871" stroke-width="3"/><g transform="translate(32 32) scale(1.1)"><path d="M2-9L-5 1H0L-2 9L6-2H1Z" fill="#37c871"/></g><circle cx="32" cy="11" r="10.500" fill="#2a2600"/><circle cx="32" cy="11" r="3.7" fill="#f5c518"/><line x1="37.6" y1="11" x2="40.1" y2="11" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><line x1="35.9" y1="14.9" x2="37.7" y2="16.7" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><line x1="32" y1="16.6" x2="32" y2="19.1" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><line x1="28.1" y1="14.9" x2="26.3" y2="16.7" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><line x1="26.4" y1="11" x2="23.9" y2="11" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><line x1="28.1" y1="7.1" x2="26.3" y2="5.3" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><line x1="32" y1="5.4" x2="32" y2="2.9" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><line x1="35.9" y1="7.1" x2="37.7" y2="5.3" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><circle cx="13" cy="44" r="10.500" fill="#0a1a2a"/><g transform="translate(13 43.5) scale(0.56)"><path d="M-14 5V1L-10-6Q-9-8-6-8H6Q9-8 10-6L14 1V5Q14 6 13 6H-13Q-14 6-14 5Z" fill="#42a5f5"/><path d="M-8-5Q-7.500-6-6-6H-1V-1H-10ZM1-6H6Q7.500-6 8-5L10-1H1Z" fill="#fff" opacity=".85"/><circle cx="-8" cy="6" r="3.600" fill="#16202b" stroke="#42a5f5" stroke-width="1.400"/><circle cx="8" cy="6" r="3.600" fill="#16202b" stroke="#42a5f5" stroke-width="1.400"/></g><circle cx="51" cy="44" r="10.500" fill="#241a08"/><g transform="translate(51 44) scale(0.62)"><circle r="13" fill="none" stroke="#ff9800" stroke-width="2.600"/><path d="M0 0C-5-3-5-9 0-10.500C3.500-9 3.500-4 0 0Z" fill="#ff9800" transform="rotate(0)"/><path d="M0 0C-5-3-5-9 0-10.500C3.500-9 3.500-4 0 0Z" fill="#ff9800" transform="rotate(120)"/><path d="M0 0C-5-3-5-9 0-10.500C3.500-9 3.500-4 0 0Z" fill="#ff9800" transform="rotate(240)"/><circle r="2" fill="#ff9800"/></g></svg></span>
-    <h1>Smart Meter Gateway</h1>
+    <h1>Smart Meter Gateway Leser</h1>
     <div class="sub" id="sub_ip" style="justify-self:center">—</div>
     <div class="sub" id="sub" style="font-size:16px">—</div>
   </div>
@@ -182,6 +198,7 @@ footer a{color:var(--ink-2)}
   <button role="tab" data-t="taf">TAF</button>
 </nav>
 <!-- v006 07.11.2026 (Andreas): Beschreibung + Datenstand unter den Reitern, Statuszeile direkt unter dem Kopf wie HEMS -->
+<div id="druckKopf"></div>
 <div class="unterkopf"><div class="sub tasblau">Amtliche 15-Minuten-Zählerstände · <span style="color:var(--s-bez)">Bezug 1.8.0</span> · <span style="color:var(--s-einb)">Einspeisung 2.8.0</span></div>   <!-- v027: Bezug rot, Einspeisung gelb wie im Diagramm --><div class="sub" id="hdrStand">–</div></div>
 
 <!-- ================= Tag ================= -->
@@ -192,6 +209,7 @@ footer a{color:var(--ink-2)}
     <button id="dNext" aria-label="Folgetag">▶</button>
     <input type="date" id="dPick" aria-label="Tag wählen">
     <button id="dHeute" title="zum heutigen Tag springen">Heute</button>
+    <button class="btn druckBtn" data-druck="tag" title="Druckdialog öffnen – dort „Als PDF speichern“ wählen; passt auf eine A4-Seite">Als PDF drucken</button>
   </div>
   <div class="grid g4">
     <div class="card"><h2><span class="sw" style="background:var(--s-bez)"></span>Bezug</h2><div class="hero" id="dBez">–</div><div class="note" id="dBezZ">&nbsp;</div></div>
@@ -220,6 +238,7 @@ footer a{color:var(--ink-2)}
     <span class="lbl" id="mLbl">–</span>
     <button id="mNext" aria-label="Folgemonat">▶</button>
     <button id="mHeute" title="zum aktuellen Monat springen">akt. Monat</button>
+    <button class="btn druckBtn" data-druck="monat" title="Druckdialog öffnen – dort „Als PDF speichern“ wählen; passt auf eine A4-Seite">Als PDF drucken</button>
   </div>
   <div class="grid g5">
     <div class="card"><h2><span class="sw" style="background:var(--s-bez)"></span>Bezug</h2><div class="hero" id="mBez">–</div></div>
@@ -249,6 +268,7 @@ footer a{color:var(--ink-2)}
     <span class="lbl" id="yLbl">–</span>
     <button id="yNext" aria-label="Folgejahr">▶</button>
     <button id="yHeute" title="zum aktuellen Jahr springen">akt. Jahr</button>
+    <button class="btn druckBtn" data-druck="jahr" title="Druckdialog öffnen – dort „Als PDF speichern“ wählen; passt auf eine A4-Seite">Als PDF drucken</button>
   </div>
   <div class="grid g5">
     <div class="card"><h2><span class="sw" style="background:var(--s-bez)"></span>Bezug</h2><div class="hero" id="yBez">–</div></div>
@@ -273,6 +293,7 @@ footer a{color:var(--ink-2)}
 
 <!-- ================= Jahre (v005 07.11.2026, Andreas) ================= -->
 <div class="pane" data-p="jahre">
+  <div class="nav"><button class="btn druckBtn" data-druck="jahre" title="Druckdialog öffnen – dort „Als PDF speichern“ wählen; passt auf eine A4-Seite">Als PDF drucken</button></div>
   <div class="grid g5">
     <div class="card"><h2><span class="sw" style="background:var(--s-bez)"></span>Bezug gesamt</h2><div class="hero" id="jsBez">–</div></div>
     <div class="card"><h2><span class="sw" style="background:var(--s-einb)"></span>Einspeisung gesamt</h2><div class="hero" id="jsEin">–</div></div>
@@ -558,7 +579,14 @@ const TAKT_INFO = 'Takt heute: holt zusätzlich die Viertelstunden des LAUFENDEN
 function esc(t){ return String(t).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
 // ---------- Diagramme ----------
-function balken(id, labels, bez, ein, xTitel, onClick){
+// v061: Info-Fenster oben ueber der Grafik, waagerecht an der Maus
+if (typeof Chart !== 'undefined') Chart.Tooltip.positioners.oben = function(items, pos){
+  if (!items.length) return false;
+  const ca = this.chart.chartArea; return { x: items[0].element.x, y: ca.top - 6, xAlign: 'center', yAlign: 'bottom' };
+};
+// v066: Viertelstunde i (0..95) als Zeitspanne, letzte 23:45 - 24:00
+const qSpanne = i => `${pad(Math.floor(i / 4))}:${pad((i % 4) * 15)} – ${pad(Math.floor((i + 1) / 4))}:${pad(((i + 1) % 4) * 15)} Uhr`;
+function balken(id, labels, bez, ein, xTitel, onClick, titel){
   const old = ST.charts[id];
   if (old) old.destroy();
   const grid = css('--grid'), ink2 = css('--ink-2');
@@ -572,9 +600,10 @@ function balken(id, labels, bez, ein, xTitel, onClick){
     options:{
       responsive:true, maintainAspectRatio:false, animation:false,
       interaction:{mode:'index', intersect:false},
+      layout:{padding:{top:68}},
       plugins:{
-        legend:{labels:{color:ink2}},
-        tooltip:{callbacks:{label:c => `${c.dataset.label}: ${num(Math.abs(c.parsed.y), 3)} ${xTitel}`}}
+        legend:{position:'bottom', labels:{color:ink2}},
+        tooltip:{position:'oben', caretSize:6, caretPadding:0, filter:t => t.raw != null, callbacks:{title:c => c.length ? (titel ? titel[c[0].dataIndex] : c[0].label) : '', labelColor:c => ({borderColor:c.dataset.backgroundColor, backgroundColor:c.dataset.backgroundColor}), label:c => `${c.dataset.label}: ${num(Math.abs(c.parsed.y), 3)} ${xTitel}`}}
       },
       scales:{
         x:{stacked:true, ticks:{color:ink2, autoSkip:true, maxRotation:0}, grid:{color:grid}},
@@ -586,6 +615,7 @@ function balken(id, labels, bez, ein, xTitel, onClick){
 }
 
 // ---------- Bestwerte je Kalenderjahr (v023 08.11.2026) ----------
+const TOP_N = 12;   // v061: Bestwerte-Tabellen je Reiter 12 Eintraege (vorher 5, Andreas)
 // Jahresangabe fuer die Kachelkoepfe: "2026" oder "2026 (ab 30.1.)", wenn die Daten erst spaeter im Jahr beginnen
 function jahrText(y){
   const tj = ST.tage.filter(t => +t.d.slice(0, 4) === y);
@@ -633,8 +663,8 @@ async function spitzenJahr(y){
   }
   const liste = Object.keys(tag).map(d => ({d, ...tag[d]}));
   const r = {zeit:Date.now(),
-    bez:liste.filter(x => x.b > 0).sort((p, q) => q.b - p.b).slice(0, 5),
-    ein:liste.filter(x => x.e > 0).sort((p, q) => q.e - p.e).slice(0, 5)};
+    bez:liste.filter(x => x.b > 0).sort((p, q) => q.b - p.b).slice(0, TOP_N),
+    ein:liste.filter(x => x.e > 0).sort((p, q) => q.e - p.e).slice(0, TOP_N)};
   ST.spitzen = ST.spitzen || {};
   ST.spitzen[y] = r;
   return r;
@@ -658,8 +688,8 @@ function zeigeMonatTop(ym){
   const jt = ST.tage.filter(t => +t.d.slice(0, 4) === y && ok(t)).map(mk);
   $('tmBJ').textContent = $('tmEJ').textContent = jahrText(y);          // v028: ganzes Kalenderjahr
   const geh = d => { zeigeTab('tag'); zeigeTag(d); };
-  topTabelle('tmB', ['#', 'Tag', 'kWh'], [...jt].sort((p, q) => q.b - p.b).slice(0, 5).map(x => ({go:x.d, zellen:[kurzTag(x.d), num(x.b, 2)]})), geh);
-  topTabelle('tmE', ['#', 'Tag', 'kWh'], [...jt].sort((p, q) => q.e - p.e).slice(0, 5).map(x => ({go:x.d, zellen:[kurzTag(x.d), num(x.e, 2)]})), geh);
+  topTabelle('tmB', ['#', 'Tag', 'kWh'], [...jt].sort((p, q) => q.b - p.b).slice(0, TOP_N).map(x => ({go:x.d, zellen:[kurzTag(x.d), num(x.b, 2)]})), geh);
+  topTabelle('tmE', ['#', 'Tag', 'kWh'], [...jt].sort((p, q) => q.e - p.e).slice(0, TOP_N).map(x => ({go:x.d, zellen:[kurzTag(x.d), num(x.e, 2)]})), geh);
   const mb = [...mt].sort((p, q) => q.b - p.b)[0], me = [...mt].sort((p, q) => q.e - p.e)[0];
   $('tmBR').textContent = mb ? `Bester Tag ${MON[m - 1]} ${y}: ${kurzTag(mb.d)} ${num(mb.b, 2)} kWh · Klick öffnet den Tag` : `${MON[m - 1]} ${y}: keine Daten`;
   $('tmER').textContent = me ? `Bester Tag ${MON[m - 1]} ${y}: ${kurzTag(me.d)} ${num(me.e, 2)} kWh · Klick öffnet den Tag` : `${MON[m - 1]} ${y}: keine Daten`;
@@ -670,8 +700,8 @@ function zeigeJahrTop(y, bez, ein, nt){
   for (let m = 0; m < 12; m++) if (nt[m]) ms.push({m, b:bez[m], e:ein[m], n:nt[m], voll:nt[m] >= new Date(Date.UTC(y, m + 1, 0)).getUTCDate()});
   const geh = ym => { zeigeTab('monat'); zeigeMonat(ym); };
   const z = (x, v) => ({go:`${y}-${pad(x.m + 1)}`, zellen:[`${MONK[x.m]} ${y}`, num(v, 1), x.n + (x.voll ? '' : ' ⚠')]});
-  topTabelle('tyB', ['#', 'Monat', 'kWh', 'Tage'], [...ms].sort((p, q) => q.b - p.b).slice(0, 5).map(x => z(x, x.b)), geh);
-  topTabelle('tyE', ['#', 'Monat', 'kWh', 'Tage'], [...ms].sort((p, q) => q.e - p.e).slice(0, 5).map(x => z(x, x.e)), geh);
+  topTabelle('tyB', ['#', 'Monat', 'kWh', 'Tage'], [...ms].sort((p, q) => q.b - p.b).slice(0, TOP_N).map(x => z(x, x.b)), geh);
+  topTabelle('tyE', ['#', 'Monat', 'kWh', 'Tage'], [...ms].sort((p, q) => q.e - p.e).slice(0, TOP_N).map(x => z(x, x.e)), geh);
   $('tyInfo').textContent = 'Klick öffnet den Monat';
 }
 
@@ -703,7 +733,7 @@ async function zeigeTag(iso){
   const {q, n, t} = await tagDaten(iso);
   const labels = [], pb = [], pe = [];
   let sb = 0, se = 0, mb = -1, mbI = -1, me = -1, meI = -1;
-  const tr = ['<tr><th>Uhrzeit</th><th>Zählerstand Bezug</th><th>Zählerstand Einsp.</th><th>Bezug kWh</th><th>Einsp. kWh</th><th>Bezug kW</th><th>Einsp. kW</th></tr>'];
+  const tr = ['<tr><th>Viertelstunde</th><th>Zählerstand Bezug (Beginn)</th><th>Zählerstand Einsp. (Beginn)</th><th>Bezug kWh</th><th>Einsp. kWh</th><th>Bezug kW</th><th>Einsp. kW</th></tr>'];
   for (let i = 0; i < 96; i++){
     const zeit = `${pad(Math.floor(i / 4))}:${pad((i % 4) * 15)}`;
     labels.push(zeit);
@@ -716,7 +746,7 @@ async function zeigeTag(iso){
     if (db != null){ sb += db; if (db > mb){ mb = db; mbI = i; } }
     if (de != null){ se += de; if (de > me){ me = de; meI = i; } }
     if (a.b != null || a.e != null)
-      tr.push(`<tr><td>${zeit}</td><td>${num(a.b, 4)}</td><td>${num(a.e, 4)}</td><td>${num(db, 4)}</td><td>${num(de, 4)}</td><td>${num(db == null ? null : db * 4, 3)}</td><td>${num(de == null ? null : de * 4, 3)}</td></tr>`);
+      tr.push(`<tr><td>${qSpanne(i)}</td><td>${num(a.b, 4)}</td><td>${num(a.e, 4)}</td><td>${num(db, 4)}</td><td>${num(de, 4)}</td><td>${num(db == null ? null : db * 4, 3)}</td><td>${num(de == null ? null : de * 4, 3)}</td></tr>`);
   }
   const hatWerte = n > 0;
   // Tagessumme bevorzugt aus der Tagesliste (exakt 00:00 bis 00:00)
@@ -726,10 +756,10 @@ async function zeigeTag(iso){
   $('dBezZ').textContent = hatWerte && q[0].b != null ? `Zählerstand 00:00: ${num(q[0].b, 4)} kWh` : (hatWerte ? '' : 'keine Werte für diesen Tag');
   $('dEinZ').textContent = hatWerte && q[0].e != null ? `Zählerstand 00:00: ${num(q[0].e, 4)} kWh` : '';
   $('dPmax').innerHTML = mbI >= 0 ? num(mb * 4, 2) + '<small>kW</small>' : '–';
-  $('dPmaxZ').textContent = mbI >= 0 ? `um ${labels[mbI]} (Viertelstundenmittel)` : 'Mittel einer Viertelstunde';
+  $('dPmaxZ').textContent = mbI >= 0 ? `${qSpanne(mbI)} (Viertelstundenmittel)` : 'Mittel einer Viertelstunde';
   $('dEmax').innerHTML = meI >= 0 && me > 0 ? num(me * 4, 2) + '<small>kW</small>' : '–';
-  $('dEmaxZ').textContent = meI >= 0 && me > 0 ? `um ${labels[meI]} (Viertelstundenmittel)` : 'Mittel einer Viertelstunde';
-  balken('cTag', labels, pb, pe, 'kW', null);
+  $('dEmaxZ').textContent = meI >= 0 && me > 0 ? `${qSpanne(meI)} (Viertelstundenmittel)` : 'Mittel einer Viertelstunde';
+  balken('cTag', labels, pb, pe, 'kW', null, labels.map((_, i) => qSpanne(i)));
   $('tTag').innerHTML = tr.join('');
   const erster = ST.tage.length ? ST.tage[0].d : (ST.status && ST.status.start) || iso;
   $('dPrev').disabled = iso <= erster;
@@ -939,6 +969,7 @@ try { const th = localStorage.getItem('smgw_theme'); if (th) { document.document
 $('theme').onclick = () => {
   const r = document.documentElement; r.dataset.theme = r.dataset.theme === 'light' ? 'dark' : 'light';
   try { localStorage.setItem('smgw_theme', r.dataset.theme); } catch (x) {}
+  chartFarben();   // v067
 };
 kopfZeit(); ladeLaufzeit();
 setInterval(() => { if (!document.hidden) { kopfZeit(); } }, 1000);
@@ -1504,6 +1535,45 @@ document.addEventListener('DOMContentLoaded', () => {
 // v057: Seitenwahl SMGW-Leser | Stromkosten nur zeigen, wenn Slot 2 (Kostenrechnung, freiwillig) antwortet
 fetch('/smgwb?n=status', { cache: 'no-store' }).then(r => r.ok ? r.json() : null)
   .then(j => { if (j && j.version) document.getElementById('seitenwahl').style.display = ''; }).catch(() => { });
+
+// v067: Diagrammfarben nach dem Farbschema neu setzen (Drucken hell; auch beim Umschalten Hell/Dunkel)
+function chartFarben(){
+  if (typeof Chart === 'undefined') return;
+  const g = css('--grid'), i = css('--ink-2');
+  for (const c of Object.values(ST.charts)) { if (!c) continue; const o = c.options;
+    o.scales.x.ticks.color = i; o.scales.x.grid.color = g; o.scales.y.ticks.color = i; o.scales.y.grid.color = g;
+    if (o.scales.y.title) o.scales.y.title.color = i; if (o.plugins.legend.labels) o.plugins.legend.labels.color = i;
+    if (c.data.datasets[0]) c.data.datasets[0].backgroundColor = css('--s-bez'); if (c.data.datasets[1]) c.data.datasets[1].backgroundColor = css('--s-einb');
+    c.update('none'); }
+}
+// v067: Druck / PDF - eine A4-Seite (190 x 277 mm nutzbar = 718 x 1047 px bei 96 dpi), Layout 1000 px breit, dann verkleinert
+function druckVorbereiten(v){
+  const b = document.body, r = document.documentElement, w = document.querySelector('.wrap');
+  const th = r.dataset.theme, titel = document.title;
+  const T = { tag: 'Tag ' + $('dLbl').textContent.trim(), monat: 'Monat ' + $('mLbl').textContent.trim(),
+              jahr: 'Jahr ' + $('yLbl').textContent.trim(), jahre: 'alle Jahre' };
+  $('druckKopf').innerHTML = `<div><b>SMGW-Leser – ${esc(T[v])}</b></div>` +
+    `<span>gedruckt ${new Date().toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })} · SMGW-Leser</span>` +
+    `<div class="dkQuelle">Daten: amtliche 15-Minuten-Zählerstände des Smart Meter Gateways (Bezug 1.8.0 · Einspeisung 2.8.0) · ${esc($('hdrStand').textContent.trim())}</div>`;
+  r.dataset.theme = 'light'; b.classList.add('druck');
+  for (const c of Object.values(ST.charts)) if (c) c.resize();
+  chartFarben();
+  w.style.setProperty('--dz', 1);
+  const z = Math.min(718 / 1000, 1035 / w.scrollHeight);
+  w.style.setProperty('--dz', z.toFixed(4));
+  document.title = 'SMGW-Leser ' + T[v];
+  return () => { b.classList.remove('druck'); w.style.removeProperty('--dz'); document.title = titel;
+    if (th) r.dataset.theme = th; else delete r.dataset.theme;
+    for (const c of Object.values(ST.charts)) if (c) c.resize();
+    chartFarben(); };
+}
+function druck(v){
+  const fertig = druckVorbereiten(v);
+  const ende = () => { window.removeEventListener('afterprint', ende); fertig(); };
+  window.addEventListener('afterprint', ende);
+  setTimeout(() => window.print(), 300);
+}
+document.querySelectorAll('.druckBtn').forEach(k => k.onclick = () => druck(k.dataset.druck));
 </script>
 </body>
 </html>

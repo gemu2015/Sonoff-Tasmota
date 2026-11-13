@@ -58,6 +58,10 @@ with total size and `abi_rev`) arrived in 1.6.35; v2–v5 files still load.
 
 ---
 
+## Unreleased
+
+- **SMGW reader finished: guide v016, `smgw.html` v069, `smgw_kosten.html` v044, `slot2-smgwkosten_v007`** (Andreas, 13.11.2026): the page title says "Smart Meter Gateway Leser"; the day chart, the table of quarter hours and the tiles "Höchste Leistung" show the whole quarter hour ("16:45 – 17:00 Uhr"); a new button "Als PDF drucken" on day, month, year and years (light view, one A4 page, with a header); the axis colours follow Hell/Dunkel. Guide v016 (41 pages): 3.1 "Den Leser wiederfinden" (`http://smgw.local/`, with the stumbling block of an old FRITZ!Box entry of the same name), the LAN socket of the reader is fixed to the gateway (the path "laptop on the LAN socket" is gone), new 5.1 "Dateien holen – woher, wohin" (which file goes where; on the SD card only the `.gz`, the firmware serves it first and takes the `.html` only when there is no `.gz`). `slot2-smgwkosten_v007.tc` replaces v006 and needs TinyC 1.6.78 or later; `slot0-smgw_v022` and `slot1-smgwweb_v009` are unchanged. No credentials, meter numbers or gateway IDs in the files.
+
 ## 1.6.79 — 2026-11-13
 
 - **EEBUS Steuerbox and SteuVE pages: new tab "Status"** (Andreas, 12.11.2026): `steuerbox.html` and `steuve.html` get a read-only tab on the right, refreshed every minute: card "Gerät" (Status 1/2/4/5/11, UfsSize/UfsFree, TinyC on the SteuVE) and card "Kopplungen (EEBUS)" (EEBusStatus). WLAN name, MAC, host name and SKI are deliberately not shown. Only lines are added (steuerbox +71/-1, steuve +63); the driver files are unchanged. `steuerbox.html` runs on a real box since 09.11.; `steuve.html` runs on two SteuVEs in Andreas' test network since 12.11. (tab "Status": both cards fill).

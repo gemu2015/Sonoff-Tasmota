@@ -1,6 +1,9 @@
 // @name: SMGW-Kosten
 // ============================================================================
-// slot2-smgwkosten_v006.tc - Boersenpreise fuer die Kostenrechnung des SMGW-Lesers
+// slot2-smgwkosten_v007.tc - Boersenpreise fuer die Kostenrechnung des SMGW-Lesers
+// v007 12.11.2026 (Andreas): globaler Suchtext-Puffer (muster, v004) wieder entfernt - TinyC 1.6.78 liest Elemente eines festen
+//      Textes in einem eigenen char[]-Parameter richtig (Falle 31, OP_LOAD_REF_ARR). Braucht Firmware mit TinyC >= 1.6.78
+//      und Uebersetzung mit dem Compiler 1.6.78. Sonst wie v006.
 // v006 11.11.2026 (Andreas): Aufbewahrung SIEBEN Kalenderjahre (laufendes Jahr + 6 davor; ~ Laufzeit eines Gateway-Zertifikats,
 //      reicht fuer die Pruefung von Rechnungen). Geloescht wird erst, was aelter ist. Sonst wie v005.
 // v005 11.11.2026 (Andreas): Aufbewahrung DREI Kalenderjahre (laufendes Jahr, Vorjahr, Vorvorjahr) statt zwei -
@@ -187,14 +190,13 @@ int naechstes() {
     bufP++;
     return c;
 }
-char muster[24];       // v004: Suchtext global (fester Text als Argument wurde am Geraet nicht zeichenweise gelesen)
-int sucheMuster() {                            // 1 = gefunden (Lesezeiger steht danach), 0 = Dateiende
+int sucheText(char pat[]) {                    // 1 = gefunden (Lesezeiger steht danach), 0 = Dateiende (v007: wieder mit Parameter)
     int k = 0;
-    int L = strlen(muster);
+    int L = strlen(pat);
     int c = naechstes();
     while (c >= 0) {
-        if (c == muster[k]) { k++; if (k == L) { return 1; } }
-        else { k = 0; if (c == muster[0]) { k = 1; } }
+        if (c == pat[k]) { k++; if (k == L) { return 1; } }
+        else { k = 0; if (c == pat[0]) { k = 1; } }
         c = naechstes();
     }
     return 0;
@@ -213,8 +215,7 @@ int holeMonat() {
     dlH = fileOpen("/smgw_boerse_dl.json", 0);
     if (dlH < 0) { setFehler("Download-Datei nicht lesbar"); return -1; }
     bufN = 0; bufP = 0;
-    sprintf(muster, "%s", "\"unix_seconds\":[");
-    if (sucheMuster() == 0) {
+    if (sucheText("\"unix_seconds\":[") == 0) {
         fileClose(dlH); dlH = -1;
         if (gr < 200) { return -2; }           // z. B. "Too Many Requests" als Text
         sprintf(W, "Antwort %s ohne Zeitstempel (%d Byte)", monA, gr); setFehler(W); return -1;
@@ -229,8 +230,7 @@ int holeMonat() {
     }
     if (hat == 1 && nU < 3200) { uts[nU] = v; nU++; }
     if (nU == 0) { fileClose(dlH); dlH = -1; return 0; }
-    sprintf(muster, "%s", "\"price\":[");
-    if (sucheMuster() == 0) { fileClose(dlH); dlH = -1; sprintf(W, "Antwort %s ohne Preise", monA); setFehler(W); return -1; }
+    if (sucheText("\"price\":[") == 0) { fileClose(dlH); dlH = -1; sprintf(W, "Antwort %s ohne Preise", monA); setFehler(W); return -1; }
     strSub(dTmp, monA, 0, 7);
     sprintf(fn, "/smgw_boerse_%s.txt", dTmp);
     int h = fileOpen(fn, 1);
@@ -344,7 +344,7 @@ void WebOn() {
         int n = webArg("n", na);
         if (strcmp(na, "tarif") == 0) { sendeDatei("/smgw_tarif.json"); return; }
         if (strcmp(na, "status") == 0) {
-            sprintf(W, "{\"bis\":\"%s\",\"von\":\"%s\",\"grenze\":\"%s\",\"start\":\"%s\",\"ok\":\"%s\",\"fehler\":\"%s\",\"fehlerzeit\":\"%s\",\"version\":\"v006\"}",
+            sprintf(W, "{\"bis\":\"%s\",\"von\":\"%s\",\"grenze\":\"%s\",\"start\":\"%s\",\"ok\":\"%s\",\"fehler\":\"%s\",\"fehlerzeit\":\"%s\",\"version\":\"v007\"}",
                 bis, grenze, grenze, startTag, okZeit, fehler, fehlerZeit);
             webSend(W);
             return;
@@ -365,7 +365,7 @@ int main() {
     leseStand();
     webOn(1, "/smgwkosten");
     webOn(2, "/smgwb");
-    sprintf(W, "SMG-Kosten: v006 bereit, Boerse bis '%s' (Monatsabruf), Messung ab %s", bis, startTag);
+    sprintf(W, "SMG-Kosten: v007 bereit, Boerse bis '%s' (Monatsabruf), Messung ab %s", bis, startTag);
     addLog(W);
     return 0;
 }
