@@ -18,6 +18,7 @@
 //                     without either, camControl(21,…) just returns -1.
 //
 // Compile: node compile_cli.js webcam_tinyc.tc webcam_tinyc.tcb -DBOARD_DFROBOT
+//      or: node compile_cli.js webcam_tinyc.tc webcam_tinyc.tcb -DBOARD_WAVESHARE   (the `// @defines:` line below says DFROBOT: pass -DBOARD_WAVESHARE and take that line out)
 //      or: node compile_cli.js webcam_tinyc.tc webcam_tinyc.tcb -DBOARD_GOOUUU
 //      or: node compile_cli.js webcam_tinyc.tc webcam_tinyc.tcb -DBOARD_AITHINKER
 //
@@ -40,6 +41,18 @@ int campins[] = {-1, -1, 5, 8, 9, 4, 6, 7, 14, 17, 21, 18, 16, 1, 2, 15};
 // Person detection through ESP-DL. Needs a firmware built with USE_TINYC_ESPDL
 // and the model as a file; without either, camControl(21,…) simply returns -1.
 #define HAS_PERSON
+#endif
+
+#ifdef BOARD_WAVESHARE
+// Waveshare ESP32-S3-CAM-OV5640 / -GC0308 (Rev 1.1; ESP32-S3R8, 16 MB flash, 8 MB octal PSRAM).
+// ⚠️ PREPARED FROM THE SCHEMATIC AND DEMO CODE (14.11.2026), NOT YET TRIED ON A BOARD. Pins from the Waveshare demo, see
+// entwuerfe/waveshare_cam_daten_2026-11-14.md. PWDN is NOT a GPIO here: it hangs on the I/O expander (EXIO3, active high, low after reset =
+// camera on), RESET is tied high. SCCB SDA 8 / SCL 7 is the I2C bus of the whole board (codecs, expander, touch, connector J6).
+int campins[] = {-1, -1, 38, 8, 7, 21, 39, 40, 42, 46, 48, 47, 45, 17, 18, 41};
+// Person detection: the board has the PSRAM for it. No night vision: no IR LEDs and no light sensor on this board.
+#define HAS_PERSON
+// The expander (loudspeaker amplifier, battery switch, LEDs) is started AFTER the camera, see main().
+#include "ws_exio.tc"
 #endif
 
 #ifdef BOARD_GOOUUU
@@ -1174,6 +1187,10 @@ int main() {
     }
     cam_ok = 1;
     res_masse();
+#ifdef BOARD_WAVESHARE
+    // The expander after the camera: its I2C traffic on the camera's own SCCB pins must not come first. Camera PWDN stays low (camera on).
+    if (exio_init(0) == 0) { addLog("TCC: Waveshare expander 0x24 not found"); }
+#endif
 
     // ⚠️ `Sleep 0` FOR A STREAMING CAMERA (gemu 03.10.2026). Tasmota's default `Sleep 50` also
     // switches the WiFi radio to modem sleep: a request to the web server then takes ~140 ms

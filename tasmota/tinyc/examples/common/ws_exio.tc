@@ -1,0 +1,91 @@
+// ws_exio.tc - the I/O expander of the Waveshare ESP32-S3-CAM (CH32V003, I2C address 0x24), include library, no main().
+//
+// ⚠️ PREPARED FROM THE SCHEMATIC AND THE WAVESHARE DEMO CODE, NOT YET TRIED ON A BOARD (14.11.2026, board ordered).
+//    Source of every value: docs/ in entwuerfe/waveshare_cam_daten_2026-11-14.md (memory note waveshare-s3-cam-max).
+//
+// Use (init in main(), AFTER the camera was initialised - the camera driver sets up its own SCCB bus on the same pins GPIO7 / GPIO8,
+// the DFR1154 camera lost its first picture when another I2C device was probed before it):
+//   #include "ws_exio.tc"
+//   int main() { if (exio_init(0) == 0) { addLog("no expander"); } return 0; }     // bus 0 = the Tasmota bus on SDA 8 / SCL 7
+//   exio_set(EXIO_PA, 1);     // loudspeaker amplifier ON (after the audio codec was started)
+//   exio_set(EXIO_LED, 0);    // power LED off
+//   exio_pwm(128);            // PWM output EXIO_PWM1 (display backlight): 0..255
+//   int mv = exio_vbat();     // battery voltage in mV (200k / 100k divider: VBAT = adc * 3 - NOT checked, see below)
+//
+// Protocol (Waveshare demo io_extension.h): register 0x02 = direction (1 = output), 0x03 = output level (all 8 pins in ONE byte,
+// so a shadow byte is kept and written whole), 0x04 = input level, 0x05 = PWM duty (EXIO_PWM1, raw 0..255), 0x06 = ADC (2 bytes, little endian).
+// Pins (schematic Rev 1.1): 0 touch reset, 1 display reset, 2 SD card select (must be 1 for an SD card in 1-bit mode), 3 CAMERA POWER DOWN
+// (active HIGH, 10k pull-down on the module: 0 = camera on), 4 loudspeaker amplifier, 5 battery switch (1 = stay powered), 6 power LED,
+// 7 charger detect (INPUT). The Waveshare IDF demos start with 0, 1, 2, 5, 6 = 1 and 3, 4 = 0 (= 0x67).
+// The expander is reset to direction 0xFF / level 0x00 by its own reset: with the camera ON and the amplifier OFF, but EXIO5 = 0 (BAT_EN):
+// on battery the board could switch itself off, so BAT_EN is set to 1 first.
+// NOT KNOWN (marked in the report as "nicht belegt"): the ADC scale and reference, register 0x07 (interrupt byte), PWM2 (pin PC7).
+
+#define EXIO_ADDR    0x24
+#define EXIO_REG_DIR 0x02
+#define EXIO_REG_OUT 0x03
+#define EXIO_REG_IN  0x04
+#define EXIO_REG_PWM 0x05
+#define EXIO_REG_ADC 0x06
+
+#define EXIO_TP_RST  0
+#define EXIO_LCD_RST 1
+#define EXIO_SD_CS   2
+#define EXIO_CAM_PWDN 3
+#define EXIO_PA      4
+#define EXIO_BAT_EN  5
+#define EXIO_LED     6
+#define EXIO_CHG_DET 7
+
+#define EXIO_OUT_START 0x67      // pins 0, 1, 2, 5, 6 high: camera on, amplifier off (the level the Waveshare demos use)
+#define EXIO_DIR_START 0x7F      // pins 0..6 outputs, pin 7 (charger detect) input
+
+int exio_bus = 0;
+int exio_ok  = 0;
+int exio_out = EXIO_OUT_START;   // shadow of register 0x03
+
+// main() only. 1 = the expander answered
+int exio_init(int bus) {
+    exio_ok = 0;
+    if (i2cSetDevice(EXIO_ADDR, bus) == 0) { return 0; }
+    i2cSetActiveFound(EXIO_ADDR, "WS-EXIO", bus);
+    exio_bus = bus;
+    exio_ok = 1;
+    exio_out = EXIO_OUT_START;
+    i2cWrite8(EXIO_ADDR, EXIO_REG_OUT, exio_out, bus);       // level first, then the direction: no glitch on the pins
+    i2cWrite8(EXIO_ADDR, EXIO_REG_DIR, EXIO_DIR_START, bus);
+    return 1;
+}
+
+// one output pin (0..6) to 0 / 1
+void exio_set(int pin, int val) {
+    if (exio_ok == 0 || pin < 0 || pin > 6) { return; }
+    if (val != 0) { exio_out = exio_out | (1 << pin); } else { exio_out = exio_out & (255 - (1 << pin)); }
+    i2cWrite8(EXIO_ADDR, EXIO_REG_OUT, exio_out, exio_bus);
+}
+
+// level of any pin (reads the input register, so pin 7 = charger detect works as well)
+int exio_get(int pin) {
+    int v = 0;
+    if (exio_ok == 0 || pin < 0 || pin > 7) { return 0; }
+    v = i2cRead8(EXIO_ADDR, EXIO_REG_IN, exio_bus);
+    return (v >> pin) & 1;
+}
+
+// PWM output EXIO_PWM1 (display backlight): 0..255
+void exio_pwm(int duty) {
+    if (exio_ok == 0) { return; }
+    if (duty < 0) { duty = 0; }
+    if (duty > 255) { duty = 255; }
+    i2cWrite8(EXIO_ADDR, EXIO_REG_PWM, duty, exio_bus);
+}
+
+// raw ADC of the battery divider (two bytes, little endian); the scale is not documented
+int exio_adc_raw() {
+    int lo = 0;
+    int hi = 0;
+    if (exio_ok == 0) { return 0; }
+    lo = i2cRead8(EXIO_ADDR, EXIO_REG_ADC, exio_bus);
+    hi = i2cRead8(EXIO_ADDR, EXIO_REG_ADC + 1, exio_bus);
+    return (hi << 8) | lo;
+}
