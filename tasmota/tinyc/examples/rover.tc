@@ -23,6 +23,11 @@
 //     stop), the loop sleeps, only the battery is read (every 5 s). A drive command wakes the rover (or RoverPark 0, /rover_cmd?p=0):
 //     the floor sensors then have to answer again before any movement is allowed. PARK_AUTO_S > 0 parks it after that many seconds
 //     without a command. The big consumers are not in this program: switch the lidar off on its own 5 V switch and let the S3 sleep.
+//  6. SPEED CONTROL (RoverSpeed <mm/s>): with the wheel encoders the speed can be set exactly instead of a PWM share. RoverSpeed 30 means
+//     a full stick deflection drives each wheel at 30 mm/s, half a stick 15 mm/s; a PI controller per wheel keeps it there by the ticks of
+//     the last 200 ms (the slider "m" is not used then). RoverSpeed 0 = back to the open loop. Below SPD_PULSE_BELOW (24 mm/s) a wheel is
+//     driven in bursts of 13 PWM (0.8 s period, the duty follows the measured mean speed): measured on the rover, unloaded, over 14 s: 15 mm/s
+//     -> 16.6, 8 -> 9.8, 4 -> 5.4 mm/s. The motion is jerky there, only the mean is controlled. RoverSpeed shows the measured speeds.
 // Motor side A = LEFT, B = RIGHT. Forward = IN1 high, IN2 low. Below PWM 23 the N20 motors do not turn.
 //
 // DISPLAY: the first 4 lines (21 characters, font 6x8, 128x32 pixel block) are what the Waveshare firmware shows on its OLED
@@ -34,6 +39,10 @@
 // NOT yet tested on the rover (the I2C drivers' decoding is covered by wave_sensors_test.tc).
 
 #define ROVER_SIM   0            // 1 = simulated battery / floor sensors, no motor pins
+#define ROVER_LIDAR 0            // 1 = LD19 lidar on LIDAR_RX (about 10 kB RAM, a fifth of the VM time); 0 = off
+#define LIDAR_RX    27           // GPIO of the lidar TX line (IO27 = encoder channel B of the left wheel, so not with ENC_BOTH 1)
+#define ROVER_LINK  0            // 1 = UDP link: a cam module (or any program) sends drive commands to LINK_PORT, the rover answers with its status
+#define LINK_PORT   5006
 #define DSP_EXTRA   1            // 1 = extra panel below the 4 OLED lines (TFT)
 
 #if ROVER_SIM
@@ -50,6 +59,9 @@
 #define ENC_SIM 1
 #endif
 #include "wheel_enc.tc"
+#if ROVER_LIDAR
+#include "ld19.tc"
+#endif
 
 #define OUTPUT      3
 
@@ -71,6 +83,16 @@
 #define CLIFF_MIN   25           // floor window (mm along the beam); set to your mounting with RoverCliff <min> <max>
 #define CLIFF_MAX   110
 #define CLIFF_STALE_MS 600       // a sensor that did not answer for this long is a fault
+#define SPD_WIN_MS  200          // speed control: the ticks of this window give the measured speed
+#define SPD_PWM_LO  5            // lowest PWM the speed controller may use
+#define SPD_PULSE_BELOW 24       // below this speed (mm/s) a wheel is driven in bursts (pulse mode), at or above it the PI controller
+#define SPD_BURST_PWM 13         // PWM during a burst (the wheel keeps turning at about 30 mm/s with it once it runs)
+#define SPD_KICK_PWM 22          // PWM of the first 50 ms of a burst: gets the wheel out of standstill
+#define SPD_VON     30.0         // speed during a burst, mm/s (start value of the duty; the controller corrects it)
+#define SPD_PER     16           // pulse period in 50 ms steps (16 = 0.8 s)
+#define SPD_KD      0.5          // duty correction per period for a speed error equal to SPD_VON
+#define SPD_KP      0.03         // PWM per mm/s of speed error change
+#define SPD_KI      0.05         // PWM per mm/s of speed error per window
 #define PARK_AUTO_S 0            // > 0: park after this many seconds without a drive command (0 = never)
 
 int drive   = 0;
@@ -84,6 +106,19 @@ int vbat_mv = 0;
 int low     = 0;
 int why     = 0;                 // why the motors are held: 0 free, 1 battery, 2 sensor fault, 3 front cliff, 4 rear cliff, 5 both, 6 parked, 7 motor stall
 int park    = 0;                 // 1 = parked (see header)
+int spd_full = 0;                // RoverSpeed: mm/s at a full stick (0 = open loop)
+int spd_t0   = 0;
+int spd_last[2];
+int spd_pct[2];                  // signed share of each side (-100..100) as rover_apply() decided it
+float spd_v[2];                  // measured speed per side, mm/s
+float spd_out[2];                // controller output (PWM magnitude), 0 = side at rest
+float spd_err[2];
+int spd_mode[2];                 // 1 = pulse mode (bursts), 0 = PI controller
+int spd_pls[2];                  // pulse mode: PWM of this 50 ms step (0 = pause)
+float spd_duty[2];               // pulse mode: share of the period the wheel runs
+int spd_ph = 0;                  // pulse mode: step in the period
+int spd_t1 = 0;
+int spd_last1[2];
 int cl_on   = 1;
 int cl_min  = CLIFF_MIN;
 int cl_max  = CLIFF_MAX;
@@ -137,6 +172,44 @@ void rover_side(int pwm, int pin_pwm, int pin_in1, int pin_in2) {
 #endif
 }
 
+// speed control: the PWM of one side for a signed share pct (-100..100); a side that starts is given the minimum PWM first
+int spd_pwm(int s, int pct) {
+    int p = 0;
+    int a = pct;
+    float tg = 0.0;
+    if (a < 0) { a = 0 - a; }
+    if (a == 0) {
+        spd_out[s] = 0.0;
+        spd_err[s] = 0.0;
+        spd_pls[s] = 0;
+        spd_mode[s] = 0;
+        return 0;
+    }
+    tg = (float)a * (float)spd_full / 100.0;
+    if (tg < (float)SPD_PULSE_BELOW) {
+        if (spd_mode[s] == 0) {                        // enter pulse mode: start with the duty the nominal burst speed gives
+            spd_mode[s] = 1;
+            spd_duty[s] = tg / SPD_VON;
+            spd_out[s] = 0.0;
+            spd_last1[s] = enc_raw(s);
+            spd_t1 = millis();
+            spd_ph = 0;
+            spd_pls[s] = SPD_KICK_PWM;
+        }
+        p = spd_pls[s];
+    } else {
+        if (spd_mode[s] == 1) { spd_mode[s] = 0; spd_out[s] = 0.0; spd_pls[s] = 0; }
+        if (spd_out[s] == 0.0) {
+            spd_out[s] = (float)PWM_MIN;
+            spd_last[s] = enc_raw(s);
+            spd_t0 = millis();
+        }
+        p = (int)spd_out[s];
+    }
+    if (pct < 0) { p = 0 - p; }
+    return p;
+}
+
 // the one place where commands become motor values; every safety rule is applied here
 void rover_apply() {
     int d = drive;
@@ -164,8 +237,15 @@ void rover_apply() {
     if (park == 1) { d = 0; t = 0; why = 6; }
     l = rover_clamp(d + t, -100, 100);
     r = rover_clamp(d - t, -100, 100);
-    pl = rover_pwm((l * vmax) / 100) * DIR_L;
-    pr = rover_pwm((r * vmax) / 100) * DIR_R;
+    spd_pct[0] = l;
+    spd_pct[1] = r;
+    if (spd_full > 0) {
+        pl = spd_pwm(0, l) * DIR_L;
+        pr = spd_pwm(1, r) * DIR_R;
+    } else {
+        pl = rover_pwm((l * vmax) / 100) * DIR_L;
+        pr = rover_pwm((r * vmax) / 100) * DIR_R;
+    }
     if (pl != motL) {
         rover_side(pl, PIN_PWMA, PIN_AIN1, PIN_AIN2);
         motL = pl;
@@ -182,6 +262,93 @@ void rover_off() {
     motL = 1;
     motR = 1;
     rover_apply();
+}
+
+// speed controller, called every 50 ms: returns 1 when a PWM changed (the caller then applies it)
+int spd_ctl() {
+    int now = millis();
+    int dt = now - spd_t0;
+    int s = 0;
+    int raw = 0;
+    int d = 0;
+    int a = 0;
+    int ch = 0;
+    int on = 0;
+    int np = 0;
+    float tg = 0.0;
+    float err = 0.0;
+    float v = 0.0;
+    if (spd_full <= 0) { return 0; }
+    // pulse mode: the phase of the period decides, the period's mean speed corrects the duty
+    spd_ph = spd_ph + 1;
+    if (spd_ph >= SPD_PER) {
+        spd_ph = 0;
+        dt = now - spd_t1;
+        spd_t1 = now;
+        if (dt < 1) { dt = 1; }
+        s = 0;
+        while (s < 2) {
+            if (spd_mode[s] == 1) {
+                raw = enc_raw(s);
+                d = raw - spd_last1[s];
+                spd_last1[s] = raw;
+                if (d < 0) { d = 0; }
+                v = (float)d * enc_mm_tick * 1000.0 / (float)dt;
+                spd_v[s] = v;
+                a = spd_pct[s];
+                if (a < 0) { a = 0 - a; }
+                tg = (float)a * (float)spd_full / 100.0;
+                spd_duty[s] = spd_duty[s] + SPD_KD * (tg - v) / SPD_VON;
+                if (spd_duty[s] < 0.03) { spd_duty[s] = 0.03; }
+                if (spd_duty[s] > 1.0) { spd_duty[s] = 1.0; }
+            }
+            s = s + 1;
+        }
+    }
+    s = 0;
+    while (s < 2) {
+        if (spd_mode[s] == 1 && spd_pct[s] != 0) {
+            on = 0;
+            if ((float)spd_ph < spd_duty[s] * (float)SPD_PER) { on = 1; }
+            np = 0;
+            if (on == 1) {
+                np = SPD_BURST_PWM;
+                if (spd_pls[s] == 0) { np = SPD_KICK_PWM; }
+            }
+            if (np != spd_pls[s]) {
+                spd_pls[s] = np;
+                ch = 1;
+            }
+        }
+        s = s + 1;
+    }
+    // PI controller for the sides that run at 24 mm/s or more, once per window
+    dt = now - spd_t0;
+    if (dt < SPD_WIN_MS) { return ch; }
+    spd_t0 = now;
+    s = 0;
+    while (s < 2) {
+        if (spd_mode[s] == 0) {
+            raw = enc_raw(s);
+            d = raw - spd_last[s];
+            spd_last[s] = raw;
+            if (d < 0) { d = 0; }
+            spd_v[s] = (float)d * enc_mm_tick * 1000.0 / (float)dt;
+            a = spd_pct[s];
+            if (a < 0) { a = 0 - a; }
+            if (a > 0 && spd_out[s] > 0.0) {
+                tg = (float)a * (float)spd_full / 100.0;
+                err = tg - spd_v[s];
+                spd_out[s] = spd_out[s] + SPD_KP * (err - spd_err[s]) + SPD_KI * err;
+                spd_err[s] = err;
+                if (spd_out[s] < (float)SPD_PWM_LO) { spd_out[s] = (float)SPD_PWM_LO; }
+                if (spd_out[s] > 255.0) { spd_out[s] = 255.0; }
+                ch = 1;
+            }
+        }
+        s = s + 1;
+    }
+    return ch;
 }
 
 // evaluate the four floor sensors; returns 1 when the picture changed (then the motors must be re-evaluated)
@@ -239,13 +406,22 @@ void tof_step() {
 
 void TaskLoop() {
     if (park == 0) {
+#if ROVER_LIDAR
+        lid_poll();                  // the ring holds 200 ms: poll between the slow I2C steps
+#endif
         tof_step();
+#if ROVER_LIDAR
+        lid_poll();
+#endif
         if (cliff_eval() == 1) {
             if (cl_fault == 0 && cl_on == 1) { addLog("ROVER: cliff F%d%d R%d%d", cl_flag[0], cl_flag[1], cl_flag[2], cl_flag[3]); }
             rover_apply();
         }
         qmi_poll();
         ak_poll();
+#if ROVER_LIDAR
+        lid_poll();
+#endif
     }
     if (millis() >= ina_next) {
         if (park == 1) { ina_next = millis() + 5000; } else { ina_next = millis() + 1000; }
@@ -410,6 +586,65 @@ void park_set(int on) {
     }
 }
 
+#if ROVER_LINK
+// UDP LINK. Commands (text datagram to LINK_PORT, any subset of the fields):  "d=50 t=0 m=60 p=0"  (drive -100..100, turn -100..100,
+// max speed 10..100, park 0/1). Same rules as /rover_cmd: every command re-arms the 300 ms watchdog, the battery / cliff / stall guards
+// still win. The rover learns the sender's IP from the datagrams and sends its status there five times a second:
+//   {"v":12.49,"l":0,"r":0,"wd":0,"lo":0,"cl":15,"why":2,"yaw":-0.3,"el":0,"er":0,"st":0,"age":120}   (age = ms since the last command)
+// NO authentication, like /rover_cmd: anyone in the WLAN can drive the rover. Only for a trusted network.
+char lk_rx[64];
+char lk_tx[140];
+char lk_ip[20];
+char lk_tmp[12];
+int  lk_open = 0;
+int  lk_try  = 0;
+int  lk_next = 0;
+int  lk_cmds = 0;
+
+int lk_int(char key[], int def) {
+    int pos = strFind(lk_rx, key);
+    if (pos < 0) { return def; }
+    strSub(lk_tmp, lk_rx, pos + strlen(key), 8);
+    return strToInt(lk_tmp);
+}
+
+void lk_status() {
+    sprintf(lk_tx, "{\"v\":%d.%02d,\"l\":%d,\"r\":%d,\"wd\":%d,\"lo\":%d,\"cl\":%d,\"why\":%d,\"yaw\":%.1f,\"el\":%d,\"er\":%d,\"st\":%d,\"age\":%d}",
+            vbat_mv / 1000, (vbat_mv % 1000) / 10, motL, motR, stops, low, cliff_mask(), why, qmi_yaw, enc_ticks[0], enc_ticks[1], enc_stall, millis() - lastcmd);
+    udp(6, lk_ip, LINK_PORT, lk_tx);
+}
+
+void lk_poll() {
+    int n = 0;
+    if (lk_open == 0) {
+        lk_try = lk_try + 1;
+        if (lk_try >= 20) {
+            lk_try = 0;
+            if (udp(0, LINK_PORT) == 1) { lk_open = 1; addLog("ROVER: UDP link on port %d", LINK_PORT); }
+        }
+        return;
+    }
+    n = udp(1, lk_rx);
+    if (n > 0) {
+        udp(4, lk_ip);
+        lk_cmds = lk_cmds + 1;
+        drive = rover_clamp(lk_int("d=", 0), -100, 100);
+        turn = rover_clamp(lk_int("t=", 0), -100, 100);
+        vmax = rover_clamp(lk_int("m=", vmax), 10, 100);
+        if (lk_int("p=", -1) >= 0) { park_set(lk_int("p=", 0)); }
+        if (park == 1 && (drive != 0 || turn != 0)) { park_set(0); }
+        lastcmd = millis();
+        if (drive == 0 && turn == 0) { enc_stall = 0; }
+        rover_apply();
+        lk_status();
+    }
+    if (strlen(lk_ip) > 0 && millis() >= lk_next) {
+        lk_next = millis() + 200;
+        lk_status();
+    }
+}
+#endif
+
 void Every50ms() {
     if (millis() - lastcmd > WD_MS) {
         if (motL != 0 || motR != 0) {
@@ -420,6 +655,7 @@ void Every50ms() {
         rover_apply();
     }
     enc_update(motL * DIR_L, motR * DIR_R);
+    if (spd_ctl() == 1) { rover_apply(); }
     if (enc_on == 1 && enc_stall != 0 && why != 7) { rover_apply(); }
     if (PARK_AUTO_S > 0 && park == 0 && millis() - lastcmd > PARK_AUTO_S * 1000) { park_set(1); }
     dsp_n = dsp_n + 1;
@@ -427,6 +663,9 @@ void Every50ms() {
         dsp_n = 0;
         if (park == 0) { display_update(); }
     }
+#if ROVER_LINK
+    lk_poll();
+#endif
 }
 
 // ---- web ---------------------------------------------------------------------------------------------------------------
@@ -463,6 +702,16 @@ void WebCall() {
     } else {
         webSend("{s}Wheel encoders{m}no ticks yet (RoverEnc 1 switches the stall guard on){e}");
     }
+#if ROVER_LIDAR
+    if (lid_ok() == 1) {
+        sprintf(ob, "{s}Lidar front / left{m}%d / %d mm   back / right %d / %d mm{e}", lid_min(330, 30), lid_min(60, 120), lid_min(150, 210), lid_min(240, 300));
+        webSend(ob);
+        sprintf(ob, "{s}Lidar scans / speed{m}%d  %d ms per turn  packets ok / crc %d / %d{e}", lid_scans, lid_scan_ms, lid_n_ok, lid_n_crc);
+        webSend(ob);
+    } else {
+        webSend("{s}Lidar{m}no data (LIDAR_RX wired? 5 V on?){e}");
+    }
+#endif
     webSend("{s}Rover page{m}<a href='/rover'>/rover</a>{e}");
 }
 
@@ -497,7 +746,7 @@ void WebOn() {
         lastcmd = millis();
         if (drive == 0 && turn == 0) { enc_stall = 0; }   // the stick is released: a stall is cleared
         rover_apply();
-        sprintf(ob, "{\"v\":%d.%02d,\"l\":%d,\"r\":%d,\"wd\":%d,\"lo\":%d,\"cl\":%d,\"el\":%d,\"er\":%d,\"st\":%d}", vbat_mv / 1000, (vbat_mv % 1000) / 10, motL, motR, stops, low, cliff_mask(), enc_ticks[0], enc_ticks[1], enc_stall);
+        sprintf(ob, "{\"v\":%d.%02d,\"l\":%d,\"r\":%d,\"wd\":%d,\"lo\":%d,\"cl\":%d,\"el\":%d,\"er\":%d,\"st\":%d,\"sl\":%d,\"sr\":%d}", vbat_mv / 1000, (vbat_mv % 1000) / 10, motL, motR, stops, low, cliff_mask(), enc_ticks[0], enc_ticks[1], enc_stall, (int)spd_v[0], (int)spd_v[1]);
         webSend(ob);
     }
 }
@@ -520,6 +769,18 @@ void Command(char cmd[]) {
             ak_cal_end();
             responseCmnd("compass offsets set");
         }
+    } else if (strStartsWith(cmd, "SPEED")) {
+        strToken(a, cmd, ' ', 2);
+        if (strlen(a) > 0) {
+            spd_full = rover_clamp(strToInt(a), 0, 600);
+            spd_out[0] = 0.0;
+            spd_out[1] = 0.0;
+            spd_mode[0] = 0;
+            spd_mode[1] = 0;
+            rover_apply();
+        }
+        sprintf(ob, "full stick %d mm/s (0 = open loop), measured %d / %d mm/s, pwm %d / %d, pulse %d / %d duty %d / %d %%", spd_full, (int)spd_v[0], (int)spd_v[1], (int)spd_out[0], (int)spd_out[1], spd_mode[0], spd_mode[1], (int)(spd_duty[0] * 100.0), (int)(spd_duty[1] * 100.0));
+        responseCmnd(ob);
     } else if (strStartsWith(cmd, "ENCSIM")) {
         strToken(a, cmd, ' ', 2);
         if (strlen(a) > 0) { enc_sim_tps = strToInt(a); }
@@ -594,6 +855,11 @@ void CleanUp() {
     vl_release();
 }
 
+// OnExit = program stopped or replaced; CleanUp only runs at a restart. Motors off and the I2C addresses back, so a reload starts clean.
+void OnExit() {
+    CleanUp();
+}
+
 int main() {
     int i = 0;
     while (i < 4) { sim_tof[i] = 60; cl_flag[i] = 1; i = i + 1; }
@@ -618,6 +884,9 @@ int main() {
     ak_addr = AK_ADDR;    ak_bus = I2C_BUS;   ak_release();
     vl_bus = I2C_BUS;  vl_claimed = 1;  vl_mux_ok = 1;  vl_release();
     ina_init(INA_ADDR, I2C_BUS);
+#if ROVER_LIDAR
+    lid_init(LIDAR_RX);
+#endif
     qmi_init(I2C_BUS, 2, 5, 3);
     ak_init(I2C_BUS, 8);
     if (qmi_ok == 1) { qmi_cal_gyro(200); }
