@@ -1,27 +1,8 @@
 // @name: SMGW-Web
 // ============================================================================
-// slot1-smgwweb_v009.tc - Weboberflaeche des SMGW-Lesers
-// v009 09.11.2026 (Andreas): Erstinbetriebnahme - bei noch leerem HAN-Zugang meldet /smgwzugang art=han jetzt
-//       auch "user":0,"pw":0,"id":0. Bis v008 fehlte "id", die Seite hielt Slot 1 deshalb fuer aelter als v006
-//       und lehnte die Identifikationsnummer ab ("braucht Slot 1 v006"); gefunden am neuen S3-Leser.
-// v008 08.11.2026 (Andreas): orange Zeilen "Fehler" und "FTP-Sicherung" auf der Hauptseite brechen um (eigene
-//       Tabellenzeile: Tasmotas {m} setzt width:20px;white-space:nowrap, der Text lief sonst in einer Zeile).
-// v007 08.11.2026: /smgwzugang art=cert - Client-Zertifikat (im Browser aus .p12 entpackt) als
-//       /smgw_cert.secret (DER als Hex) und /smgw_key.secret ("P-256|P-384", Schluessel-Hex, "EC|RSA bis=JJJJ-MM-TT");
-//       del=1 loescht beide. Antwort nur da 0/1, Kurve, Ablaufdatum - nie Schluessel oder Zertifikat.
-// v006 08.11.2026: Benutzernamen (HAN und FTP) gehen nie mehr an die Seite, nur "user":1/0 wie beim Passwort;
-//       Benutzer leer beim Speichern = bisheriger bleibt (wie beim Passwort). HAN-Zugang mit 3. Zeile
-//       Identifikationsnummer ("id", E + 3 Buchstaben + 10 Ziffern; leer = bisherige bleibt; "-" = loeschen),
-//       Antwort nur "id":1/0.
-// v005 08.11.2026: /smgwzugang mit art=han - Zugang der HAN-Schnittstelle als /smgw_zugang.secret (2 Zeilen:
-//       Benutzer, Passwort; Passwort leer = bisheriges bleibt). Antwort NIE mit Passwort, nur pw 1/0.
-// v004 07.11.2026 (Andreas): Status-Puffer 500 -> 900 (slot0-smgw v009 schreibt den FTP-Stand mit), FTP-Fehler auf der
-//       Hauptseite; /smgwzugang (POST, wie /hems_zugang am HEMS): ohne setz=1 nur Stand, mit setz=1 ip, user, pw
-//       (leer = bisheriges Passwort bleibt), dir -> /smgw_ftp.secret (4 Zeilen). Antwort NIE mit Passwort, nur pw 1/0.
-// v003 07.11.2026 (Andreas): /smgwf?n=gwfw|gwtaf liefert die von slot0-smgw v008 gespeicherten Gateway-Seiten
-//       (Software-Versionen, Auswertungsprofile = TAF) an smgw.html.
-// v002 07.11.2026 (Andreas): Knopf auf der Hauptseite in HEMS-Gelb (#ffc107 / schwarz) wie HEMS, Steuerbox, SteuVE.
-// v001 07.11.2026 (Andreas). Geraet: SMGW-Leser (esp32p4_waveshare_WIFI6_SMGW_TinyC)
+// slot1-smgwweb_1.0.0.tc - Weboberflaeche des SMGW-Lesers
+// Version 1.0.0 (13.11.2026). Teil des SMGW-Lesers (Slot 0 slot0-smgw, Slot 1 slot1-smgwweb, Erweiterung
+// Slot 2 slot2-smgwkosten, Seiten smgw.html und smgw_kosten.html); Bau- und Bedienungsanleitung im selben Ordner.
 //
 // Warum ein eigener Slot: Slot 0 (slot0-smgw) haelt waehrend eines Abrufs die
 // TLS-Sitzung und ist dann fuer Webseiten belegt ("TinyC busy", Knopf fehlt).
@@ -366,6 +347,6 @@ int main() {
     webOn(2, "/smgwj");
     webOn(3, "/smgwf");
     webOn(4, "/smgwzugang");   // v004
-    addLog("SMG-Web: v009 bereit (/smgw, /smgwj, /smgwf, /smgwzugang ftp+han+cert)");
+    addLog("SMG-Web: 1.0.0 bereit (/smgw, /smgwj, /smgwf, /smgwzugang ftp+han+cert)");
     return 0;
 }

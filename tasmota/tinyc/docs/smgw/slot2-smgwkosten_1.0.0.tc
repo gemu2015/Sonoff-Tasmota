@@ -1,29 +1,8 @@
 // @name: SMGW-Kosten
 // ============================================================================
-// slot2-smgwkosten_v007.tc - Boersenpreise fuer die Kostenrechnung des SMGW-Lesers
-// v007 12.11.2026 (Andreas): globaler Suchtext-Puffer (muster, v004) wieder entfernt - TinyC 1.6.78 liest Elemente eines festen
-//      Textes in einem eigenen char[]-Parameter richtig (Falle 31, OP_LOAD_REF_ARR). Braucht Firmware mit TinyC >= 1.6.78
-//      und Uebersetzung mit dem Compiler 1.6.78. Sonst wie v006.
-// v006 11.11.2026 (Andreas): Aufbewahrung SIEBEN Kalenderjahre (laufendes Jahr + 6 davor; ~ Laufzeit eines Gateway-Zertifikats,
-//      reicht fuer die Pruefung von Rechnungen). Geloescht wird erst, was aelter ist. Sonst wie v005.
-// v005 11.11.2026 (Andreas): Aufbewahrung DREI Kalenderjahre (laufendes Jahr, Vorjahr, Vorvorjahr) statt zwei -
-//      geloescht wird erst, was aelter als das Vorvorjahr ist (2027: 2025 bleibt, 2028: 2025 wird geloescht).
-//      Die Zaehlerdateien /smgw_JJJJ-MM.txt loescht kein Slot. Sonst wie v004.
-// v004 10.11.2026 (Andreas): v003 fand am Geraet "unix_seconds" nicht (Fehler "ohne Zeitstempel (52045 Byte)"), obwohl die
-//      Datei stimmt und der Simulator es findet: der Suchtext ging als fester Text an die eigene Funktion sucheText()
-//      und wurde dort zeichenweise gelesen (pat[k]) - das kann die Geraete-VM offenbar nicht. Jetzt steht der Suchtext
-//      in einem globalen Puffer (muster, per sprintf gefuellt). Sonst wie v003.
-// v003 10.11.2026 (Andreas): ein Abruf je MONAT statt je Tag (energy-charts begrenzt die Zahl der Anfragen, nicht die
-//      Datenmenge - in Excel kommt ein ganzes Jahr in Sekunden). fileDownload schreibt die Antwort direkt auf die SD
-//      (/smgw_boerse_dl.json, ~55 KB je Monat), danach wird sie stueckweise gelesen: "unix_seconds" -> Ortszeit
-//      (Sommerzeit letzter Sonntag Maerz 01:00 UTC bis letzter Sonntag Oktober 01:00 UTC; gegen alle 27.360
-//      Zeitstempel 30.01.-10.11.2026 geprueft, 0 Abweichungen), "price" -> /smgw_boerse_JJJJ-MM.txt komplett neu
-//      (Zeilen "JJJJ-MM-TT HH:MM<TAB>EUR/MWh", Oktober 02:xx zweimal wie bisher). Nachholen ab 01.01. des ersten
-//      Messjahres, ein Monat je 20 s (ganzes Jahr ~4 min). Danach taeglich der laufende Monat neu, ab 14:00 bis
-//      einschliesslich Folgetag. Stand jetzt /smgw_boerse_stand3.txt ("bis JJJJ-MM-TT"); der Stand von v001/v002
-//      wird nicht uebernommen - alle Monate werden einmal sauber neu geschrieben. Aufbewahrung wie v002.
-// v002 10.11.2026: ganze Kalenderjahre, laufendes Jahr + Vorjahr behalten, aeltere Boersendateien taeglich loeschen.
-// v001 10.11.2026 (Andreas). Geraet: SMGW-Leser (esp32S3_waveshare_ETH_SMGW_TinyC)
+// slot2-smgwkosten_1.0.0.tc - Boersenpreise fuer die Kostenrechnung des SMGW-Lesers (Erweiterung)
+// Version 1.0.0 (13.11.2026). Teil des SMGW-Lesers (Slot 0 slot0-smgw, Slot 1 slot1-smgwweb, Erweiterung
+// Slot 2 slot2-smgwkosten, Seiten smgw.html und smgw_kosten.html); Bau- und Bedienungsanleitung im selben Ordner.
 //
 // Web: /smgwkosten = Seite /smgw_kosten.html (SD) · /smgwb?n=JJJJ-MM | tarif | status
 // Quelle: api.energy-charts.info, Day-Ahead DE-LU, Bundesnetzagentur | SMARD.de, CC BY 4.0.
@@ -63,7 +42,6 @@ int  anzLetzt = 0;
 int  cacheJ = 0;
 int  sBeg = 0;
 int  sEnd = 0;
-char startStd[] = "2026-01-30";   // als Feld: #define-Strings kommen als Argument leer an
 
 void scopy(char dst[], char src[]) { sprintf(dst, "%s", src); }
 
@@ -92,7 +70,7 @@ int leseStatus() {
 }
 
 void leseStart() {
-    scopy(startTag, startStd);
+    startTag[0] = 0;                           // v008: kein fester Ersatztag mehr
     if (leseStatus() == 0) { return; }
     int p = strFind(st, "\"start\":\"");
     if (p < 0) { return; }
@@ -128,8 +106,11 @@ void schreibeStand() {
 }
 
 void setzeGrenze() {
-    int j = atoi(startTag);
-    if (j < tasm_year - 1) { j = tasm_year - 1; }
+    int j = tasm_year - 1;                     // v008: ohne Messwerte 01.01. des Vorjahres
+    if (startTag[0] != 0) {
+        j = atoi(startTag);                    // mit Messwerten: ab dem ersten Messjahr ...
+        if (j < tasm_year - 6) { j = tasm_year - 6; }   // ... hoechstens sechs Jahre zurueck (Aufbewahrung 7 Jahre)
+    }
     sprintf(grenze, "%04d-01-01", j);
 }
 
@@ -270,17 +251,19 @@ void TaskLoop() {
     if (tasm_uptime < nextTry) { return; }
     nextTry = tasm_uptime + 60;
     if (slot0Aktiv() == 1) { return; }
+    leseStart();                               // v008: Start jede Minute neu aus dem Status von Slot 0
     timeStamp(dTmp);
     strSub(heute, dTmp, 0, 10);
     tagPlus(morgen, heute, 1);
-    if (tasm_hour * 60 + tasm_minute >= 14 * 60) { scopy(ziel, morgen); } else { scopy(ziel, heute); }   // Folgetag ab 14:00 (Andreas)
+    if (tasm_hour * 60 + tasm_minute >= 14 * 60) { scopy(ziel, morgen); } else { scopy(ziel, heute); }   // Folgetag ab 14:00 (Day-Ahead wird mittags veroeffentlicht)
     setzeGrenze();
     if (strcmp(loeschTag, heute) != 0) {
         aufraeumen();
         if (bis[0] != 0 && strcmp(loeschTag, "") != 0) {
             // neuer Tag: laufenden Monat neu holen (ab dem 1. des Monats von "heute")
             sprintf(monA, "%s", heute); monA[8] = '0'; monA[9] = '1'; monA[10] = 0;   // nicht dTmp: tagPlus benutzt dTmp selbst
-            tagPlus(bis, monA, -1);
+            tagPlus(monE, monA, -1);                   // v008: nur zuruecksetzen, nie nach vorn springen
+            if (strcmp(bis, monE) > 0) { scopy(bis, monE); }
             if (strcmp(bis, grenze) < 0) { bis[0] = 0; }
         }
         scopy(loeschTag, heute);
@@ -344,7 +327,7 @@ void WebOn() {
         int n = webArg("n", na);
         if (strcmp(na, "tarif") == 0) { sendeDatei("/smgw_tarif.json"); return; }
         if (strcmp(na, "status") == 0) {
-            sprintf(W, "{\"bis\":\"%s\",\"von\":\"%s\",\"grenze\":\"%s\",\"start\":\"%s\",\"ok\":\"%s\",\"fehler\":\"%s\",\"fehlerzeit\":\"%s\",\"version\":\"v007\"}",
+            sprintf(W, "{\"bis\":\"%s\",\"von\":\"%s\",\"grenze\":\"%s\",\"start\":\"%s\",\"ok\":\"%s\",\"fehler\":\"%s\",\"fehlerzeit\":\"%s\",\"version\":\"1.0.0\"}",
                 bis, grenze, grenze, startTag, okZeit, fehler, fehlerZeit);
             webSend(W);
             return;
@@ -365,7 +348,8 @@ int main() {
     leseStand();
     webOn(1, "/smgwkosten");
     webOn(2, "/smgwb");
-    sprintf(W, "SMG-Kosten: v007 bereit, Boerse bis '%s' (Monatsabruf), Messung ab %s", bis, startTag);
+    if (startTag[0] == 0) { scopy(dTmp2, "noch keinem Messwert"); } else { scopy(dTmp2, startTag); }
+    sprintf(W, "SMG-Kosten: 1.0.0 bereit, Boerse bis '%s' (Monatsabruf), Messung ab %s", bis, dTmp2);
     addLog(W);
     return 0;
 }

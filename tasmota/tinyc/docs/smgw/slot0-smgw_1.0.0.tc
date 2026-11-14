@@ -1,106 +1,24 @@
 // @name: SMGW-Leser
 // ============================================================================
-// slot0-smgw_v022.tc - Smart Meter Gateway ueber die HAN-Schnittstelle auslesen
-// v022 (11.11.2026, Andreas): nur die Startzeile im Log nennt jetzt die richtige Version (stand noch auf v020). Sonst wie v021.
-// v021 (11.11.2026, Andreas): Gueltigkeit des TLS-Zertifikats des Gateways (= bis wann es getauscht sein muss,
-//       TRuDI: "Zertifikat der TLS-Verbindung"). Einmal je Tag nach dem Firmware-Abruf: Befehl TinyCTlsGueltig
-//       (neue Firmware 11.11.2026) -> /smgw_gateway.json {"certvon","certbis" (UTC),"fuer4" (nur die letzten
-//       4 Stellen der Kennung),"seriennr","gelesen"} und "certbis" im Status. Ohne den Befehl (alte Firmware) nur
-//       eine Logzeile, sonst wie v020.
-// v020 (10.11.2026, Andreas, Hinweis gemu 10.11. 09:00): anmeldungOk wird zusaetzlich geloescht, wenn sich
-//       Gateway-Adresse, Port oder Pfad (SMGWHost/Port/Pfad), das Client-Zertifikat (md5 von /smgw_cert.secret
-//       plus Groesse von /smgw_key.secret, geprueft bei jeder Sitzung) oder die Identifikationsnummer aendern.
-//       Die ID wird heute nicht ans Gateway gesendet, Ruecksetzer nur vorsorglich (M2M). Sonst wie v019.
-// v019 (09.11.2026, Andreas): leseCfg() kopiert fuer takt/versatz/ftpzeit nur noch 10 Zeichen statt des ganzen
-//       Dateirests; atoi() bekam sonst 83 Zeichen und meldete beim Start "syscall 77 cut a string at 31 of 83"
-//       (harmlos, Werte stimmten). Sonst wie v018.
-// v018 (09.11.2026, Andreas): Startzeile im Log in zwei Zeilen geteilt (war 155 Zeichen, die Firmware kuerzt
-//       Logzeilen auf 127 -> Gateway-Pfad fehlte, seit v014). Sonst wie v017.
-// v017 (09.11.2026, Andreas, Hinweis gemu 15:00): Die Wiederholung aus v016 nur noch, wenn mit den aktuellen
-//       Zugangsdaten seit dem Start schon einmal eine Anmeldung gelungen ist (Merker anmeldungOk). Grund: bei der
-//       Digest-Anfrage ist dNeu immer 0 (sie laeuft auf der Verbindung der 1. Anfrage). Ein Gateway, das ein
-//       falsches Passwort mit Verbindungsabbruch statt 401 beantwortet, haette sonst 2 Fehlversuche pro Takt
-//       bekommen (Sperrgefahr). Merker wird geloescht, sobald sich Benutzer oder Passwort aendern. Sonst wie v016.
-// v016 (09.11.2026, Andreas): Anmeldung wiederholt sich einmal mit neuer Verbindung. Belegt durch die Diagnose
-//       von v015 (Erstabruf am S3, 09.11.): das Gateway laesst eine Keep-Alive-Verbindung gelegentlich still
-//       fallen (kein "Connection: close"), die naechste Anfrage bekommt keine Statuszeile (Stufe 3). Beim
-//       Tagesabruf gab es dafuer schon eine Wiederholung, bei der Anmeldung (Digest nach der 401) nicht -> Fehler
-//       08.11. 21:03 und 09.11. 10:18. Neu: anmeldenSicher() - scheitert Anmeldung oder Zaehlerseite auf einer
-//       weiterverwendeten Verbindung mit Stufe 2/3, einmal trennen, 3 s warten, komplett neu (frische Nonce,
-//       nie die alte Nonce erneut senden). Keine Wiederholung bei 401, Sperre, Stufe 1 oder 4.
-// v015 (09.11.2026, Andreas): nur Diagnose, Ablauf unveraendert. Scheitert eine Anfrage (1. Anfrage, Anmeldung,
-//       Zaehlerseite, Tag), schreibt eine Logzeile "SMG: Diagnose ...", woran: Stufe 1 = Verbindungsaufbau
-//       (tlsConnect), 2 = Senden, 3 = keine Statuszeile, 4 = Antwort unvollstaendig (weniger als Content-Length);
-//       dazu ob die Verbindung neu oder weiterverwendet war, ob sie da noch stand und ob die vorige Antwort
-//       "Connection: close" hatte. Anlass: Anmeldefehler 08.11. 21:03 und 09.11. 10:18 (je kurz nach einer Sitzung).
-// v014 (08.11.2026, Andreas): SMGWFtp sync/restore in beliebiger Schreibweise (strToUpper; v013 erkannte nur
-//       SYNC/RESTORE gross, die Seite bis v043 schickte klein -> nur normale Sicherung, Restore lief nie).
-//       SMGWFtp, SMGWTakt, SMGWVersatz lesen ihr Argument in den eigenen Puffer cIn statt in X
-//       (X gehoert dem Abruf in der TaskLoop; Konsole laeuft getrennt). Sonst wie v013.
-// v013 (08.11.2026): Anmeldung per Client-Zertifikat moeglich: liegen /smgw_cert.secret und /smgw_key.secret
-//       (Slot 1 v007, aus .p12 im Browser), laedt jede Sitzung sie per TinyCTlsCert (Firmware ab 08.11.2026),
-//       sonst TinyCTlsCert 0. Antwortet das Gateway dann gleich mit 200 + Cookie + Token, gilt das als
-//       angemeldet (Digest nur, wenn es 401 schickt). Zugang ok auch nur mit Zertifikat. Status "cert" 0/1/2
-//       (2 = Dateien da, Firmware laedt sie nicht). Status wird geschrieben, wenn sich die ID aendert.
-// v012 (08.11.2026): Identifikationsnummer des Gateways (E + 3 Buchstaben + 10 Ziffern) als 3. Zeile in
-//       /smgw_zugang.secret (gesetzt ueber die Seite / Slot 1 v006, nie im Klartext angezeigt);
-//       Status-JSON nur "smgwid":1/0. Fuer den M2M-Weg (wie TRuDI) vorbereitet. Sonst wie v011.
-// v011 (08.11.2026): Gateway-Adresse einstellbar (andere HAN-Adresse / anderer Port / Pfad): Zeilen
-//       "host <IP>", "port <n>", "pfad </...>" in /smgw_cfg.txt, Konsole SMGWHost / SMGWPort / SMGWPfad,
-//       Vorgabe 192.168.1.200 : 443 /cgi-bin/hanservice.cgi; Status-JSON "host", "port", "pfad".
-//       Laufender Tag (Takt): bei abgerissener Antwort einmal mit neuer Verbindung wiederholen (wie beim Nachholen).
-//       Zugangsdaten (/smgw_zugang.secret, ueber die Seite aenderbar, Slot 1 v005) jede Minute neu lesen;
-//       neue Daten heben eine laufende Wartezeit auf (z. B. 12 h nach abgelehnter Anmeldung).
-//       Konsole mit eigenem Puffer cIn, Einlesen mit cfgV (X/L gehoeren dem Abruf). Sonst wie v010.
-// v010 (07.11.2026, Andreas): Uhrzeit der taeglichen FTP-Sicherung einstellbar (SMGWFtpZeit HH:MM, Vorgabe 02:00,
-//       Zeile "ftpzeit HH:MM" in /smgw_cfg.txt), damit HEMS (01:00), SMGW (02:00) und Datensammler (04:20) nicht
-//       gleichzeitig auf den FTP-Server gehen. Ab dieser Uhrzeit einmal am Tag, Fehler -> neuer Versuch nach 1 h (wie v009).
-//       Status-JSON "ftpum":"HH:MM". Befehl und schreibeCfg mit eigenen Puffern (zIn, cfgL): Konsole und TaskLoop
-//       laufen getrennt, X und L gehoeren dem Abruf. Sonst wie v009.
-// v009 (07.11.2026, Andreas): Sicherung per FTP (z. B. FRITZ!Box-NAS) wie am HEMS: Zugang in /smgw_ftp.secret
-//       (4 Zeilen: Host, Benutzer, Passwort, Zielordner - leer = oberste Ebene des FTP-Benutzers). Gibt es nur
-//       /smgw_ftp.cfg, wird sie beim Start in die .secret umgezogen (kopiert, verglichen, alte geloescht).
-//       Einmal am Tag ab 01:00 (und SMGWFtp) gehen /smgw_tage.txt und die Monatsdateien hoch, jeweils ganz (STOR),
-//       aber nur wenn sich die Groesse geaendert hat. Merker /smgw_ftp.pos: erster noch offener Monat + Groessen.
-//       Kein ftpMkdir: fehlt der Zielordner, ist das ein Fehler (wie HEMS). Fehler -> neuer Versuch nach 1 h.
-//       SMGWFtp sync = alles neu senden + Einstellungen + Seite; SMGWFtp restore = fehlende/kuerzere Dateien vom Server holen. Status im JSON: ftp (0 nie/kein Ziel, 1 ok, 2 Fehler), ftpzeit, ftptext.
-// v008 (07.11.2026, Andreas): Firmware des Gateways einmal am Tag mitlesen: am Ende der ersten erfolgreichen
-//       Sitzung des Tages (vor dem Abmelden, gleiche Anmeldung) POST action=swversions, aus der Tabelle
-//       smgw-bootstream / smgw-services die Version. Ins Status-JSON ("gwboot","gwsvc","gwfwtag"). Scheitert das,
-//       ist es KEIN Fehler des Abrufs (nur Logzeile). Nur gelesen, nichts am Gateway geaendert.
-//       Dazu action=tariffform (Menue "Auswertungsprofil" = freigeschaltete TAF). Beide Antworten roh auf SD:
-//       /smgw_gw_fw.html und /smgw_gw_taf.html (je hoechstens 150 KB), die Seite smgw.html wertet sie aus.
-// v007 (07.11.2026, Andreas): "Takt heute" nach der Uhr des Geraets statt ab dem letzten Abruf: faellig ist
-//       jeweils Versatz + n x Takt Minuten ab Mitternacht (Takt 60 / Versatz 2 -> hh:02; Takt 15 -> :02/:17/:32/:47).
-//       Ein verpasster Zeitpunkt (Abruf lief noch) wird einmal nachgeholt, nie doppelt. Versatz = Abstand nach dem
-//       Viertelstundenende, damit der Wert im Gateway schon steht: SMGWVersatz <0..14>, Vorgabe 2, in /smgw_cfg.txt.
-// v006 (07.11.2026): Nachholen in EINEM Durchgang (MAX_TAGE 400 als Notbremse statt 31 + 10 min Pause);
-//       "Unerlaubter Zugriff" mitten drin -> hoechstens 2x neu anmelden und weiter;
-//       Fehlermeldung nach geglueckter Wiederholung wieder loeschen.
-// v005 (07.11.2026): Werte je Viertelstunde zeichenweise auslesen (strSub stoppt am ersten Nullbyte ->
-//       nur 00:00 hatte Werte); Tag bei abgerissener Antwort einmal mit neuer Verbindung wiederholen;
-//       Web-Teile (Knopf, /smgw, /smgwj, /smgwf) in Slot 1 (slot1-smgwweb), Status -> /smgw_status.txt.
-// v004 (07.11.2026): Starttag als globales char[] (ein #define-String kommt als Funktionsargument leer an),
-//       Datum wird VOR der Anmeldung geprueft (ungueltig = kein Gateway-Kontakt).
-// v003 (07.11.2026): laufendes Datum global (lokales char[] im Block kam leer an -> 31x 1970-01-01),
-//       Datum wird vor jeder Abfrage geprueft (JJJJ-MM-TT), sonst Abbruch ohne Gateway-Kontakt.
-// v002 (07.11.2026): Knopf auf der Tasmota-Hauptseite heisst "SMGW".
-// v002: Zugangsdaten jetzt /smgw_zugang.secret (ueber :82/:83/tc_api gesperrt, nur das Skript liest sie).
-// 06.11.2026 (Andreas). Geraet: esp32p4_waveshare_WIFI6_SMGW_TinyC
+// slot0-smgw_1.0.0.tc - Smart Meter Gateway ueber die HAN-Schnittstelle auslesen
+// Version 1.0.0 (13.11.2026). Teil des SMGW-Lesers (Slot 0 slot0-smgw, Slot 1 slot1-smgwweb, Erweiterung
+// Slot 2 slot2-smgwkosten, Seiten smgw.html und smgw_kosten.html); Bau- und Bedienungsanleitung im selben Ordner.
 // ============================================================================
 //
 // WAS: holt die amtlichen 15-Minuten-Zaehlerstaende (Bezug 1-0:1.8.0, Einspeisung
 //      1-0:2.8.0) aus dem Gateway und legt sie auf der SD-Karte ab. Dashboard /smgw.
 //
-// NETZ: Gateway fest 192.168.1.200 (HTTPS, TLS 1.2 ECDHE-ECDSA P-256). Dieses Geraet
-//       hat dafuer auf dem LAN fest 192.168.1.21 (ohne Gateway), das WLAN laeuft normal.
+// NETZ: Gateway (Vorgabe PPC) 192.168.1.200 (HTTPS, TLS 1.2 ECDHE-ECDSA P-256), einstellbar (SMGWHost/Port/Pfad).
+//       Dieses Geraet hat dafuer auf dem LAN eine feste Adresse im selben Netz (z. B. 192.168.1.21, ohne
+//       Gateway), das WLAN laeuft normal.
 //
 // ABLAUF EINER SITZUNG (alles auf EINER TLS-Verbindung, keep-alive):
 //   1. GET  /cgi-bin/hanservice.cgi            -> 401 mit Digest-Nonce
 //   2. GET  mit Authorization: Digest (MD5)    -> 200, Cookie "session", Token tkn
 //   3. POST tkn=..&action=meterform            -> Zaehler-Kennung mid
 //   4. POST tkn=..&action=showMeterValues&mid=..&from=TAG&to=TAG  (je Tag, neuer tkn
-//      aus jeder Antwort). "to" als reines Datum = bis Folgetag 00:00.
+//      aus jeder Antwort). Geliefert werden die Viertelstunden 00:00 bis 23:45 des Tages (v025: geprueft
+//      an 286 Tagen); Tag ohne Werte -> "Keine Z&auml;hlerdaten vorhanden".
 //   5. POST tkn=..&action=logout
 //   Nach der Anmeldung reicht das Cookie; jede Anfrage geht genau EINMAL raus.
 //
@@ -109,12 +27,13 @@
 //    nach jedem Fehler mindestens 60 min Pause, nach abgelehnter Anmeldung 12 h.
 //
 // DATEIEN (SD-Karte):
-//   /smgw_zugang.secret     Zeile 1 Benutzer, Zeile 2 Passwort, Zeile 3 Identifikationsnummer (optional, v012) (legt Andreas an)
+//   /smgw_zugang.secret     Zeile 1 Benutzer, Zeile 2 Passwort, Zeile 3 Identifikationsnummer (optional, v012) (ueber die Seite gesetzt, Slot 1)
 //   /smgw_cfg.txt        "takt <min>", "versatz <min>", "ftpzeit HH:MM", "host <IP>", "port <n>", "pfad </...>" je eine Zeile (optional; takt 0 = nur Tagesabruf)
 //   /smgw_JJJJ-MM.txt    je Viertelstunde: "JJJJ-MM-TT hh:mm<TAB>1.8.0<TAB>2.8.0"
 //   /smgw_tage.txt       je Tag: "JJJJ-MM-TT<TAB>Bezug Anfang<TAB>Bezug Ende<TAB>
 //                        Einsp. Anfang<TAB>Einsp. Ende<TAB>Anzahl Viertelstunden"
-//                        (Anfang = 00:00 des Tages, Ende = 00:00 des Folgetages)
+//                        (Anfang = erster Wert, normal 00:00; Ende = letzter Wert des Tages, normal 23:45 -
+//                        die Seiten nehmen fuer den Tagesverbrauch den Anfang des Folgetages)
 //   /smgw_heute.txt      wie Monatsdatei, nur heute (nur bei takt > 0)
 //   /smgw.html           Dashboard
 //   Werte bleiben TEXT wie vom Gateway (4 Nachkommastellen) - kein float (7 Stellen
@@ -130,7 +49,7 @@
 
 #define GW_HOST    "192.168.1.200"
 #define GW_PATH    "/cgi-bin/hanservice.cgi"
-#define START_TAG  "2026-01-30"     // erster Tag mit Messwerten (Profile aktiv 30.01. 15:00)
+#define START_TAG  "2024-01-01"     // v024: fruehester Tag fuer den Erstabruf (§14a EnWG ab 01.01.2024); Tage ohne Werte davor werden uebersprungen
 #define MAX_TAGE   400              // Notbremse: Tage je Sitzung beim Nachholen (v006: alles in einem Durchgang)
 #define K_TS       "</td id='table_mevervalues_col_status'>"   // so (mit Tippfehler) im Gateway-HTML
 
@@ -179,7 +98,7 @@ char letzterTag[12];   // letzter vollstaendig gespeicherter Tag
 char heute[12];
 char gestern[12];
 char tagLauf[12];      // laufender Tag der Nachhol-Schleife (global: lokale char[] im Block gehen nicht)
-char startTag[] = "2026-01-30";   // = START_TAG; als Feld, weil #define-Strings als Argument leer ankommen
+char startTag[] = "2024-01-01";   // = START_TAG; als Feld, weil #define-Strings als Argument leer ankommen
 char okZeit[24];       // letzte erfolgreiche Sitzung
 char errText[120];
 char errZeit[24];
@@ -214,12 +133,22 @@ int wantRows = 0;
 int fLock = 0;
 int fParam = 0;
 int fUnerl = 0;
+int fKeine = 0;        // v025: Antwort enthaelt "Keine Zaehlerdaten vorhanden"
 int  wantFw = 0;       // v008: Antwort auf action=swversions auswerten
 char fwBoot[24];       // v008: smgw-bootstream Version
 char fwSvc[24];        // v008: smgw-services Version
 char fwTag[12];        // v008: Datum, an dem sie gelesen wurden (einmal je Tag)
 int  rohH = -1;        // v008: offene Datei fuer Rohseite, -1 = keine
-int  rohN = 0;         // v008: geschriebene Bytes (Grenze 150000)
+int  rohN = 0;         // v008: geschriebene Bytes (Grenze rohMax)
+int  rohMax = 150000;  // v026: SMGWTestTag setzt 400000
+char testTag[16];     // v023: SMGWTestTag
+char ersterTag[16];   // v024: erster Tag in /smgw_tage.txt, leer = noch kein Messwert
+char leerVon[16];     // v024: erster uebersprungene Tag dieser Sitzung
+int  nLeer = 0;       // v024: uebersprungene Tage dieser Sitzung
+int  testWunsch = 0;  // v023: 1 = Test in der TaskLoop ausfuehren
+char errAlt[120];     // v023: Fehlertext vor dem Test
+char errZAlt[24];
+int  backoffAlt = 0;  // v023
 char V9[64];
 // v009: FTP-Sicherung (alles global wegen TinyC-Falle lokales char[])
 char fH[96]; char fU[64]; char fP[64]; char fD[100];
@@ -277,7 +206,11 @@ int zeitWert(char s[]) {
 }
 
 void schreibeStatus() {
-    sprintf(SB, "{\"zugang\":%d,\"bis\":\"%s\",\"ok\":\"%s\",\"start\":\"%s\",", zugangOk, letzterTag, okZeit, START_TAG);
+    if (ersterTag[0] != 0) {                     // v024: "bis" erst ab dem ersten Messwert, "start" = erster Tag mit Werten
+        sprintf(SB, "{\"zugang\":%d,\"bis\":\"%s\",\"ok\":\"%s\",\"start\":\"%s\",", zugangOk, letzterTag, okZeit, ersterTag);
+    } else {
+        sprintf(SB, "{\"zugang\":%d,\"bis\":\"\",\"ok\":\"%s\",\"start\":\"\",", zugangOk, okZeit);
+    }
     sprintfAppend(SB, "\"fehler\":\"%s\",\"fehlerzeit\":\"%s\",", errText, errZeit);
     sprintfAppend(SB, "\"naechster\":%d,\"takt\":%d,\"versatz\":%d,\"aktiv\":%d,", nextTry, takt, versatz, busy);
     sprintfAppend(SB, "\"gwboot\":\"%s\",\"gwsvc\":\"%s\",\"gwfwtag\":\"%s\",", fwBoot, fwSvc, fwTag);   // v008
@@ -322,7 +255,7 @@ void md5hex() {
 }
 
 // Datum JJJJ-MM-TT um d Tage verschieben: src -> dst
-// 1 wenn d wie "JJJJ-MM-TT" ab 2026 aussieht (Schutz: nie ein unsinniges Datum ans Gateway)
+// 1 wenn d wie "JJJJ-MM-TT" ab startTag (2024-01-01) aussieht (Schutz: nie ein unsinniges Datum ans Gateway)
 char dChk[16];         // Hilfsfelder der Datumsrechnung global (siehe v003)
 char dTmp[24];
 int datumOk(char d[]) {
@@ -469,7 +402,34 @@ void schreibeCfg() {
 }
 
 // letzten gespeicherten Tag aus /smgw_tage.txt (letzte Zeile)
+// v024: ersten Tag aus /smgw_tage.txt (erste Zeile), leer = noch kein Messwert gespeichert
+void leseErsterTag() {
+    ersterTag[0] = 0;
+    if (fileExists("/smgw_tage.txt") == 0) { return; }
+    int h = fileOpen("/smgw_tage.txt", 0);
+    if (h < 0) { return; }
+    int n = fileRead(h, B, 40);
+    fileClose(h);
+    if (n < 10) { B[0] = 0; return; }
+    B[n] = 0;
+    if (B[4] == '-' && B[7] == '-') { strSub(ersterTag, B, 0, 10); }
+    B[0] = 0;
+}
+
+// v024: noch kein Messwert -> bis wohin schon gesucht wurde (/smgw_leer.txt), damit ein Neustart nicht von vorn beginnt
+void leseLeer() {
+    if (ersterTag[0] != 0 || letzterTag[0] != 0) { return; }
+    if (fileExists("/smgw_leer.txt") == 0) { return; }
+    int h = fileOpen("/smgw_leer.txt", 0);
+    if (h < 0) { return; }
+    int n = fileRead(h, B, 20);
+    fileClose(h);
+    if (n >= 10 && B[4] == '-' && B[7] == '-') { strSub(letzterTag, B, 0, 10); }
+    B[0] = 0;
+}
+
 void leseLetzterTag() {
+    leseErsterTag();                             // v024
     letzterTag[0] = 0;
     if (fileExists("/smgw_tage.txt") == 0) { return; }
     int h = fileOpen("/smgw_tage.txt", 0);
@@ -607,6 +567,8 @@ void werteAus() {
         if (p >= 0 && (best < 0 || p < best)) { best = p; typ = 7; }
         p = strFind(B, "Unerlaubter Zugriff");
         if (p >= 0 && (best < 0 || p < best)) { best = p; typ = 8; }
+        p = strFind(B, "Keine Z&auml;hlerdaten");          // v025 (so im Gateway-HTML)
+        if (p >= 0 && (best < 0 || p < best)) { best = p; typ = 10; }
 
         if (best < 0) {
             int lb = strlen(B);
@@ -623,6 +585,7 @@ void werteAus() {
             if (typ == 7) { kl = 15; }
             if (typ == 8) { kl = 19; }
             if (typ == 9) { kl = 8; }
+            if (typ == 10) { kl = 22; }
             cut = best + kl;
             if (typ == 1 || typ == 2 || typ == 4 || typ == 5) {
                 strSub(X, B, best + kl, 220);
@@ -666,6 +629,7 @@ void werteAus() {
             if (typ == 6) { fLock = 1; }
             if (typ == 7) { fParam = 1; }
             if (typ == 8) { fUnerl = 1; }
+            if (typ == 10) { fKeine = 1; }
             if (weiter == 1) { strSub(B2, B, cut, 0); strcpy(B, B2); }
         }
     }
@@ -683,7 +647,7 @@ int leseRumpf() {
         if (n <= 0) { break; }
         dGel = dGel + n;              // v015
         rest = rest - n;
-        if (rohH >= 0 && rohN < 150000) { fileWrite(rohH, T, n); rohN = rohN + n; }   // v008
+        if (rohH >= 0 && rohN < rohMax) { fileWrite(rohH, T, n); rohN = rohN + n; }   // v008
         strcat(B, T);
         werteAus();
     }
@@ -695,7 +659,7 @@ int leseRumpf() {
 
 void flagsAus() {
     gotTkn = 0; wantOpt = 0; wantRows = 0; wantFw = 0;
-    fLock = 0; fParam = 0; fUnerl = 0;
+    fLock = 0; fParam = 0; fUnerl = 0; fKeine = 0;
 }
 
 // GET (ohne oder mit Digest)
@@ -987,9 +951,17 @@ void certLaden() {
     certAnt[0] = 0;
 }
 
+// v025: Suchstand vor dem ersten Messwert sichern (letzter abgefragter leerer Tag)
+void schreibeLeer() {
+    if (ersterTag[0] != 0 || letzterTag[0] == 0) { return; }
+    int hl = fileOpen("/smgw_leer.txt", 1);
+    if (hl >= 0) { sprintf(dTmp, "%s\n", letzterTag); fileWrite(hl, dTmp, strlen(dTmp)); fileClose(hl); }
+}
+
 int sitzung(int mitTagen, int mitHeute) {
     busy = 1;
     tageHeute = 0;
+    nLeer = 0;                                   // v024
     certLaden();                                 // v013
     schreibeStatus();
     int ok = 0;
@@ -1031,9 +1003,27 @@ int sitzung(int mitTagen, int mitHeute) {
                     if (r == 1) { errText[0] = 0; errZeit[0] = 0; }
                 }
                 if (r == 0) { ok = 0; }
+                else if (nWerte == 0 && ersterTag[0] == 0 && fKeine == 0) {   // v025: weder Werte noch "Keine Zaehlerdaten"
+                    sprintf(X, "Tag %s: keine Werte erkannt und kein Hinweis 'Keine Zaehlerdaten' - Abruf angehalten", tagLauf);
+                    setErr(X);
+                    ok = 0;
+                }
+                else if (nWerte == 0 && ersterTag[0] == 0) {   // v024: vor dem ersten Messwert - nichts speichern
+                    if (nLeer == 0) { scopy(leerVon, tagLauf); }
+                    nLeer = nLeer + 1;
+                    scopy(letzterTag, tagLauf);
+                    if (nLeer % 50 == 0) { schreibeLeer(); }   // v025: Suchstand zwischendurch sichern
+                    tagPlus(tagLauf, letzterTag, 1);
+                    k = k + 1;
+                    delay(200);
+                }
                 else {
                     int n = speichereTag();
                     scopy(letzterTag, tagLauf);
+                    if (ersterTag[0] == 0 && n > 0) {           // v024: erster Messwert
+                        scopy(ersterTag, tagLauf);
+                        fileDelete("/smgw_leer.txt");
+                    }
                     tageHeute = tageHeute + 1;
                     sprintf(X, "SMG: Tag %s gespeichert (%d Viertelstunden, %d Werte)", tagLauf, n, nWerte);
                     addLog(X);
@@ -1043,6 +1033,11 @@ int sitzung(int mitTagen, int mitHeute) {
                     delay(200);
                 }
             }
+        }
+        if (nLeer > 0) {                             // v024
+            sprintf(X, "SMG: %d Tage ohne Zaehlerdaten uebersprungen (%s bis %s)", nLeer, leerVon, letzterTag);
+            addLog(X);
+            if (ersterTag[0] == 0) { schreibeLeer(); }
         }
         if (ok == 1 && mitHeute == 1) {
             int rh = holeTag(heute);
@@ -1205,7 +1200,8 @@ void ftpRestore() {
     int k = 0;
     scopy(fLok, "/smgw_cfg.txt"); k = fHole(); if (k > 0) { anz = anz + 1; }
     if (k >= 0) { scopy(fLok, "/smgw_tage.txt"); k = fHole(); if (k > 0) { anz = anz + 1; } }
-    strSub(fMon, startTag, 0, 7);
+    leseErsterTag();                             // v024: Monate ab dem ersten Tag mit Werten
+    if (ersterTag[0] != 0) { strSub(fMon, ersterTag, 0, 7); } else { strSub(fMon, startTag, 0, 7); }
     strSub(fCur, heute, 0, 7);
     int runde = 0;
     while (k >= 0 && runde < 600) {
@@ -1219,6 +1215,7 @@ void ftpRestore() {
     ftpClose();
     leseCfg();
     leseLetzterTag();
+    leseLeer();                                  // v024
     if (k >= 0) { ftpRes = 1; sprintf(ftpText, "Restore: %d Datei(en) vom Server geholt", anz); }
     else { ftpRes = 2; sprintf(ftpText, "Restore: Fehler %d nach %d Datei(en)", k, anz); }
     sprintf(X, "SMG: %s", ftpText);
@@ -1233,7 +1230,10 @@ void ftpSichern() {
         scopy(ftpTag, heute); schreibeStatus(); return;
     }
     fPosLesen();
-    if (ftpForce == 2 || fMon[0] == 0) { strSub(fMon, startTag, 0, 7); fMsz = -1; fTsz = -1; }
+    if (ftpForce == 2 || fMon[0] == 0) {         // v024: ab dem ersten Tag mit Werten
+        if (ersterTag[0] != 0) { strSub(fMon, ersterTag, 0, 7); } else { strSub(fMon, heute, 0, 7); }
+        fMsz = -1; fTsz = -1;
+    }
     strSub(fCur, heute, 0, 7);
     int r = ftpOpen(fH, fU, fP);
     fP[0] = 0;
@@ -1286,6 +1286,34 @@ void ftpSichern() {
 
 // ── Zeitsteuerung (eigener Task, TLS blockiert) ─────────────────────────────
 
+// v023: genau einen Tag zum Test abfragen, nichts speichern
+void testSitzung() {
+    busy = 1;
+    scopy(errAlt, errText); scopy(errZAlt, errZeit); backoffAlt = backoff;
+    certLaden();
+    addLog("SMG: Testtag %s - Abfrage startet", testTag);
+    if (anmeldenSicher() == 1) {
+        rohH = fileOpen("/smgw_testtag.html", 1); rohN = 0; rohMax = 400000;   // v026
+        int r = holeTag(testTag);
+        if (rohH >= 0) { fileClose(rohH); }
+        rohH = -1; rohMax = 150000;
+        int nq = 0;
+        for (int q = 0; q < 97; q++) { if (hv18[q] == 1) { nq = nq + 1; } }
+        sprintf(X, "SMG: Testtag %s: Ergebnis %d, HTTP %d, Laenge %d, gelesen %d, Werte %d, Viertelstunden %d", testTag, r, st, clen, rohN, nWerte, nq);
+        addLog(X);
+        sprintf(X, "SMG: Testtag %s: Token %d, Parameterfehler %d, Unerlaubter Zugriff %d, gesperrt %d, Keine Zaehlerdaten %d", testTag, gotTkn, fParam, fUnerl, fLock, fKeine);
+        addLog(X);
+        wantRows = 0;
+    } else {
+        addLog("SMG: Testtag %s - Anmeldung nicht gelungen, kein Tag abgefragt", testTag);
+    }
+    abmelden();
+    trenne();
+    busy = 0;
+    scopy(errText, errAlt); scopy(errZeit, errZAlt); backoff = backoffAlt;
+    schreibeStatus();
+}
+
 void TaskLoop() {
     delay(1000);
     if (tasm_net == 0) { return; }
@@ -1314,6 +1342,7 @@ void TaskLoop() {
     }
     if (tasm_uptime < nextTry) { return; }       // Wartezeit nach Fehler / zwischen Nachhol-Sitzungen
     if (zugangOk == 0) { return; }               // v009: hierher verschoben, die FTP-Sicherung geht auch ohne Gateway-Zugang
+    if (testWunsch == 1) { testWunsch = 0; testSitzung(); return; }   // v023
     int mitTagen = 0; int mitHeute = 0;
     int nachMitternacht = (tasm_hour * 60 + tasm_minute >= 20);
     if (strcmp(letzterTag, gestern) < 0 && (nachMitternacht == 1 || force == 1)) { mitTagen = 1; }
@@ -1348,6 +1377,23 @@ void Command(char cmd[]) {
         if (tasm_uptime < nextTry) {
             sprintf(r, "{\"SMGW\":\"Abruf vorgemerkt, Wartezeit nach Fehler noch %d s\"}", nextTry - tasm_uptime);
         } else { scopy(r, "{\"SMGW\":\"Abruf vorgemerkt\"}"); }
+        responseCmnd(r);
+        return;
+    }
+    if (strFind(cmd, "TESTTAG") == 0) {          // v023: SMGWTestTag JJJJ-MM-TT
+        strSub(cIn, cmd, 7, 0); strTrim(cIn);
+        if (strlen(cIn) != 10 || cIn[4] != '-' || cIn[7] != '-' || cIn[0] != '2' || cIn[1] != '0') {
+            responseCmnd("{\"SMGWTestTag\":\"Format JJJJ-MM-TT\"}"); return;
+        }
+        if (busy == 1) { responseCmnd("{\"SMGWTestTag\":\"Abruf laeuft - spaeter erneut\"}"); return; }
+        if (anmeldungOk == 0) { responseCmnd("{\"SMGWTestTag\":\"erst nach einem gelungenen Abruf mit den aktuellen Zugangsdaten\"}"); return; }   // v025
+        if (tasm_uptime < nextTry) {
+            sprintf(r, "{\"SMGWTestTag\":\"Wartezeit nach Fehler noch %d s - kein Test\"}", nextTry - tasm_uptime);
+            responseCmnd(r); return;
+        }
+        scopy(testTag, cIn);
+        testWunsch = 1;
+        sprintf(r, "{\"SMGWTestTag\":\"%s vorgemerkt, Ergebnis im Log\"}", testTag);
         responseCmnd(r);
         return;
     }
@@ -1485,9 +1531,10 @@ int main() {
     zugangOk = leseZugang();
     leseCfg();
     leseLetzterTag();
+    leseLeer();                                  // v024
     addCommand("SMGW");
     if (zugangOk == 0) { addLog("SMG: /smgw_zugang.secret fehlt oder unvollstaendig - kein Abruf"); }
-    sprintf(X, "SMG: SMGW-Leser v022 startet, gespeichert bis '%s', Takt %d min, Versatz %d min, FTP %02d:%02d", letzterTag, takt, versatz, ftpUm / 60, ftpUm % 60);
+    sprintf(X, "SMG: SMGW-Leser 1.0.0 startet, gespeichert bis '%s', Takt %d min, Versatz %d min, FTP %02d:%02d", letzterTag, takt, versatz, ftpUm / 60, ftpUm % 60);
     addLog(X);
     sprintf(X, "SMG: Gateway https://%s:%d%s", gwHost, gwPort, gwPfad);   // v018: eigene Zeile (Logzeilen max. 127 Zeichen)
     addLog(X);

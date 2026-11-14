@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="author" content="erstellt mit Hilfe von Claude">
-<title>Anleitung SMGW-Leser auf Tasmota mit TinyC</title>
+<title>Anleitung SMGW-Leser 1.0.0 auf Tasmota mit TinyC</title>
 <style>
   @page { size: A4; margin: 16mm 15mm 16mm 15mm; }
   body { font-family: "Segoe UI", Arial, sans-serif; font-size: 10.5pt; line-height: 1.45; color: #1d1d1d; }
@@ -41,7 +41,7 @@
 <div class="zurueck"><a href="#inhalt">&#8593; Inhalt</a></div>
 
 <h1>SMGW-Leser auf Tasmota mit TinyC</h1>
-<div class="kopf">Bau- und Bedienungsanleitung · Stand 13.11.2026 (v016) · Boards ESP32-S3-ETH oder ESP32-P4-WIFI6-POE-ETH · Tasmota 16.0.0.1 mit TinyC (github.com/gemu2015/Sonoff-Tasmota, Zweig universal) · Skripte <code>slot0-smgw</code> v022 und <code>slot1-smgwweb</code> v009, als Erweiterung <code>slot2-smgwkosten</code> v007 · Seiten <code>smgw.html</code> v069, als Erweiterung <code>smgw_kosten.html</code> v044 · Firmware mit TinyC ab 1.6.78 (12.11.2026) · Ohne persönliche Daten: alle Zugangsdaten, Kennungen und Adressen aus dem eigenen Netz sind Platzhalter oder ausgeblendet<br>Erstellt mit Hilfe von Claude</div>
+<div class="kopf">Bau- und Bedienungsanleitung · <b>Version 1.0.0</b> (13.11.2026) · Boards ESP32-S3-ETH oder ESP32-P4-WIFI6-POE-ETH · Tasmota 16.0.0.1 mit TinyC (github.com/gemu2015/Sonoff-Tasmota, Zweig universal) · Skripte <code>slot0-smgw</code> und <code>slot1-smgwweb</code>, als Erweiterung <code>slot2-smgwkosten</code> · Seiten <code>smgw.html</code>, als Erweiterung <code>smgw_kosten.html</code> – alle in Version 1.0.0 · Firmware mit TinyC 1.6.78, Stand <code>universal</code> ab 12.11.2026 · Ohne persönliche Daten: alle Zugangsdaten, Kennungen und Adressen aus dem eigenen Netz sind Platzhalter oder ausgeblendet<br>Erstellt mit Hilfe von Claude</div>
 
 <div class="warn"><b>Nutzung für den eigenen Verbrauch und auf eigene Verantwortung.</b>
 <ul>
@@ -53,66 +53,8 @@
 <div class="warn"><b>Eigenbau, nicht zertifiziert.</b> Der SMGW-Leser liest nur die Werte, die das Smart-Meter-Gateway über seine Kundenschnittstelle (HAN) ausgibt. Er schreibt nichts in das Gateway und ändert nichts am Zähler. Die Zugangsdaten zur HAN-Schnittstelle gehören dem Anschlussnutzer und dürfen nicht weitergegeben werden.</div>
 <div class="hinweis"><b>Warum es den SMGW-Leser gibt.</b> Das Smart Meter Gateway gibt die eigenen Zählerstände an seiner Kundenschnittstelle (HAN-Buchse) heraus – aber unter einer vom Hersteller fest vergebenen Adresse (bei PPC <code>192.168.1.200</code>). Diese Adresse dürfte in den meisten Haushalten außerhalb des eigenen Heimnetzes liegen (eine FRITZ!Box vergibt z. B. <code>192.168.178.x</code>). Vom PC oder Handy aus kommt man deshalb nicht an die eigenen Daten. Der SMGW-Leser ist die Lösung, eine <b>WLAN-LAN-Brücke</b>: Mit seiner LAN-Buchse hängt er fest am Gateway, über WLAN im Heimnetz. Er holt die Werte ab, speichert sie auf seiner SD-Karte und zeigt sie im Heimnetz als Seite, als CSV und für Excel.</div>
 
-<div class="neu"><b>Neu in v016 (13.11.2026):</b>
-<ul>
-  <li><b>Seite SMGW-Leser</b> <code>smgw.html</code> v069 (<a href="#k18">Abschnitt 9</a>): Überschrift jetzt „Smart Meter Gateway Leser“ (die Seite gehört zum Leser, nicht zum Gateway), Browser-Tab „SMGW-Leser“. Das Info-Fenster im Tagesdiagramm zeigt die ganze Viertelstunde, z. B. „16:45 – 17:00 Uhr“ (der Balken „16:45“ umfasst 16:45 bis 17:00); ebenso die Tabelle der Viertelstunden und die Kacheln „Höchste Leistung“. Neuer Knopf <b>„Als PDF drucken“</b> in Tag, Monat, Jahr und Jahre.</li>
-  <li><b>Neu 5.1 „Dateien holen – woher, wohin“:</b> wo die Dateien liegen (Repository-Ordner <code>tasmota/tinyc/docs/smgw/</code>), wie man sie herunterlädt und welche Datei wohin gehört (Slot oder SD-Karte, nötig oder Erweiterung). Die bisherigen 5.1 und 5.2 heißen jetzt 5.2 und 5.3. Dort auch erklärt, warum jede Seite zweimal da ist: Auf die SD-Karte gehört nur die gepackte <code>.gz</code>, die <code>.html</code> ist die lesbare Quelle.</li>
-  <li><b>Seite 1:</b> gelber Kasten „Warum es den SMGW-Leser gibt“ (feste Adresse des Gateways außerhalb des Heimnetzes, der Leser als WLAN-LAN-Brücke).</li>
-  <li><b>Wortwahl:</b> Die Stromkosten heißen jetzt „Erweiterung“ (Abschnitt 11 und überall sonst).</li>
-  <li><b>Bild 1</b> neu (aktuelle Seite mit neuer Überschrift, Info-Fenster und Druckknopf).</li>
-</ul>
-</div>
-<div class="neu"><b>Neu in v015 (13.11.2026):</b>
-<ul>
-  <li><b>Leser wiederfinden, Weg B</b> (<a href="#k47">Abschnitt 3.1</a>): <code>http://smgw.local/</code> geht am PC, Mac und Android-Handy. Ersetzt der Leser ein anderes Gerät mit demselben Namen, den alten Eintrag in der FRITZ!Box löschen – sonst finden Android-Geräte <code>smgw.local</code> nicht.</li>
-  <li><b>Weg „LAN-Buchse“ gestrichen:</b> Die LAN-Buchse ist fest mit dem Gateway verbunden (SMGW ↔ LAN ↔ Leser ↔ WLAN ↔ Heimnetz); ins Heimnetz kommt der Leser nur über WLAN. USB heißt jetzt Weg D.</li>
-</ul>
-</div>
-<div class="neu"><b>Neu in v014 (12.11.2026):</b>
-<ul>
-  <li><b>Leser wiederfinden</b> ohne Zugriff auf den Router (<a href="#k47">Abschnitt 3.1</a>): Hotspot beim Einrichten, <code>http://smgw.local/</code>, Router, USB.</li>
-  <li><b>Firmware:</b> <code>USE_DISCOVERY</code> und <code>WEBSERVER_ADVERTISE</code> im Geräteblock, Gerätename auf beiden Boards „SMGW-Leser“ / „SMGW“ (<a href="#k09">Abschnitt 4.3</a>); in der Konsole <code>Topic SMGW</code> und <code>SetOption55 1</code> (<a href="#k11">Abschnitt 5</a>). TinyC ab 1.6.78 nötig für <code>slot2-smgwkosten</code> v007.</li>
-  <li><b>Seite SMGW-Leser</b> <code>smgw.html</code> v065: Das Info-Fenster beim Überfahren mit der Maus steht über der Grafik und verdeckt keine Balken mehr, erscheint nur, wo es Werte gibt; Bestenlisten mit 12 statt 5 Einträgen (<a href="#k18">Abschnitt 9</a>).</li>
-  <li><b>Stromkosten</b> <code>smgw_kosten.html</code> v044: Saldo mit eigener Zeile <b>Grundgebühr</b>, Betrag überall „Kosten gesamt“, Hinweis „brutto, inkl. MwSt“ (<a href="#k40">Abschnitt 11.4</a>); im Tarifvergleich ein Häkchen <b>je Vorjahr</b>, abgerechnete Jahre immer mit ihrem <b>echten</b> Verbrauch, „fehlende Tage schätzen“ rechnet bis 31.12. hoch (<a href="#k41">Abschnitt 11.5</a>); Formeln in <a href="#k45">Abschnitt 11.8</a> angepasst.</li>
-  <li><code>slot2-smgwkosten</code> v007: ohne den globalen Hilfspuffer beim Suchen in der Börsenantwort (braucht TinyC ab 1.6.78).</li>
-  <li><code>TinyCTlsGueltig</code> zeigt immer die <b>letzte</b> TLS-Verbindung (<a href="#k46">Abschnitt 9.5</a>).</li>
-</ul>
-</div>
-<div class="neu"><b>Neu in v013 (11.11.2026 abends):</b>
-<ul>
-  <li><b>Tarife &amp; Preise als Tarifblatt je Jahr</b> (<a href="#k39">Abschnitt 11.3</a>): Lieferant, Netzentgelte/Abgaben/Steuern und §14a auf einer Seite, mit „Modul 1 gilt ab“ und „Modul 3 gilt ab“; Zeitfenster in Viertelstunden „bis ausschließlich“; Einspeisevergütung als eigener Reiter.</li>
-  <li><b>Tarifvergleich neu</b> (<a href="#k41">Abschnitt 11.5</a>): „Verbrauch aus“ (volles Jahr, laufendes Jahr, letzte 12 Monate, frei); Zeilen Vorjahr → aktuelles Jahr → <b>Vorausplanung</b> → Angebote, alle mit demselben Verbrauch, jede mit den Preisen ihres Jahres; Angebotskarten auf- und zuklappbar (auch fürs PDF).</li>
-  <li><b>Abrechnungsjahr:</b> Kachel „§14a EnWG – berechneter Vorteil“ (Modul 1 und Modul 3, <a href="#k40">Abschnitt 11.4</a>).</li>
-  <li>Neuer <a href="#k45">Abschnitt 11.8 „So wird gerechnet“</a> mit allen Formeln.</li>
-  <li><b>Status:</b> Gültigkeit des TLS-Zertifikats des Gateways (= bis wann es getauscht werden muss), gelesen beim Abruf (<code>slot0-smgw</code> v021/v022, neuer Firmware-Befehl <code>TinyCTlsGueltig</code>, <a href="#k46">Abschnitt 9.5</a>).</li>
-  <li>Die Seite Stromkosten ist sofort bedienbar und lädt ältere Monate im Hintergrund; abgeschlossene Monate merkt sich der Browser. <code>slot2-smgwkosten_v006.tc</code> bewahrt Börsenpreise sieben Jahre auf.</li>
-</ul>
-</div>
-<div class="neu"><b>Neu in v012 (11.11.2026):</b>
-<ul>
-  <li><code>smgw_kosten.html</code> v030: Tarifvergleich mit Schalter <b>„Vorjahr“</b> (Zeile mit dem ganzen Vorjahr über dem eigenen Tarif), Zeitraum als Überschrift, Ersparnis durch §14a je Zeile; Herkunft der Daten in der Kopfzeile des PDF; Seitenwahl SMGW-Leser grün, Stromkosten orange; Sprünge über 25 kWh je Viertelstunde gelten als Lücke.</li>
-  <li><code>slot2-smgwkosten_v005.tc</code>: Börsenpreise werden drei Kalenderjahre aufbewahrt (laufendes Jahr, Vorjahr, Vorvorjahr).</li>
-  <li>Neuer <a href="#k44">Abschnitt 11.7</a>: frühere Jahre aus eigenen 15-Minuten-Werten auf die SD-Karte legen.</li>
-</ul>
-</div>
-<div class="neu"><b>Neu in v010/v011 (10.11.2026 abends):</b>
-<ul>
-  <li><b>Stromkosten – Erweiterung</b> (<a href="#k36">Abschnitt 11</a>): eigener <b>Slot 2</b> <code>slot2-smgwkosten</code> und Seite <code>smgw_kosten.html</code>. Rechnet aus den amtlichen Viertelstunden Tag, Monat und Abrechnungsjahr mit den eigenen Preisen, holt dafür die Börsenpreise und vergleicht Tarife. <b>Wer das nicht braucht, lädt Slot 2 und die Seite einfach nicht</b> – der SMGW-Leser läuft ohne vollständig.</li>
-  <li><code>smgw.html</code> v057: Die Seitenwahl „SMGW-Leser | Stromkosten“ erscheint nur, wenn Slot 2 geladen ist.</li>
-  <li>v011: <code>smgw_kosten.html</code> v020 – Knopf <b>„Als PDF drucken“</b> in Monatsrechnung, Abrechnungsjahr und Tarifvergleich (je eine A4-Seite); Diagramm „Alle Monate“ jetzt im Abrechnungsjahr, die Monatsrechnung zeigt die Tage des Monats (<a href="#k40">Abschnitt 11.4</a>).</li>
-</ul></div>
-<div class="neu"><b>Neu gegenüber v006 der Anleitung (09.11.2026 vormittags):</b>
-<ul>
-  <li><b>Zweites Board getestet: Waveshare ESP32-S3-ETH</b> (W5500-LAN, WLAN im Chip, SD-Karte). Es reicht für den SMGW-Leser und ist seit 09.11. unser fester Leser (Abschnitte 2, 4.2, 4.3).</li>
-  <li><code>slot1-smgwweb</code> v009: Bei der <b>Erstinbetriebnahme</b> lehnte die Seite die Identifikationsnummer ab („braucht Slot 1 v006“), weil Slot 1 bei noch leerem Zugang kein Feld <code>id</code> meldete. Behoben.</li>
-  <li><code>slot0-smgw</code> v016: Lässt das Gateway eine Verbindung still fallen, wiederholt der Leser jetzt auch die <b>Anmeldung</b> einmal mit neuer Verbindung (vorher nur den Tagesabruf). Ursache belegt mit der Diagnosezeile aus v015 (Abschnitt 10).</li>
-  <li><code>slot0-smgw</code> v017: Diese Wiederholung gibt es nur, wenn mit den aktuellen Zugangsdaten seit dem Start schon einmal eine Anmeldung gelungen ist. Ein falsches Passwort kostet so nie einen zweiten Versuch, auch bei einem Gateway, das darauf mit Verbindungsabbruch statt 401 antwortet (Hinweis Gerhard).</li>
-  <li><code>slot0-smgw</code> v018/v019: Startmeldung im Log in zwei Zeilen (vorher bei 127 Zeichen abgeschnitten), keine Kürzungsmeldung mehr beim Einlesen der Einstellungen.</li>
-  <li><code>slot0-smgw</code> v020: Die Wiederholung der Anmeldung setzt sich auch zurück, wenn Gateway-Adresse, Port, Pfad, Client-Zertifikat oder Identifikationsnummer geändert werden (Hinweis Gerhard).</li>
-  <li>Bild 1 ohne Adresse des Lesers.</li>
-  <li>Seite 2: Inhaltsverzeichnis mit Links zu allen Abschnitten (v008).</li>
-  <li>Neu 5.1 und 5.2: wie Seite, IDE und Skripte aufs Gerät kommen (v008).</li>
-</ul></div>
+<div class="neu"><b>Version 1.0.0 (13.11.2026)</b> – erste veröffentlichte Fassung. Alle Teile tragen dieselbe Versionsnummer:
+<code>slot0-smgw_1.0.0.tc</code>, <code>slot1-smgwweb_1.0.0.tc</code>, <code>slot2-smgwkosten_1.0.0.tc</code> (Erweiterung), <code>smgw.html</code> und <code>smgw_kosten.html</code> (Erweiterung) in Version 1.0.0. Getestet mit einem PPC-Gateway und einem Zähler mit Bezug (1.8.0) und Einspeisung (2.8.0); andere Gateways und reine Bezugszähler sind nicht getestet.</div>
 
 <h2 id="inhalt" class="seite">Inhalt</h2>
 <ul class="toc">
@@ -144,9 +86,8 @@
   <li class="toc3"><a href="#k22">9.4 Konsole</a></li>
   <li class="toc3"><a href="#k46">9.5 Zertifikat des Gateways</a></li>
   <li class="toc2"><a href="#k23">10. Häufige Fragen</a></li>
-  <li class="toc3"><a href="#k24">„Fehler: keine Verbindung zum Gateway“</a></li>
-  <li class="toc3"><a href="#k25">„Identifikationsnummer braucht Slot 1 v006“ bei der Ersteinrichtung</a></li>
-  <li class="toc3"><a href="#k26">„Anmeldung abgelehnt – Zugangsdaten prüfen“</a></li>
+  <li class="toc3"><a href="#k24">„Fehler: keine Verbindung zum Gateway (1. Anfrage)“ bzw. „… (Anmeldung)“</a></li>
+  <li class="toc3"><a href="#k26">„Anmeldung abgelehnt - Zugangsdaten pruefen“</a></li>
   <li class="toc3"><a href="#k27">Die TLS-Verbindung bricht sofort ab</a></li>
   <li class="toc3"><a href="#k28">Beim Zertifikat steht „⚠ Firmware lädt es nicht“</a></li>
   <li class="toc3"><a href="#k29">Die Diagramme fehlen, die Tabellen sind da</a></li>
@@ -169,7 +110,7 @@
 <h2 id="k01" class="seite">1. Was der SMGW-Leser macht</h2>
 <p>Ein Smart-Meter-Gateway (SMGW) speichert die <b>amtlichen 15-Minuten-Zählerstände</b> des Zählers: Bezug (OBIS 1-0:1.8.0) und Einspeisung (1-0:2.8.0). Über die HAN-Schnittstelle kann der Anschlussnutzer sie im Browser abrufen. Der SMGW-Leser macht das automatisch:</p>
 <ul>
-  <li>holt einmal täglich ab 00:20 die fehlenden ganzen Tage (beim ersten Mal alle Tage ab dem ersten Tag, den das Gateway hat),</li>
+  <li>holt einmal täglich ab 00:20 die fehlenden ganzen Tage (beim ersten Mal alle Tage ab dem ersten Tag, den das Gateway hat – gesucht wird ab 01.01.2024),</li>
   <li>legt sie als Textdateien auf der SD-Karte ab, Werte unverändert wie vom Gateway (4 Nachkommastellen),</li>
   <li>zeigt sie auf einer eigenen Seite als Tag, Monat, Jahr und Jahre mit Diagramm,</li>
   <li>holt auf Wunsch zusätzlich den laufenden Tag in einem einstellbaren Takt, nach der Uhr des Geräts (z. B. Takt 60 → jeweils hh:02),</li>
@@ -225,7 +166,7 @@
 <table>
   <tr><th>Weg</th><th>So geht es</th><th>Grenzen</th></tr>
   <tr><td><b>A. Hotspot beim Einrichten</b></td><td>Ein Leser ohne WLAN-Daten öffnet ein eigenes WLAN (<code>tasmota-…</code>). Mit dem Handy verbinden, <code>http://192.168.4.1</code> öffnen, das WLAN eintragen. Nach dem Speichern zeigt Tasmota die <b>neue Adresse im Heimnetz</b> an – gleich notieren.</td><td>nur in diesem Moment; nur wenn keine WLAN-Daten in die Firmware gebaut sind</td></tr>
-  <tr><td><b>B. Name im Netz</b></td><td><code>http://smgw.local/</code> im Browser (mDNS). Dazu muss die Firmware mit <code>USE_DISCOVERY</code> und <code>WEBSERVER_ADVERTISE</code> gebaut sein (<a href="#k09">Abschnitt 4.3</a>) und <code>SetOption55 1</code> gesetzt sein (<a href="#k11">Abschnitt 5</a>). Im Log steht beim Start <code>mDN: initialisiert 'SMGW.local'</code>.</td><td>nur im <b>selben</b> Netz wie der Leser (nicht über einen Router hinweg, nicht im Gäste-WLAN); geht am PC, Mac und Android-Handy (Test 13.11.2026). <b>Wichtig:</b> Ersetzt der Leser ein anderes Gerät mit demselben Namen (z. B. einen früheren Leser), den alten Eintrag in der FRITZ!Box löschen (Heimnetz → Netzwerk → „Ungenutzte Verbindungen“ → Mülleimer). Sonst finden Android-Geräte <code>smgw.local</code> nicht (Chrome: „Die Website ist nicht erreichbar“, <code>DNS_PROBE_FINISHED_NXDOMAIN</code>), der Mac erst nach etwa einer Minute, und <code>smgw.fritz.box</code> zeigt ins Leere.</td></tr>
+  <tr><td><b>B. Name im Netz</b></td><td><code>http://smgw.local/</code> im Browser (mDNS). Dazu muss die Firmware mit <code>USE_DISCOVERY</code> und <code>WEBSERVER_ADVERTISE</code> gebaut sein (<a href="#k09">Abschnitt 4.3</a>) und <code>SetOption55 1</code> gesetzt sein (<a href="#k11">Abschnitt 5</a>). Im Log steht beim Start <code>mDN: initialisiert 'SMGW.local'</code> (englische Firmware: <code>mDN: Initialized 'SMGW.local'</code>).</td><td>nur im <b>selben</b> Netz wie der Leser (nicht über einen Router hinweg, nicht im Gäste-WLAN); geht am PC, Mac und Android-Handy (Test 13.11.2026). <b>Wichtig:</b> Ersetzt der Leser ein anderes Gerät mit demselben Namen (z. B. einen früheren Leser), den alten Eintrag in der FRITZ!Box löschen (Heimnetz → Netzwerk → „Ungenutzte Verbindungen“ → Mülleimer). Sonst finden Android-Geräte <code>smgw.local</code> nicht (Chrome: „Die Website ist nicht erreichbar“, <code>DNS_PROBE_FINISHED_NXDOMAIN</code>), der Mac erst nach etwa einer Minute, und <code>smgw.fritz.box</code> zeigt ins Leere.</td></tr>
   <tr><td><b>C. Router</b></td><td>Wer den Router sieht: Der Leser meldet sich mit seinem Hostnamen <b>SMGW</b> an (FRITZ!Box: Heimnetz → Netzwerk, dort am besten „immer dieselbe IP zuweisen“). Dann geht meist auch <code>http://smgw.fritz.box/</code>.</td><td>braucht Zugang zum Router</td></tr>
   <tr><td><b>D. USB</b></td><td>Leser per USB-C an den PC, serielle Konsole (115200 Baud, z. B. Tasmota-Webinstaller → Logs, oder ein Terminalprogramm), dort <code>Status 5</code>: zeigt WLAN- und LAN-Adresse.</td><td>PC mit USB nötig</td></tr>
 </table>
@@ -237,13 +178,13 @@
   <li>Tasmota mit <b>TinyC</b> von gemu, Zweig <code>universal</code>, gebaut mit PlatformIO:<br>
     <b>https://github.com/gemu2015/Sonoff-Tasmota/tree/universal</b><br>
     TinyC-Beschreibung: <code>tasmota/tinyc/README_DE.md</code> und <code>TinyC_Reference_DE.md</code> im selben Repository; fertige Firmware und IDE unter <b>https://github.com/gemu2015/Sonoff-Tasmota/releases</b> (für den SMGW-Leser trotzdem selbst bauen, Abschnitt 4.2/4.3).</li>
-  <li><b>TinyC ab 1.6.78</b> (Stand <code>universal</code> ab 12.11.2026). Ältere Firmware lädt <code>slot2-smgwkosten</code> v007 zwar, findet aber die Börsenpreise nicht (Fehler in TinyC bei Zeichenketten als Parameter, in 1.6.78 behoben). Slot 0 und Slot 1 laufen auch mit älterem Stand.</li>
+  <li><b>TinyC 1.6.78, Stand <code>universal</code> ab 12.11.2026</b> (der Stand vom 11.11. heißt auch 1.6.78, kennt aber den Befehl <code>TinyCTlsGueltig</code> aus <a href="#k46">Abschnitt 9.5</a> noch nicht; ohne ihn schreibt Slot 0 nur eine Logzeile). Ältere Firmware lädt <code>slot2-smgwkosten</code> zwar, findet aber die Börsenpreise nicht (Fehler in TinyC bei Zeichenketten als Parameter, in 1.6.78 behoben). Slot 0 und Slot 1 laufen auch mit älterem Stand.</li>
   <li>Der Abruf läuft als TinyC-Skript, nicht als eigener Treiber. Änderungen am Abruf brauchen deshalb kein neues Flashen, nur ein neues Skript.</li>
   <li>Benötigte Stellen in TinyC und tls_mini:
     <ol>
       <li><code>TC_TLS_RX_BUF</code> überschreibbar (<code>#ifndef</code>) – in <code>universal</code> enthalten.</li>
       <li><code>tc_tls-&gt;setRSAOnly(false);</code> in <code>SYS_TLS_CONNECT</code> – in <code>universal</code> enthalten. Ohne sie bietet <code>tlsConnect</code> nur ECDHE-RSA an, das Gateway (nur ECDSA) bricht den Aufbau sofort ab.</li>
-      <li><b>Nur für die Anmeldung per Zertifikat:</b> Konsolenbefehl <code>TinyCTlsCert &lt;Zertifikatsdatei&gt; &lt;Schlüsseldatei&gt;</code> (<code>TinyCTlsCert 0</code> = aus) in <code>xdrv_124_tinyc.ino</code> / <code>xdrv_124_tinyc_vm.h</code>; <code>tlsConnect</code> zeigt das Zertifikat dann vor, wenn der Server danach fragt. Dazu in tls_mini (<code>WiFiClientSecureLightBearSSL.cpp</code>): Client-Schlüssel nur setzen, wenn wirklich ein Zertifikat gesetzt ist, und P-256 <i>und</i> P-384 erlauben. Wer nur Benutzer/Passwort nutzt, braucht diesen Teil nicht. Wirkt nur in einer Firmware mit <code>USE_MQTT_CLIENT_CERT</code> (Abschnitt 4.3); ohne den Schalter antwortet der Befehl ab 09.11.2026 <code>{"loaded":0,"error":"needs USE_MQTT_CLIENT_CERT"}</code>.</li>
+      <li><b>Nur für die Anmeldung per Zertifikat:</b> Konsolenbefehl <code>TinyCTlsCert &lt;Zertifikatsdatei&gt; &lt;Schlüsseldatei&gt;</code> (<code>TinyCTlsCert 0</code> = aus) in <code>xdrv_124_tinyc.ino</code> / <code>xdrv_124_tinyc_vm.h</code>; <code>tlsConnect</code> zeigt das Zertifikat dann vor, wenn der Server danach fragt. Dazu in tls_mini (<code>WiFiClientSecureLightBearSSL.cpp</code>): Client-Schlüssel nur setzen, wenn wirklich ein Zertifikat gesetzt ist, und P-256 <i>und</i> P-384 erlauben. Wer nur Benutzer/Passwort nutzt, braucht diesen Teil nicht. Wirkt nur in einer Firmware mit <code>USE_MQTT_CLIENT_CERT</code> (Abschnitt 4.3); ohne den Schalter antwortet der Befehl ab 09.11.2026 <code>{"TinyCTlsCert":{"loaded":0,"error":"needs USE_MQTT_CLIENT_CERT"}}</code>.</li>
     </ol></li>
 </ul>
 
@@ -324,9 +265,14 @@ upload_port      = COMx      ; eigenen Anschluss eintragen</pre>
 #define USE_SDCARD
 #define USE_UFILESYS
 #define USE_ETHERNET
+#undef  ETH_TYPE                     // ETH_* sind ab Werk schon gesetzt -> erst #undef
 #define ETH_TYPE 1                   // IP101
+#undef  ETH_ADDRESS
 #define ETH_ADDRESS 1
+#undef  ETH_CLKMODE
 #define ETH_CLKMODE 0
+#undef  MY_LANGUAGE
+#define MY_LANGUAGE de_DE            // Menues und Log deutsch wie in dieser Anleitung
 #define USER_TEMPLATE "{\"NAME\":\"Waveshare ESP32-P4-WIFI6-POE-ETH\", ... }"</pre>
 <ul>
   <li><b>LAN-Adresse:</b> <code>USER_BACKLOG</code> stellt sie beim ersten Start ein (nur bei frischen Einstellungen, also neuem <code>CFG_HOLDER</code>) und startet einmal neu. Später auf der Seite änderbar (Abschnitt 3).</li>
@@ -366,17 +312,17 @@ upload_port      = COMx      ; eigenen Anschluss eintragen</pre>
 <p><b>Herunterladen:</b> auf GitHub die Datei anklicken, dann rechts oben „Download raw file“ (Pfeil nach unten). Alle Dateien auf dem PC in einem eigenen Ordner sammeln. Die Firmware liegt <b>nicht</b> dort, sie wird selbst gebaut (<a href="#k06">Abschnitt 4</a>).</p>
 <table>
   <tr><th>Datei</th><th>Wohin</th><th>Wie</th><th></th></tr>
-  <tr><td><code>slot0-smgw_v022.tc</code></td><td>TinyC <b>Slot 0</b></td><td>in der TinyC-IDE öffnen und hochladen (<a href="#k35">5.3</a>)</td><td>nötig</td></tr>
-  <tr><td><code>slot1-smgwweb_v009.tc</code></td><td>TinyC <b>Slot 1</b></td><td>wie Slot 0 (<a href="#k35">5.3</a>)</td><td>nötig</td></tr>
+  <tr><td><code>slot0-smgw_1.0.0.tc</code></td><td>TinyC <b>Slot 0</b></td><td>in der TinyC-IDE öffnen und hochladen (<a href="#k35">5.3</a>)</td><td>nötig</td></tr>
+  <tr><td><code>slot1-smgwweb_1.0.0.tc</code></td><td>TinyC <b>Slot 1</b></td><td>wie Slot 0 (<a href="#k35">5.3</a>)</td><td>nötig</td></tr>
   <tr><td><code>smgw.html.gz</code></td><td><b>SD-Karte</b>, Hauptverzeichnis</td><td>Kartenleser am PC oder Port 83 (<a href="#k34">5.2</a>)</td><td>nötig</td></tr>
   <tr><td><code>tinyc_ide.html.gz</code> (TinyC-IDE)</td><td><b>SD-Karte</b>, Hauptverzeichnis</td><td>nicht aus diesem Ordner: in der Tasmota-Konsole <code>TinyCIde</code> (<a href="#k34">5.2</a>)</td><td>nötig</td></tr>
-  <tr><td><code>slot2-smgwkosten_v007.tc</code></td><td>TinyC <b>Slot 2</b></td><td>wie Slot 0 (<a href="#k37">11.1</a>)</td><td>Erweiterung Stromkosten</td></tr>
+  <tr><td><code>slot2-smgwkosten_1.0.0.tc</code></td><td>TinyC <b>Slot 2</b></td><td>wie Slot 0 (<a href="#k37">11.1</a>)</td><td>Erweiterung Stromkosten</td></tr>
   <tr><td><code>smgw_kosten.html.gz</code></td><td><b>SD-Karte</b>, Hauptverzeichnis</td><td>wie <code>smgw.html.gz</code> (<a href="#k37">11.1</a>)</td><td>Erweiterung Stromkosten</td></tr>
   <tr><td><code>smgw.html</code>, <code>smgw_kosten.html</code> (ungepackt)</td><td>nicht nötig</td><td>lesbare Quelle der Seiten, siehe unten</td><td></td></tr>
   <tr><td><code>ANLEITUNG-SMGW-Leser.pdf</code>, <code>README.md</code>, <code>quellen/</code></td><td>nur zum Lesen</td><td>nicht aufs Gerät</td><td></td></tr>
 </table>
 <p><b>Warum gibt es jede Seite zweimal?</b> <code>smgw.html.gz</code> ist dieselbe Seite wie <code>smgw.html</code>, nur gepackt (etwa ein Drittel so groß, lädt schneller). Das Gerät liefert immer die <code>.gz</code> aus; die ungepackte <code>.html</code> nimmt es nur, wenn keine <code>.gz</code> da ist. Auf die SD-Karte gehört deshalb nur die <code>.gz</code>. Die <code>.html</code> liegt im Repository als lesbare Quelle – zum Ansehen oder für eigene Änderungen; danach neu packen mit <code>gzip -9 -k -n smgw.html</code> und die <code>.gz</code> hochladen. Achtung: Liegen beide auf der Karte, zeigt das Gerät immer die <code>.gz</code> – eine neuere <code>.html</code> daneben bleibt unbeachtet.</p>
-<p>Die <code>.tc</code>-Dateien bleiben auf dem PC: Die IDE öffnet sie von dort, übersetzt sie und lädt das fertige Programm in den Slot. Die <code>.html</code>-Dateien gehören auf die SD-Karte des Lesers, nicht in den internen Speicher.</p>
+<p>Die <code>.tc</code>-Dateien bleiben auf dem PC: Die IDE öffnet sie von dort, übersetzt sie und lädt das fertige Programm in den Slot. Die Seiten (<code>.html.gz</code>) gehören auf die SD-Karte des Lesers, nicht in den internen Speicher.</p>
 <p><b>Nicht herunterladen, entsteht auf dem Gerät:</b> die Zugangsdaten (<code>/smgw_zugang.secret</code>, über die Seite, <a href="#k12">Abschnitt 6</a>), die Einstellungen (<code>/smgw_cfg.txt</code>) und alle Messwerte (<a href="#k17">Abschnitt 8</a>).</p>
 
 <h3 id="k34">5.2 Seite und IDE auf die SD-Karte</h3>
@@ -393,10 +339,10 @@ upload_port      = COMx      ; eigenen Anschluss eintragen</pre>
 <h3 id="k35">5.3 Skripte in die Slots laden</h3>
 <ol>
   <li>TinyC-Konsole <code>http://&lt;Gerät&gt;/tc</code> öffnen und <b>Open IDE</b> klicken (oder auf der Seite <code>/smgw</code> der Knopf „TinyC-IDE“).</li>
-  <li>In der IDE die Datei <code>slot0-smgw_v022.tc</code> öffnen. In der Geräteleiste <b>Slot 0</b> wählen und hochladen (die IDE übersetzt das Skript und lädt den Bytecode in den Slot).</li>
-  <li>Genauso <code>slot1-smgwweb_v009.tc</code> in <b>Slot 1</b>.</li>
-  <li>In der TinyC-Konsole <code>/tc</code> für beide Slots <b>Autostart</b> einschalten, damit sie nach einem Neustart von selbst laufen.</li>
-  <li>Prüfen im Log: <code>SMG: SMGW-Leser v022 startet …</code>, <code>SMG: Gateway https://…</code> und <code>SMG-Web: v009 bereit …</code>. In der Konsole zeigt <code>TinyC</code> beide Dateien; Slot 1 steht dabei auf <code>Running 0</code>, das ist richtig (er wartet nur auf Seitenaufrufe).</li>
+  <li>In der IDE die Datei <code>slot0-smgw_1.0.0.tc</code> öffnen. In der Geräteleiste <b>Slot 0</b> wählen und hochladen (die IDE übersetzt das Skript und lädt den Bytecode in den Slot).</li>
+  <li>Genauso <code>slot1-smgwweb_1.0.0.tc</code> in <b>Slot 1</b>.</li>
+  <li>In der TinyC-Konsole <code>/tc</code> für beide Slots <b>Autostart</b> einschalten (Knopf <b>„A“</b> in der Zeile des Slots, wird grün), damit sie nach einem Neustart von selbst laufen.</li>
+  <li>Prüfen im Log: <code>SMG: SMGW-Leser 1.0.0 startet …</code>, <code>SMG: Gateway https://…</code> und <code>SMG-Web: 1.0.0 bereit …</code>. In der Konsole zeigt <code>TinyC</code> beide Dateien; Slot 1 steht dabei auf <code>Running 0</code>, das ist richtig (er wartet nur auf Seitenaufrufe).</li>
 </ol>
 <p>Ein neues Skript ersetzt das alte im Slot; die Einstellungen (Takt, Abstand, FTP-Uhrzeit) stehen in <code>/smgw_cfg.txt</code> und bleiben erhalten, ebenso Zugangsdaten und Messwerte.</p>
 
@@ -416,7 +362,7 @@ upload_port      = COMx      ; eigenen Anschluss eintragen</pre>
 <ul>
   <li>Die Datei wird <b>im Browser</b> geöffnet (Bibliothek node-forge, von cdnjs geladen und per Prüfsumme geprüft – der PC braucht dafür kurz Internet). Zum Leser gehen nur Zertifikat und Schlüssel, nicht die Datei und nicht ihr Passwort. <b>Das Passwort der Zertifikatsdatei wird nirgends gespeichert.</b></li>
   <li>Gespeichert als <code>/smgw_cert.secret</code> (Zertifikat, DER als Hex) und <code>/smgw_key.secret</code> (Kurve, Schlüssel, Ablaufdatum). Die Seite zeigt nur „gespeichert · Kurve · gültig bis …“.</li>
-  <li>Nur EC-Schlüssel auf <b>P-256 oder P-384</b> (keine Brainpool-Kurven, kein RSA-Schlüssel). Ein falsch eingegebenes Passwort wird abgelehnt („PKCS#12 MAC could not be verified“).</li>
+  <li>Nur EC-Schlüssel auf <b>P-256 oder P-384</b> (keine Brainpool-Kurven, kein RSA-Schlüssel). Ein falsch eingegebenes Passwort wird abgelehnt („Datei nicht lesbar oder Passwort falsch (…)“, in der Klammer der englische Fehlertext der Bibliothek).</li>
   <li>Bei jeder Sitzung lädt Slot 0 das Zertifikat mit <code>TinyCTlsCert</code> und zeigt es vor, wenn das Gateway danach fragt. Antwortet das Gateway gleich mit 200 (Cookie + Token), gilt das als angemeldet; fragt es trotzdem nach Digest, werden Benutzer/Passwort aus 6.1 benutzt.</li>
   <li><b>Zertifikat löschen</b> entfernt beide Dateien; danach <code>TinyCTlsCert 0</code>.</li>
 </ul>
@@ -427,7 +373,7 @@ upload_port      = COMx      ; eigenen Anschluss eintragen</pre>
   <li>Die Firmware sperrt <code>*.secret</code> für alle TinyC-Dateiwege übers Netz: nicht herunterladen (Port 82), nicht hochladen/überschreiben (Port 83), nicht über die TinyC-Schnittstelle. Nur die Skripte auf dem Gerät lesen sie.</li>
   <li>Die Seite bekommt Benutzer, Passwort, Identifikationsnummer und Zertifikat nie zurück. Gesendet wird per POST, das Log nennt keine Werte.</li>
   <li>Die FTP-Sicherung nimmt keine <code>.secret</code>-Datei mit.</li>
-  <li><b>Nicht geschützt</b> ist das Gerät selbst: Ohne „Passwort für Weboberfläche“ kann jeder im Heimnetz die Seite öffnen und neue Zugangsdaten setzen (lesen kann er die alten nicht). Deshalb in Tasmota unter <b>Einstellungen → Erweitert</b> ein „Passwort für Weboberfläche“ setzen. Wer die SD-Karte in der Hand hat, kann die Dateien lesen.</li>
+  <li><b>Nicht geschützt</b> ist das Gerät selbst: Ohne „Passwort für Weboberfläche“ kann jeder im Heimnetz die Seite öffnen und neue Zugangsdaten setzen – und über den Dateimanager von Tasmota (<b>Werkzeuge → Dateisystem verwalten</b>, Port 80) die <code>.secret</code>-Dateien samt Passwort herunterladen. Gesperrt sind sie nur auf den Wegen von TinyC (Port 82/83). Deshalb in Tasmota unter <b>Einstellungen → Erweitert</b> ein „Passwort für Weboberfläche“ setzen. Wer die SD-Karte in der Hand hat, kann die Dateien lesen.</li>
 </ul>
 
 <h2 id="k16" class="seite">7. Wie der Abruf abläuft</h2>
@@ -443,9 +389,10 @@ upload_port      = COMx      ; eigenen Anschluss eintragen</pre>
 </table>
 <ul>
   <li><b>Wann:</b> fehlende ganze Tage ab 00:20; fehlen mehrere Sitzungen lang Tage, mit 10 Minuten Pause zwischen zwei Abrufen. Mit eingeschaltetem Takt zusätzlich der laufende Tag zu festen Uhrzeiten: Abstand nach dem Viertelstundenende + n × Takt ab Mitternacht (Vorgabe Abstand 2 min: Takt 60 → hh:02, Takt 30 → :02 und :32, Takt 15 → :02/:17/:32/:47, 2 h → 00:02, 02:02 …). Ein verpasster Zeitpunkt wird einmal nachgeholt, nie doppelt.</li>
-  <li>Alles läuft über <b>eine</b> TLS-Verbindung. Jede Anfrage geht genau einmal raus.</li>
-  <li>Eine Tagesantwort ist rund 170 KB groß. Sie wird in 1-KB-Stücken gelesen, die Werte bleiben Text (4 Nachkommastellen).</li>
-  <li>Das Gateway liefert je Tag die Viertelstunden 00:00 bis 23:45. Der Tagesverbrauch rechnet deshalb bis 00:00 des Folgetages.</li>
+  <li><b>Erster Abruf:</b> Der Leser fragt ab dem 01.01.2024 Tag für Tag. Hat das Gateway für einen Tag noch nichts, antwortet es normal mit „Keine Zählerdaten vorhanden“ (geprüft am 13.11.2026 am PPC-Gateway); solche Tage vor dem ersten Messwert werden übersprungen und nicht gespeichert. Kommen für einen Tag weder Werte noch dieser Hinweis (z. B. andere Gateway-Oberfläche), hält der Abruf mit „Tag …: keine Werte erkannt und kein Hinweis ‚Keine Zaehlerdaten‘ - Abruf angehalten“ an. Im Log steht je Sitzung <code>SMG: N Tage ohne Zaehlerdaten uebersprungen (… bis …)</code>. Je Sitzung höchstens 400 Tage, dazwischen 10 Minuten Pause; ab dem ersten Messwert wird jeder Tag gespeichert.</li>
+  <li>Alles läuft über <b>eine</b> TLS-Verbindung. Jede Anfrage geht genau einmal raus – Ausnahme ist die einmalige Wiederholung mit neuer Verbindung (siehe unten).</li>
+  <li>Eine Tagesantwort ist rund 170 KB groß (beobachtet am PPC-Gateway). Sie wird in 1-KB-Stücken gelesen, die Werte bleiben Text (4 Nachkommastellen).</li>
+  <li>Das Gateway liefert je Tag die Zählerstände von 00:00 bis 23:45 (geprüft an 286 gespeicherten Tagen). Der Tagesverbrauch auf den Seiten rechnet bis 00:00 des Folgetages (dessen erster Wert), damit auch die letzte Viertelstunde 23:45–24:00 dazugehört; beim neuesten Tag fehlt sie, bis der Folgetag gespeichert ist.</li>
   <li>Reißt eine Antwort ab, wird der Tag (auch der laufende) einmal mit neuer Verbindung wiederholt. „Unerlaubter Zugriff“ mitten im Abruf führt zu höchstens zwei neuen Anmeldungen.</li>
 </ul>
 <div class="warn"><b>Sperre:</b> Das Gateway sperrt nach zu vielen fehlgeschlagenen Anmeldungen (beobachtet: erst 50 s, dann 5 min). Deshalb meldet sich das Skript je Sitzung nur einmal an, wartet nach einem Fehler 60 Minuten (bei jedem weiteren Fehler doppelt so lange, höchstens 24 h) und nach einer abgelehnten Anmeldung 12 Stunden. Fehlversuche nicht von Hand erzwingen.</div>
@@ -454,23 +401,25 @@ upload_port      = COMx      ; eigenen Anschluss eintragen</pre>
 <table>
   <tr><th>Datei</th><th>Inhalt</th></tr>
   <tr><td><code>/smgw_JJJJ-MM.txt</code></td><td>je Monat, eine Zeile je Viertelstunde:<br><code>JJJJ-MM-TT hh:mm&lt;TAB&gt;Bezug 1.8.0&lt;TAB&gt;Einspeisung 2.8.0</code> (kWh)</td></tr>
-  <tr><td><code>/smgw_tage.txt</code></td><td>je Tag: Datum, Bezug Anfang, Bezug Ende, Einspeisung Anfang, Einspeisung Ende, Anzahl Viertelstunden (Anfang = 00:00 des Tages, Ende = 00:00 des Folgetages)</td></tr>
+  <tr><td><code>/smgw_tage.txt</code></td><td>je Tag: Datum, Bezug Anfang, Bezug Ende, Einspeisung Anfang, Einspeisung Ende, Anzahl Viertelstunden (Anfang = Zählerstand 00:00, Ende = letzter Zählerstand des Tages, normal 23:45; die Seiten nehmen für den Tagesverbrauch den Anfang des Folgetages)</td></tr>
   <tr><td><code>/smgw_heute.txt</code></td><td>wie eine Monatsdatei, nur der laufende Tag (nur bei eingeschaltetem Takt)</td></tr>
   <tr><td><code>/smgw_status.txt</code></td><td>Zustand als JSON (Zugang, gespeichert bis, letzter Abruf, Fehler, nächster Versuch, Takt, Abstand, Gateway-Adresse, Zertifikat 0/1/2, FTP-Stand, Gateway-Firmware) – nie Zugangsdaten</td></tr>
   <tr><td><code>/smgw_cfg.txt</code></td><td>je eine Zeile (alle optional): <code>takt &lt;min&gt;</code>, <code>versatz &lt;min&gt;</code>, <code>ftpzeit HH:MM</code>, <code>host &lt;IP&gt;</code>, <code>port &lt;n&gt;</code>, <code>pfad &lt;/…&gt;</code></td></tr>
   <tr><td><code>/smgw_gw_fw.html</code>, <code>/smgw_gw_taf.html</code></td><td>die Gateway-Seiten „Software-Versionen“ und „Auswertungsprofil“ im Rohzustand (einmal am Tag, je höchstens 150 KB). Enthalten Kennungen des Gateways – nicht weitergeben.</td></tr>
-  <tr><td><code>/smgw.html.gz</code></td><td>die Seite (gepackt). Eine ungepackte <code>/smgw.html</code> wird nur ausgeliefert, wenn keine <code>.gz</code> da ist; sie kann fehlen. Bei einer neuen Fassung die <code>.gz</code> ersetzen (<a href="#k48">Abschnitt 5.1</a>)</td></tr>
+  <tr><td><code>/smgw.html.gz</code></td><td>die Seite (gepackt). Eine ungepackte <code>/smgw.html</code> wird nur ausgeliefert, wenn keine <code>.gz</code> da ist; sie kann fehlen. Bei einer neuen Fassung die <code>.gz</code> ersetzen (<a href="#k34">Abschnitt 5.2</a>)</td></tr>
   <tr><td colspan="2"><b>Nur mit der Kostenrechnung (Slot 2, <a href="#k36">Abschnitt 11</a>):</b></td></tr>
   <tr><td><code>/smgw_kosten.html.gz</code></td><td>die Seite Stromkosten (gepackt), wie <code>/smgw.html.gz</code></td></tr>
-  <tr><td><code>/smgw_tarif.json</code></td><td>Preise und Einstellungen der Kostenseite (schreibt die Seite beim „Speichern“). Keine Zugangsdaten, aber persönliche Tarifdaten.</td></tr>
-  <tr><td><code>/smgw_boerse_JJJJ-MM.txt</code></td><td>Börsenpreise je Monat, eine Zeile je Viertelstunde: <code>JJJJ-MM-TT hh:mm&lt;TAB&gt;EUR/MWh</code> (Ortszeit); laufendes Jahr, Vorjahr und Vorvorjahr, ältere löscht Slot 2. Für frühere Jahre auch selbst ablegbar (<a href="#k44">Abschnitt 11.7</a>)</td></tr>
+  <tr><td><code>/smgw_tarif.json</code></td><td>Preise und Einstellungen der Kostenseite (schreibt die Seite beim „Speichern“). Keine Zugangsdaten, aber persönliche Tarifdaten. Die vorige Fassung liegt als <code>/smgw_tarif.bak</code> daneben.</td></tr>
+  <tr><td><code>/smgw_boerse_JJJJ-MM.txt</code></td><td>Börsenpreise je Monat, eine Zeile je Viertelstunde: <code>JJJJ-MM-TT hh:mm&lt;TAB&gt;EUR/MWh</code> (Ortszeit); sieben Kalenderjahre (laufendes Jahr und sechs davor), ältere löscht Slot 2. Für frühere Jahre auch selbst ablegbar (<a href="#k44">Abschnitt 11.7</a>)</td></tr>
   <tr><td><code>/smgw_boerse_stand3.txt</code>, <code>/smgw_boerse_dl.json</code></td><td>Stand des Börsenabrufs („bis JJJJ-MM-TT“) und Zwischendatei des letzten Monatsabrufs. Löschen = alles einmal neu holen.</td></tr>
-  <tr><td><code>/smgw_gateway.json</code></td><td>Gültigkeit des TLS-Zertifikats des Gateways (von/bis in UTC), Seriennummer, nur die letzten 4 Stellen der Kennung, Lesedatum – schreibt <code>slot0-smgw</code> ab v021 einmal am Tag (<a href="#k46">Abschnitt 9.5</a>)</td></tr>
+  <tr><td><code>/smgw_gateway.json</code></td><td>Gültigkeit des TLS-Zertifikats des Gateways (von/bis in UTC), Seriennummer, nur die letzten 4 Stellen der Kennung, Lesedatum – schreibt <code>slot0-smgw</code> einmal am Tag (<a href="#k46">Abschnitt 9.5</a>)</td></tr>
   <tr><td><code>/smgw_ergaenzung.txt</code></td><td>nur bei Bedarf: Zählerstände vor dem ersten Gateway-Wert (<a href="#k42">Abschnitt 11.6</a>)</td></tr>
   <tr><td colspan="2"><b>Zugangsdaten:</b></td></tr>
   <tr><td><code>/smgw_zugang.secret</code></td><td>Zugang HAN (Abschnitt 6.1)</td></tr>
   <tr><td><code>/smgw_cert.secret</code>, <code>/smgw_key.secret</code></td><td>Client-Zertifikat und Schlüssel (Abschnitt 6.2), nur wenn benutzt</td></tr>
   <tr><td><code>/smgw_ftp.secret</code></td><td>FTP-Zugang, 4 Zeilen: Server · Benutzer · Passwort · Zielordner (Abschnitt 9.2; wird über die Seite gesetzt)</td></tr>
+  <tr><td><code>/smgw_leer.txt</code></td><td>nur vor dem ersten Messwert: bis zu welchem Tag schon ohne Ergebnis gesucht wurde (nach einem Neustart geht es dort weiter); wird mit dem ersten Messwert gelöscht</td></tr>
+  <tr><td><code>/smgw_testtag.html</code></td><td>Antwort des Gateways auf den letzten <code>SMGWTestTag</code> (<a href="#k22">9.4</a>), roh; enthält die Zählerkennung – nicht weitergeben</td></tr>
   <tr><td><code>/smgw_ftp.pos</code></td><td>Stand der FTP-Sicherung (erster noch offener Monat und Dateigrößen); löschen = beim nächsten Mal alles neu senden</td></tr>
 </table>
 <p>Laden und Sichern der Dateien geht über die TinyC-Dateiports: lesen <code>http://&lt;Gerät&gt;:82/ufs/sdfs/&lt;Datei&gt;</code>, schreiben per HTTP-POST an <code>http://&lt;Gerät&gt;:83/ufs/sdfs/&lt;Datei&gt;</code>. Die <code>.secret</code>-Dateien sind dort gesperrt.</p>
@@ -487,7 +436,7 @@ upload_port      = COMx      ; eigenen Anschluss eintragen</pre>
       <li><b>Status:</b> Karten <b>Abruf</b>, <b>Gateway</b> (Firmware, Werte vorhanden seit) und <b>Gerät</b> (Tasmota-Firmware, Prozessor, Funkchip, Skripte, Seite, Speicher, SD-Karte, Netz, Laufzeit, letzter Neustart).</li>
       <li><b>TAF:</b> die beim Gateway freigeschalteten Tarifanwendungsfälle und Auswerteprofile (live), was dadurch nicht geliefert wird, und eine Erklärung aller 14 TAF.</li>
     </ul>
-    Unten auf jeder Seite: <b>Viertelstunden als .csv</b> und <b>Tage als .csv</b> (UTF-8, Semikolon, Dezimalkomma). Vorzeichen: + Netzbezug, − Einspeisung. Leistung = Zählerdifferenz der Viertelstunde × 4.</li>
+    Unten auf jeder Seite: <b>Viertelstunden als .csv</b> und <b>Tage als .csv</b> (UTF-8, Semikolon, Dezimalkomma); beide enthalten Zählerstände in kWh (Viertelstunden: Zeitpunkt, 1.8.0, 2.8.0; Tage: Stand 00:00 und Ende, Anzahl Viertelstunden). In den Diagrammen gilt: + Netzbezug, − Einspeisung; Leistung = Zählerdifferenz der Viertelstunde × 4.</li>
   <li><b>Daten-Schnittstelle</b> (für eigene Auswertungen): <code>/smgwj</code> Status als JSON, <code>/smgwf?n=tage|heute|JJJJ-MM|gwfw|gwtaf</code> die Dateien (nur diese Namen); <code>/smgwzugang</code> (POST) Zugänge setzen, Antwort nie mit Benutzer, Passwort oder Schlüssel.</li>
 </ul>
 <figure><img src="bilder/02-reiter-einstellungen.png" alt="Reiter Einstellungen" style="max-width:80%"><figcaption>Reiter „Einstellungen“ (Zugangsdaten gespeichert, nur „*********“ sichtbar). Adressen aus dem eigenen Netz ersetzt.</figcaption></figure>
@@ -539,7 +488,8 @@ upload_port      = COMx      ; eigenen Anschluss eintragen</pre>
              &amp; {"smgw_heute.txt"},
     Hole   = (n as text) =&gt; try Csv.Document(Web.Contents(Basis &amp; n),
                [Delimiter = "#(tab)", Columns = 3, Encoding = 65001]) otherwise null,
-    Alle   = Table.Combine(List.RemoveNulls(List.Transform(Namen, Hole))),
+    Liste  = List.RemoveNulls(List.Transform(Namen, Hole)),
+    Alle   = if List.IsEmpty(Liste) then #table({"Column1", "Column2", "Column3"}, {}) else Table.Combine(Liste),
     Spalten = Table.RenameColumns(Alle, {{"Column1", "Zeit"}, {"Column2", "Bezug_1.8.0"}, {"Column3", "Einsp_2.8.0"}}),
     Ohne_Doppelte = Table.Distinct(Spalten, {"Zeit"}),
     Typen = Table.TransformColumnTypes(Ohne_Doppelte, {{"Zeit", type datetime},
@@ -562,29 +512,28 @@ in
   <tr><td><code>SMGWHost &lt;IP&gt;</code> · <code>SMGWPort &lt;n&gt;</code> · <code>SMGWPfad &lt;/…&gt;</code></td><td>Adresse der HAN-Schnittstelle (Vorgabe 192.168.1.200 · 443 · /cgi-bin/hanservice.cgi)</td></tr>
   <tr><td><code>SMGWFtp</code> · <code>SMGWFtp SYNC</code> · <code>SMGWFtp RESTORE</code></td><td>FTP: Daten jetzt sichern · alles senden · zurückholen. Schreibweise egal (<code>sync</code> = <code>SYNC</code>).</td></tr>
   <tr><td><code>SMGWFtpZeit HH:MM</code></td><td>Uhrzeit der täglichen Sicherung</td></tr>
+  <tr><td><code>SMGWTestTag JJJJ-MM-TT</code></td><td>genau diesen Tag einmal abfragen (eigene Sitzung, auch vor dem ersten Messwert) und das Ergebnis ins Log schreiben: Ergebnis, HTTP, Länge, Werte, Viertelstunden, Token, Fehlermeldungen; Rohantwort in <code>/smgw_testtag.html</code>. Speichert nichts, ändert keine Wartezeit. Nur, wenn kein Abruf und keine Wartezeit läuft.</td></tr>
   <tr><td><code>SMGWFrei</code></td><td>Wartezeit nach einem Fehler aufheben (nur bewusst benutzen, Sperre!)</td></tr>
   <tr><td><code>TinyCTlsCert</code></td><td>Zustand des Client-Zertifikats (<code>loaded</code>, Kurve); setzt Slot 0 selbst</td></tr>
 </table>
 <p>Zugangsdaten gibt es absichtlich nicht als Konsolenbefehl.</p>
 
 <h3 id="k46">9.5 Zertifikat des Gateways</h3>
-<p>Jedes Gateway schickt beim Verbindungsaufbau sein <b>TLS-Zertifikat</b> mit (Norm X.509). Darin steht, wie lange es gilt – bei PPC sieben Jahre ab der Aktivierung. <b>Bis zu diesem Tag muss das Gateway getauscht oder erneuert sein.</b> Die Anzeigesoftware TRuDI der PTB zeigt dasselbe unter „Details zum Smart Meter Gateway“ → „Zertifikat der TLS-Verbindung“.</p>
+<p>Jedes Gateway schickt beim Verbindungsaufbau sein <b>TLS-Zertifikat</b> mit (Norm X.509). Darin steht, wie lange es gilt – beim PPC-Gateway des Verfassers sieben Jahre ab der Aktivierung (beobachtet). <b>Bis zu diesem Tag muss das Gateway getauscht oder erneuert sein.</b> Die Anzeigesoftware TRuDI der PTB zeigt dasselbe unter „Details zum Smart Meter Gateway“ → „Zertifikat der TLS-Verbindung“.</p>
 <ul>
   <li><b>Firmware</b> ab 11.11.2026: Die TLS-Bibliothek merkt sich beim Verbindungsaufbau Gültigkeit von/bis, „ausgestellt für“ und Seriennummer des ersten Zertifikats. Der Konsolenbefehl <code>TinyCTlsGueltig</code> gibt sie aus (Zeiten in UTC; „ausgestellt für“ nur mit den letzten 4 Stellen, der Rest als *, damit die Kennung nie im Log steht). <b>Er zeigt immer die letzte TLS-Verbindung des Geräts</b> – läuft Slot 2, ist das kurz nach dem Gateway-Abruf meist der Börsenabruf (<code>api.energy-charts.info</code>). Maßgeblich für das Gateway ist darum der Reiter Status bzw. <code>/smgw_gateway.json</code>, die Slot 0 direkt nach seiner eigenen Verbindung schreibt.</li>
-  <li><b>Slot 0</b> ab v021 ruft den Befehl nach dem täglichen Firmware-Abruf auf und schreibt <code>/smgw_gateway.json</code>. Mit älterer Firmware steht nur eine Logzeile da, sonst läuft alles wie vorher.</li>
-  <li><b>Seite SMGW-Leser</b>, Reiter Status, Kasten „Gateway (SMGW)“: „Zertifikat der TLS-Verbindung: gültig vom … bis …“ in Ortszeit, dazu Restzeit, Seriennummer und „ausgestellt für …“ (4 Stellen). Ab sechs Monaten vor Ablauf gelb, danach rot.</li>
+  <li><b>Slot 0</b> ruft den Befehl nach dem täglichen Firmware-Abruf auf und schreibt <code>/smgw_gateway.json</code>. Mit älterer Firmware steht nur eine Logzeile da, sonst läuft alles wie vorher.</li>
+  <li><b>Seite SMGW-Leser</b>, Reiter Status, Kasten „Gateway (SMGW)“: „Zertifikat der TLS-Verbindung: gültig vom … bis …“ in Ortszeit, dazu Restzeit, Seriennummer und „ausgestellt für …“ (4 Stellen). Ab sechs Monaten vor Ablauf gelb mit „Tausch des Gateways steht an“, nach Ablauf rot.</li>
   <li>Nach einem Tausch des Gateways steht beim nächsten Abruf das Datum des neuen Geräts da. Die Messwerte auf der SD-Karte laufen einfach weiter.</li>
 </ul>
 <figure><img src="bilder/10-status-zertifikat.png" alt="Status Zertifikat" style="max-width:90%"><figcaption>Reiter „Status“, Kasten Gateway: Firmware und Zertifikat (Seriennummer und Kennung hier erfunden).</figcaption></figure>
 
 <h2 id="k23">10. Häufige Fragen</h2>
-<h3 id="k24">„Fehler: keine Verbindung zum Gateway“</h3>
+<h3 id="k24">„Fehler: keine Verbindung zum Gateway (1. Anfrage)“ bzw. „… (Anmeldung)“</h3>
 <p>LAN-Kabel, LAN-Adresse (<code>Status 5</code>) und die Gateway-Adresse (Einstellungen) prüfen. Der Leser muss im selben Netz wie die HAN-Buchse sein. Der nächste Versuch kommt automatisch nach der Wartezeit.</p>
-<p>Woran es genau lag, zeigt im Log die Zeile <code>SMG: Diagnose &lt;Schritt&gt;: Stufe …</code> (ab Slot 0 v015): Stufe 1 = Verbindungsaufbau gescheitert (<code>tlsConnect</code>), 2 = Senden gescheitert, 3 = keine Antwortzeile, 4 = Antwort unvollständig. Dazu <code>neu</code> (Verbindung neu aufgebaut oder weiterverwendet), <code>stand</code> (Verbindung bestand noch), <code>vorher close</code> (die vorige Antwort hatte „Connection: close“), Status, angekündigte Länge und gelesene Bytes. Die Zeile enthält keine Zugangsdaten.</p>
-<p>Typischer Fall: <code>Stufe 3, neu 0, stand 1, vorher close 0</code> – das Gateway hat eine weiterverwendete Verbindung still geschlossen. Der Leser holt den Tag dann mit neuer Verbindung („Tag … erneut mit neuer Verbindung“), ab v016 auch die Anmeldung („Anmeldung erneut mit neuer Verbindung“; ab v017 nur, wenn seit dem Start schon eine Anmeldung gelungen ist; ab v020 gilt das nach jeder Änderung von Zugangsdaten, Gateway-Adresse oder Zertifikat wieder neu). Beim Erstabruf am 09.11. kam das bei 283 Tagen viermal vor, alle Tage wurden geholt.</p>
-<h3 id="k25">„Identifikationsnummer braucht Slot 1 v006“ bei der Ersteinrichtung</h3>
-<p>Fehler in <code>slot1-smgwweb</code> bis v008 bei noch leerem Zugang. <code>slot1-smgwweb</code> v009 laden. Umweg mit v008: erst Benutzer und Passwort speichern, Seite neu laden, dann die Identifikationsnummer.</p>
-<h3 id="k26">„Anmeldung abgelehnt – Zugangsdaten prüfen“</h3>
+<p>Woran es genau lag, zeigt im Log die Zeile <code>SMG: Diagnose &lt;Schritt&gt;: Stufe …</code>: Stufe 1 = Verbindungsaufbau gescheitert (<code>tlsConnect</code>), 2 = Senden gescheitert, 3 = keine Antwortzeile, 4 = Antwort unvollständig. Dazu <code>neu</code> (Verbindung neu aufgebaut oder weiterverwendet), <code>stand</code> (Verbindung bestand noch), <code>vorher close</code> (die vorige Antwort hatte „Connection: close“), Status, angekündigte Länge und gelesene Bytes. Die Zeile enthält keine Zugangsdaten.</p>
+<p>Typischer Fall: <code>Stufe 3, neu 0, stand 1, vorher close 0</code> – das Gateway hat eine weiterverwendete Verbindung still geschlossen. Der Leser holt den Tag dann mit neuer Verbindung („Tag … erneut mit neuer Verbindung“), bei einer weiterverwendeten Verbindung einmal auch die Anmeldung („Anmeldung erneut mit neuer Verbindung“ – nur, wenn mit den aktuellen Zugangsdaten, der Gateway-Adresse und dem Zertifikat seit dem Start schon eine Anmeldung gelungen ist; so bringt ein falsches Passwort keinen zweiten Fehlversuch). Beim Erstabruf am 09.11. kam das bei 283 Tagen viermal vor, alle Tage wurden geholt (beobachtet). Bricht es später ab, heißt der Fehler „Zaehlerseite: keine Antwort“ bzw. „Tag JJJJ-MM-TT: keine/abgebrochene Antwort“.</p>
+<h3 id="k26">„Anmeldung abgelehnt - Zugangsdaten pruefen“</h3>
 <p>Benutzername oder Passwort stimmen nicht. Auf der Seite neu eintragen; neue Daten heben die 12-h-Wartezeit auf. Nicht mehrfach hintereinander probieren, sonst sperrt das Gateway.</p>
 <h3 id="k27">Die TLS-Verbindung bricht sofort ab</h3>
 <p>Die Firmware enthält <code>setRSAOnly(false)</code> nicht (Abschnitt 4.1). Das Gateway bietet nur ECDSA an.</p>
@@ -599,7 +548,8 @@ in
 <h3 id="k32">Excel findet nichts</h3>
 <p>Die Adresse in der Zeile <code>Basis</code> stimmt nicht mehr (neue IP des <b>Lesers</b> – die Adresse des Gateways spielt für Excel keine Rolle). Seite unter der aktuellen Adresse öffnen und die Abfrage neu kopieren.</p>
 <h3 id="k33">An einzelnen Tagen fehlen Viertelstunden</h3>
-<p>Das Gateway hat sie selbst nicht. Am Tag der Zeitumstellung im Herbst werden die doppelten Viertelstunden überschrieben; die Tagessumme stimmt, nur das Diagramm zeigt 96 statt 100 Werte.</p>
+<p>Das Gateway hat sie selbst nicht.</p>
+<p><b>Zeitumstellung</b> (geprüft am 13.11.2026 mit <code>SMGWTestTag</code> am PPC-Gateway): Im März (Uhr vor) liefert das Gateway 92 Viertelstunden, 01:45 folgt direkt 03:00 – das ist richtig, dazwischen liegen echte 15 Minuten. Im Oktober (Uhr zurück) liefert es 100 Werte, die Stunde 02:00–02:45 zweimal. Gespeichert wird je Uhrzeit nur ein Wert, und zwar der erste; die gespeicherte Viertelstunde 02:45 umfasst darum 75 Minuten (zweite 02-Uhr-Stunde plus 02:45–03:00). Die Tagessumme stimmt; die Seite rechnet die Leistung dort über 75 Minuten und schreibt „75 min, Zeitumstellung“ dazu, die Bestenlisten lassen diese Stunde aus.</p>
 
 
 <h2 id="k36" class="seite">11. Stromkosten (Erweiterung, Slot 2)</h2>
@@ -610,39 +560,39 @@ in
 <h3 id="k37">11.1 Einrichten – und wieder weglassen</h3>
 <ol>
   <li><code>smgw_kosten.html.gz</code> auf die SD-Karte laden, genauso wie <code>smgw.html.gz</code> (<a href="#k34">Abschnitt 5.2</a>).</li>
-  <li>In der TinyC-IDE <code>slot2-smgwkosten_v007.tc</code> öffnen, <b>Slot 2</b> wählen, hochladen, in <code>/tc</code> <b>Autostart</b> einschalten (wie <a href="#k35">Abschnitt 5.3</a>).</li>
-  <li>Im Log erscheint <code>SMG-Kosten: v007 bereit, Boerse bis …</code>, nach dem nächsten Börsenabruf <code>SMG-Boerse: … gespeichert (… Werte)</code>. Fehlt diese Zeile dauerhaft, ist die Firmware älter als TinyC 1.6.78 (<a href="#k07">Abschnitt 4.1</a>).</li>
+  <li>In der TinyC-IDE <code>slot2-smgwkosten_1.0.0.tc</code> öffnen, <b>Slot 2</b> wählen, hochladen, in <code>/tc</code> <b>Autostart</b> einschalten (wie <a href="#k35">Abschnitt 5.3</a>).</li>
+  <li>Im Log erscheint <code>SMG-Kosten: 1.0.0 bereit, Boerse bis …, Messung ab …</code>, nach dem nächsten Börsenabruf <code>SMG-Boerse: … gespeichert (… Werte)</code>. Steht stattdessen <code>SMG-Boerse: Antwort JJJJ-MM-01 ohne Zeitstempel (… Byte)</code> im Log, ist die Firmware älter als TinyC 1.6.78 (<a href="#k07">Abschnitt 4.1</a>). Andere Gründe für eine fehlende Zeile (kein Internet, Uhrzeit noch nicht gestellt, HTTP-Fehler) zeigt <code>http://&lt;Gerät&gt;/smgwb?n=status</code> im Feld <code>fehler</code>.</li>
   <li>Seite <code>/smgw</code> neu laden: In der Reiterzeile steht jetzt mittig die Seitenwahl <b>„SMGW-Leser | Stromkosten“</b>. SMGW-Leser ist immer grün, Stromkosten immer orange; die offene Seite ist kräftig, die andere blass. Auch der gewählte Reiter hat die Farbe seiner Seite. Ohne Slot 2 bleibt sie verborgen.</li>
   <li>Auf der Seite Stromkosten unter <b>„Tarife &amp; Preise“</b> die eigenen Preise eintragen und <b>Speichern</b> (<a href="#k39">Abschnitt 11.3</a>). Bis dahin rechnet die Seite mit Beispielwerten, die als solche benannt sind.</li>
 </ol>
-<p>Slot 2 braucht Internet über das WLAN (für die Börsenpreise). Beim ersten Start holt er die Börsenpreise ab dem 01.01. des ersten Messjahres nach, einen Monat alle 20 Sekunden – ein ganzes Jahr dauert etwa 4 Minuten. Solange Slot 0 am Gateway abruft, wartet Slot 2.</p>
-<p><b>Wieder weglassen:</b> In <code>/tc</code> Slot 2 stoppen und Autostart ausschalten. Die Seitenwahl verschwindet beim nächsten Laden von <code>/smgw</code>. Die Dateien aus <a href="#k17">Abschnitt 8</a> können liegen bleiben oder gelöscht werden; die Messwerte berührt das nicht.</p>
+<p>Slot 2 braucht Internet über das WLAN (für die Börsenpreise). Beim ersten Start holt er die Börsenpreise ab dem 01.01. des ersten Messjahres nach (höchstens sechs Jahre zurück; vor dem ersten Messwert ab dem 01.01. des Vorjahres; Jahre vor dem Gateway siehe <a href="#k44">11.7</a>), einen Monat alle 20 Sekunden – ein ganzes Jahr dauert etwa 4 Minuten. Solange Slot 0 am Gateway abruft, wartet Slot 2.</p>
+<p><b>Wieder weglassen:</b> In <code>/tc</code> Slot 2 stoppen und Autostart ausschalten. Die Seitenwahl verschwindet beim nächsten Laden von <code>/smgw</code>. Die Dateien der Kostenrechnung aus <a href="#k17">Abschnitt 8</a> (<code>/smgw_boerse_*.txt</code>, <code>/smgw_tarif.json</code>) können liegen bleiben oder gelöscht werden; die Messwerte berührt das nicht.</p>
 
 <h3 id="k38">11.2 Börsenpreise</h3>
 <ul>
   <li><b>Quelle:</b> Day-Ahead-Preise der Gebotszone DE-LU in Viertelstunden, Daten der Bundesnetzagentur | SMARD.de, abgerufen über api.energy-charts.info (Fraunhofer ISE). Lizenz CC BY 4.0, die Seite nennt die Quelle in der Fußzeile.</li>
-  <li><b>Voraussetzung:</b> Slot 1 und Slot 2 melden eigene Webseiten an (<code>webOn</code>). Das geht in einem Slot ungleich 0 erst mit Firmware nach dem 03.11.2026.</li>
+  <li><b>Voraussetzung:</b> Slot 1 und Slot 2 melden eigene Webseiten an (<code>webOn</code>). Das geht in einem Slot ungleich 0 ab TinyC 1.6.77 (03.11.2026); mit der Firmware aus <a href="#k07">Abschnitt 4.1</a> ist das erfüllt.</li>
   <li><b>Wann:</b> einmal je Monat eine Anfrage (etwa 55 KB). Danach täglich der laufende Monat; der <b>Folgetag ab 14:00</b>, sobald die Börse ihn veröffentlicht hat. Fehlt noch ein Wert oder meldet energy-charts „zu viele Anfragen“, versucht Slot 2 es nach 15 Minuten wieder.</li>
-  <li><b>Aufbewahrung:</b> sieben Kalenderjahre (laufendes Jahr und sechs davor – etwa die Laufzeit eines Gateway-Zertifikats, genug zum Nachprüfen von Rechnungen). Ältere Börsendateien löscht Slot 2 (ab v006; v007 braucht TinyC ab 1.6.78). Die Zählerdateien des Gateways löscht kein Slot.</li>
+  <li><b>Aufbewahrung:</b> sieben Kalenderjahre (laufendes Jahr und sechs davor – etwa die Laufzeit eines Gateway-Zertifikats, genug zum Nachprüfen von Rechnungen). Ältere Börsendateien löscht Slot 2. Die Zählerdateien des Gateways löscht kein Slot.</li>
   <li><b>Zeit:</b> gespeichert in Ortszeit. Am Tag der Umstellung auf Sommerzeit hat der Tag 92 Viertelstunden, am Tag der Umstellung auf Winterzeit 100.</li>
   <li><b>Zustand:</b> <code>http://&lt;Gerät&gt;/smgwb?n=status</code> zeigt, bis wann Börsenpreise da sind, den letzten erfolgreichen Abruf und einen eventuellen Fehler.</li>
 </ul>
 <p>Die Börsenpreise braucht nur, wer einen dynamischen Tarif hat oder vergleichen will. Für Festpreis und zeitvariable Tarife rechnet die Seite ohne sie.</p>
 
 <h3 id="k39">11.3 Tarife &amp; Preise: ein Tarifblatt je Jahr</h3>
-<p>Netzentgelte, Abgaben und meist auch der Lieferantenpreis wechseln zum 01.01. Darum gibt es <b>für jedes Jahr ein Tarifblatt</b> mit allem, was in diesem Jahr gilt. Oben stehen Knöpfe je Jahr (höchstens sieben: vom ersten Jahr mit Werten bis zum Folgejahr), beschriftet mit „abgerechnet“, „Vorjahr“, „laufendes Jahr“ oder „Folgejahr · vorläufig“.</p>
+<p>Netzentgelte, Abgaben und meist auch der Lieferantenpreis wechseln zum 01.01. Darum gibt es <b>für jedes Jahr ein Tarifblatt</b> mit allem, was in diesem Jahr gilt. Oben stehen Knöpfe je Jahr (höchstens acht: bis zu sechs Jahre zurück, das laufende Jahr und das Folgejahr – jedes Jahr mit Messwerten oder mit Tarifblatt), beschriftet mit „abgerechnet“, „Vorjahr · abgerechnet“, „laufendes Jahr“ oder „Folgejahr · vorläufig“.</p>
 <ul>
-  <li><b>„+ Jahr“</b> bzw. <b>„Tarifblatt anlegen“</b> übernimmt alle Werte des Jahres davor als Vorlage. Ein angelegtes Folgejahr heißt „vorläufig“, bis die Preisblätter da sind; ein nachträglich angelegtes früheres Jahr ist als „fehlt“ markiert. Beides gelb, mit einem Haken „Werte sind eingetragen“.</li>
+  <li><b>„+ JJJJ</b> neues Tarifblatt“ (nur für das Folgejahr) bzw. <b>„Tarifblatt JJJJ anlegen“</b> (für ein Jahr mit Messwerten, aber ohne Blatt) übernimmt die Werte des Blatts, das bisher für dieses Jahr gilt, als Vorlage – beim Folgejahr das laufende Jahr, bei einem früheren Jahr das älteste vorhandene Blatt. Ein angelegtes Folgejahr heißt „vorläufig“, bis die Preisblätter da sind (gelb, Haken „Preisblätter JJJJ sind eingetragen“); ein nachträglich angelegtes früheres Jahr ist eine Kopie (gelb, Haken „Werte sind eingetragen“).</li>
   <li><b>Änderung mitten im Jahr</b> (z. B. neuer Preis ab 01.07.): unten „+ ab diesem Tag (nur in diesem Jahr)“. Der neue Stand übernimmt alle Werte und gilt bis zum Jahresende; oben im Blatt lässt sich zwischen den Ständen wechseln.</li>
-  <li><b>Speichern</b> (oben rechts) schreibt alles in <code>/smgw_tarif.json</code> über Port 83, liest die Datei über Port 82 zurück und vergleicht sie. Ungespeicherte Änderungen zeigt „● nicht gespeichert“; beim Verlassen der Seite warnt der Browser.</li>
+  <li><b>Speichern</b> (oben rechts) sichert zuerst die bisherige Fassung als <code>/smgw_tarif.bak</code> (zurückgelesen und verglichen), schreibt dann alles in <code>/smgw_tarif.json</code> über Port 83, liest die Datei über Port 82 zurück und vergleicht sie. Konnte die Seite ein vorhandenes Tarifblatt beim Laden nicht lesen, zeigt sie das rot an und <b>sperrt Speichern</b> – sonst würde es mit Beispielwerten überschrieben. Dann die Seite neu laden; zur Not die vorige Fassung aus <code>/smgw_tarif.bak</code> zurückkopieren. Ungespeicherte Änderungen zeigt „● nicht gespeichert“; beim Verlassen der Seite warnt der Browser.</li>
 </ul>
 <p>Ein Tarifblatt hat drei Teile:</p>
 <ol>
-  <li><b>Lieferant (Bezug):</b> Name, Tarifart (Festpreis, zeitvariabel, dynamisch oder Energieanteil netto), Arbeitspreis bzw. Aufschlag <b>brutto laut Vertrag</b>, Grundpreis brutto je Jahr, „Messstellenbetrieb extra“ (nur bei einem eigenen Messstellenbetreiber, sonst 0) und <b>„§14a gebucht“</b> (keins, Modul 1, Modul 1 + 3). Bei Preisgarantie inklusive Steuern und Abgaben „Bruttopreis bleibt fest“ anhaken. Zeitvariabel: eigene Tariffenster.</li>
+  <li><b>Lieferant (Bezug):</b> Name, Tarifart (Festpreis, zeitvariabel, dynamisch oder Energieanteil netto), Arbeitspreis bzw. Aufschlag <b>brutto laut Vertrag</b>, Grundpreis brutto je Jahr, „Messstellenbetrieb extra“ (nur bei einem eigenen Messstellenbetreiber, sonst 0) und <b>„§14a gebucht“</b> (keins, Modul 1, Modul 1 + 3). Bei Preisgarantie inklusive Steuern und Abgaben „Bruttopreis bleibt fest“ anhaken. Zeitvariabel: eigene Tariffenster in Viertelstunden – „von“ gehört dazu, „bis“ nicht mehr (22:00 bis 06:00 = 22:00:00 bis 05:59:59, die Viertelstunde ab 06:00 hat schon den nächsten Preis), wie bei Modul 3 und bei den Angeboten im Tarifvergleich. Neue Preise beginnen immer auf einer Viertelstunde.</li>
   <li><b>Netzentgelte, Abgaben, Steuern</b> (für alle Lieferanten gleich): Netzentgelt Standard netto, Stromsteuer, Mehrwertsteuer, Abgaben und Umlagen netto (Namen frei, + Abgabe, ×), Summe.</li>
   <li><b>§14a EnWG</b> (Preisblatt des Netzbetreibers):
     <ul>
-      <li><b>Modul 1 gilt ab</b> – Inbetriebnahme der steuerbaren Verbrauchseinrichtung bzw. Start beim Netzbetreiber; leer = in diesem Jahr nicht verfügbar. Pauschale <b>nach Formel</b> (BNetzA) oder als <b>fester Betrag laut Preisblatt</b>, jeweils mit Ergebnis brutto/netto je Jahr, dazu der <b>Anteil im Jahr</b> ab „gilt ab“.</li>
+      <li><b>Modul 1 gilt ab</b> – Inbetriebnahme der steuerbaren Verbrauchseinrichtung bzw. Start beim Netzbetreiber; leer = in diesem Jahr nicht verfügbar. Pauschale <b>nach Formel</b> (BNetzA) oder als <b>fester Betrag laut Preisblatt</b> (netto eingeben, €/Jahr), jeweils mit Ergebnis brutto je Jahr, dazu der <b>Anteil im Jahr</b> ab „gilt ab“.</li>
       <li><b>Modul 3 gilt ab</b>, Netzentgelt je Stufe (Hochlast, Standard = Wert aus Teil 2, Niedriglast), in welchen <b>Quartalen</b> Modul 3 gilt, die <b>Zeitfenster</b> in Viertelstunden – „bis“ gehört nicht mehr dazu (09:00 bis 13:00 = letzte Viertelstunde 12:45–13:00; Ende 24:00 möglich) – und darunter „So sieht ein Tag aus“ als Balken.</li>
     </ul></li>
 </ol>
@@ -665,17 +615,17 @@ in
 − §14a-Pauschale (Modul 1)
 − Einspeisevergütung
 = Saldo</pre>
-<p>Die Grundgebühr steht damit getrennt vom Strom: Man sieht, was der Strom selbst, was die Grundgebühr und was die Einspeisung ausmacht. Darunter: „Grundgebühr und Strom brutto, inkl. 19 % MwSt (darin … €)“. Alle Beträge sind auf Cent gerundet, bevor sie zusammengezählt werden – die Gleichung geht so immer auf den Cent auf. Der Gesamtbetrag heißt überall (Kacheln, Tabellen, Abschlag, Legenden) <b>„Kosten gesamt“</b>.</p>
+<p>Die Grundgebühr steht damit getrennt vom Strom: Man sieht, was der Strom selbst, was die Grundgebühr und was die Einspeisung ausmacht. Darunter: „Grundgebühr und Strom brutto, inkl. 19 % MwSt (darin … €)“. Alle Beträge sind auf Cent gerundet, bevor sie zusammengezählt werden – die Gleichung geht so immer auf den Cent auf. Der Gesamtbetrag heißt in den Kacheln, der Rechnungstabelle und beim Abschlag <b>„Kosten gesamt“</b>, in der Monatstabelle und in den Balken kurz „Kosten“.</p>
 <p><b>§14a EnWG – berechneter Vorteil</b> (Abrechnungsjahr): <b>Modul 1</b> = die Pauschale anteilig ab „Modul 1 gilt ab“; <b>Modul 3</b> = Kosten mit Modul 1 minus Kosten mit Modul 1 + 3, mit den eigenen Viertelstunden und den Stufen, Zeitfenstern und Quartalen aus dem Tarifblatt, ab „Modul 3 gilt ab“. Gerechnet wird der <b>Anspruch nach den Preisblättern</b> – unabhängig davon, was beim Lieferanten gebucht oder tatsächlich gutgeschrieben wurde. Ist ein Modul nicht verfügbar, steht das dort. Die Kachel kommt mit ins PDF; so gibt es je Jahr einen Ausdruck zum Nachweis.</p>
 <figure><img src="bilder/09-abrechnungsjahr-14a.png" alt="Abrechnungsjahr" style="max-width:90%"><figcaption>Abrechnungsjahr: Kacheln, Saldo mit Grundgebühr, Abschlag und die Kachel „§14a EnWG – berechneter Vorteil“ (Beispieltarife, eigener Verbrauch).</figcaption></figure>
 <p><b>Als PDF drucken</b> (Monatsrechnung, Abrechnungsjahr, Tarifvergleich): öffnet den Druckdialog, dort „Als PDF speichern“. Immer eine A4-Seite, hell, mit eigener Kopfzeile (Ansicht, Zeitraum, Druckdatum, Herkunft der Daten – ohne Adresse des Lesers), ohne Knöpfe.</p>
-<p><b>Laden:</b> Die Seite holt zuerst das laufende Jahr und ist dann bedienbar; ältere Monate und Börsenpreise kommen im Hintergrund nach („Bedienbar – lade im Hintergrund …“), danach rechnet sie neu. Abgeschlossene Monate merkt sich der Browser (IndexedDB) und prüft sie höchstens einmal am Tag nach – ab dem zweiten Aufruf ist die Seite nach wenigen Sekunden komplett. Die Daten bleiben auf der SD-Karte; der Browser hat nur eine Kopie.</p>
+<p><b>Laden:</b> Die Seite holt zuerst das laufende Jahr und ist dann bedienbar; ältere Monate und Börsenpreise kommen im Hintergrund nach („Bedienbar – lade im Hintergrund …“), danach rechnet sie neu. Abgeschlossene Monate merkt sich der Browser (IndexedDB) und prüft sie höchstens einmal am Tag nach – ab dem zweiten Aufruf ist die Seite nach wenigen Sekunden komplett (beobachtet). Die Daten bleiben auf der SD-Karte; der Browser hat nur eine Kopie.</p>
 
 <h3 id="k41">11.5 Tarifvergleich und Vorausplanung</h3>
 <p>Der Tarifvergleich rechnet <b>einen</b> Verbrauch mit mehreren Tarifen durch. Oben:</p>
 <ul>
   <li><b>Verbrauch aus:</b> ein Jahr (mit Tagen und kWh; „volles Jahr“ ab 360 Tagen, das laufende Jahr „bis heute“), „letzte 12 Monate“ oder frei von – bis.</li>
-  <li><b>fehlende Tage schätzen:</b> füllt Tage ohne Werte mit einem gemessenen Tag desselben Kalendermonats. Bei einem Jahr rechnet es damit <b>bis 31.12. hoch</b> („hochgerechnet bis 31.12.“) – mit allen Monaten, auch der ganzen Modul-1-Pauschale. Ohne Häkchen gilt nur, was gemessen ist („bis heute“).</li>
+  <li><b>fehlende Tage schätzen:</b> füllt Tage ohne Werte mit gemessenen vollständigen Tagen desselben Kalendermonats (mindestens sieben solche Tage, sonst des nächstliegenden Monats; die Seite nennt dann „aus …“). Bei einem Jahr rechnet es damit <b>bis 31.12. hoch</b> („hochgerechnet bis 31.12.“) – mit allen Monaten, auch der ganzen Modul-1-Pauschale. Ohne Häkchen gilt nur, was gemessen ist („bis heute“).</li>
   <li><b>Vorjahre:</b> je Jahr mit Tarifblatt ein Häkchen (z. B. 2024, 2025). Angehakte Jahre stehen als eigene Zeilen oben, das älteste zuerst. Die Auswahl merkt sich der Browser.</li>
 </ul>
 <p>Die <b>Zeilen</b> stehen in fester Reihenfolge: angehakte <b>Vorjahre</b> (blass) → <b>aktuelles Jahr</b> → <b>Vorausplanung</b> (sobald es ein Tarifblatt für das Folgejahr gibt) → die angehakten <b>Angebote</b> (Festpreis 1/2, Zeitvariabel 1/2, Dynamisch 1/2).</p>
@@ -708,7 +658,7 @@ in
 2025-01-01 00:15	1234.8100	5678.9000</pre>
 <ul>
   <li><b>Zählerstände</b> (1.8.0 Bezug, 2.8.0 Einspeisung) in kWh, <b>nicht</b> die Verbräuche je Viertelstunde. Hat man nur Verbräuche, sie vorher fortlaufend aufsummieren.</li>
-  <li>Dezimalpunkt, Trennzeichen Tabulator, Zeilenende LF, <b>Ortszeit</b> (Sommerzeit wie die Uhr an der Wand). Zeitstempel auf die Viertelstunde (00/15/30/45); kleine Abweichungen (12:32 statt 12:30) ordnet die Seite richtig zu.</li>
+  <li>Dezimalpunkt, Trennzeichen Tabulator, Zeilenende LF, <b>Ortszeit</b> (Sommerzeit wie die Uhr an der Wand). Zeitstempel auf die Viertelstunde (00/15/30/45); leicht verspätete Zeitstempel (12:32 statt 12:30) ordnet die Seite richtig zu, verfrühte (12:28) landen in der Viertelstunde davor.</li>
   <li>Der <b>Nullpunkt</b> muss nicht zu den Gateway-Werten passen – die Seite rechnet nur Differenzen von einer Viertelstunde zur nächsten. Springt der Stand beim Übergang zu anderen Daten, zählt diese eine Viertelstunde nicht: Rücksprünge zählen als 0, mehr als 25 kWh in einer Viertelstunde (100 kW) gelten als Lücke. Innerhalb einer Datei müssen die Stände durchgehend vom selben Zähler sein.</li>
   <li>Damit die letzte Viertelstunde des Monats mitzählt, als letzte Zeile den Stand vom 1. des Folgemonats 00:00 anhängen (die Seite liest die Monate nacheinander und rechnet über die Monatsgrenze).</li>
   <li>Lücken sind erlaubt: Fehlende Viertelstunden zählen als fehlend, nichts wird erfunden (bis 75 Minuten Abstand rechnet die Seite die Differenz noch der Viertelstunde davor zu, z. B. bei der Zeitumstellung).</li>
@@ -717,8 +667,8 @@ in
 <p><b>Hochladen</b> (wie die Seite, <a href="#k34">Abschnitt 5.2</a>) – je Datei:</p>
 <pre>curl --data-binary @smgw_2025-01.txt http://&lt;Gerät&gt;:83/ufs/sdfs/smgw_2025-01.txt
 curl http://&lt;Gerät&gt;:82/ufs/sdfs/smgw_2025-01.txt | head -3</pre>
-<p>Oder die SD-Karte im Kartenleser beschreiben (Slots vorher stoppen). Danach die Seite Stromkosten neu laden (F5); sie liest das laufende Jahr und das Vorjahr.</p>
-<p><b>Börsenpreise für so ein Jahr</b> braucht nur, wer in diesem Jahr einen dynamischen Tarif hatte. Slot 2 holt sie ab dem ersten Messjahr des Gateways; für ein früheres Jahr die Dateien <code>/smgw_boerse_JJJJ-MM.txt</code> im Format von <a href="#k38">Abschnitt 11.2</a> selbst ablegen, z. B. aus <code>https://api.energy-charts.info/price?bzn=DE-LU&amp;start=2025-01-01T00:00%2B01:00&amp;end=2026-01-01T00:00%2B01:00</code> (Zeitstempel in Unix-Sekunden UTC → Ortszeit umrechnen). Bis 30.09.2025 gibt es nur Stundenpreise: den Wert dann für alle vier Viertelstunden der Stunde eintragen.</p>
+<p>Oder die SD-Karte im Kartenleser beschreiben (Slots vorher stoppen). Danach die Seite Stromkosten neu laden (F5). Sie liest ab dem ersten Tarifblatt – für ein Jahr vor dem Vorjahr zuerst unter „Tarife &amp; Preise“ dessen Tarifblatt anlegen. War die Seite heute schon offen, merkt sich der Browser einen bis dahin leeren Monat bis morgen; sofort sichtbar wird die neue Datei nach dem Löschen der Websitedaten des Lesers im Browser.</p>
+<p><b>Börsenpreise für so ein Jahr</b> braucht nur, wer in diesem Jahr einen dynamischen Tarif hatte. Slot 2 holt sie ab dem ersten Messjahr des Gateways (höchstens sechs Jahre zurück); für ein früheres Jahr die Dateien <code>/smgw_boerse_JJJJ-MM.txt</code> im Format von <a href="#k17">Abschnitt 8</a> selbst ablegen, z. B. aus <code>https://api.energy-charts.info/price?bzn=DE-LU&amp;start=2025-01-01T00:00%2B01:00&amp;end=2026-01-01T00:00%2B01:00</code> (Zeitstempel in Unix-Sekunden UTC → Ortszeit umrechnen). Bis 30.09.2025 gibt es nur Stundenpreise: den Wert dann für alle vier Viertelstunden der Stunde eintragen.</p>
 <p><b>Aufbewahrung:</b> Die Zählerdateien löscht kein Slot – sie bleiben auf der SD-Karte, auch nach einem Tausch des Gateways. Börsendateien behält Slot 2 sieben Kalenderjahre. Die Seite lädt die Zählerstände ab dem ersten Tarifblatt (höchstens sieben Jahre).</p>
 
 <h3 id="k45">11.8 So wird gerechnet</h3>
@@ -726,14 +676,14 @@ curl http://&lt;Gerät&gt;:82/ufs/sdfs/smgw_2025-01.txt | head -3</pre>
 <ul>
   <li><b>Verbrauch einer Viertelstunde</b> = Zählerstand am Ende minus am Anfang (Bezug 1.8.0, Einspeisung 2.8.0). Rücksprünge zählen 0, mehr als 25 kWh in einer Viertelstunde gelten als Lücke.</li>
   <li><b>Arbeitspreis brutto je Viertelstunde</b> = (Energieanteil + Netzentgelt + Abgaben und Umlagen + Stromsteuer) × (1 + MwSt). Das Netzentgelt ist der Standardwert; mit Modul 1 + 3 die Stufe der Viertelstunde (Zeitfenster, Quartal, ab „Modul 3 gilt ab“).</li>
-  <li><b>Energieanteil:</b> Festpreis und zeitvariabel – aus dem Bruttopreis laut Vertrag zurückgerechnet: Brutto ÷ (1 + MwSt) − Netzentgelt − Abgaben − Stromsteuer, mit den Werten am Beginn des Lieferanten-Abschnitts; spätere Änderungen bei Steuern und Abgaben werden weitergegeben (mit „Bruttopreis bleibt fest“ bleibt stattdessen der Bruttopreis). Dynamisch – Börsenpreis der Viertelstunde (Day-Ahead, netto) + Aufschlag ÷ (1 + MwSt).</li>
+  <li><b>Energieanteil:</b> Festpreis und zeitvariabel – aus dem Bruttopreis laut Vertrag zurückgerechnet: Brutto ÷ (1 + MwSt) − Netzentgelt − Abgaben − Stromsteuer, mit den Werten am Beginn des Lieferanten-Abschnitts; spätere Änderungen bei Steuern und Abgaben werden weitergegeben (nur Festpreis: mit „Bruttopreis bleibt fest“ bleibt stattdessen der Bruttopreis). Dynamisch – Börsenpreis der Viertelstunde (Day-Ahead, netto) + Aufschlag ÷ (1 + MwSt).</li>
   <li><b>Kosten Arbeitspreis</b> = Summe über alle Viertelstunden (kWh × Arbeitspreis).</li>
-  <li><b>Grundpreis, Messstellenbetrieb, Modul-1-Pauschale</b> je Tag: Jahresbetrag ÷ 12 ÷ Tage des Monats (Einstellung „gleich je Monat“) oder ÷ 365 („tagesgenau“), nur an Tagen mit Messwerten.</li>
-  <li><b>Modul 1</b> (pauschale Reduzierung, Festlegung der BNetzA): 80 € brutto + 3.750 kWh × Netzentgelt-Arbeitspreis brutto × 0,2 je Jahr – oder der feste Betrag laut Preisblatt; gutgeschrieben ab „Modul 1 gilt ab“.</li>
+  <li><b>Grundpreis, Messstellenbetrieb, Modul-1-Pauschale</b> je Tag: Jahresbetrag ÷ 12 ÷ Tage des Monats (Einstellung „gleich“) oder ÷ 365, im Schaltjahr ÷ 366 („tagesgenau“; BK8-22/010-A Rn. 100: unterjährig „tagesscharf“), nur an Tagen mit Messwerten.</li>
+  <li><b>Modul 1</b> (pauschale Reduzierung, BNetzA-Festlegung BK8-22/010-A, Rn. 92/93: „Höhe der pauschalen Reduzierung (brutto)“, „Bereitstellungsprämie … 80,00 € (brutto)“): 80 € brutto + 3.750 kWh × Netzentgelt-Arbeitspreis brutto × 0,2 je Jahr – oder der feste Betrag laut Preisblatt (netto eingegeben, × (1 + MwSt)); gutgeschrieben ab „Modul 1 gilt ab“.</li>
   <li><b>Grundgebühr</b> = Grundpreis + Messstellenbetrieb. <b>Kosten gesamt</b> = Grundgebühr + Arbeitspreis − Modul-1-Pauschale, alles brutto. <b>Einspeisevergütung</b> = Einspeisung kWh × Vergütung. <b>Saldo</b> = Kosten gesamt − Vergütung. Für den Saldo-Streifen wird jeder Teil auf Cent gerundet; „Strom“ ist dort Kosten gesamt − Grundgebühr + Pauschale.</li>
   <li><b>§14a-Vorteil:</b> Modul 1 = Summe der Pauschale; Modul 3 = Kosten mit Modul 1 − Kosten mit Modul 1 + 3 (<a href="#k40">Abschnitt 11.4</a>).</li>
   <li><b>Vorjahr-Zeilen im Tarifvergleich:</b> nur die gemessenen Tage dieses Jahres, nie geschätzt, mit dessen Tarifblatt.</li>
-  <li><b>Hochrechnung</b> („fehlende Tage schätzen“): jeder fehlende Tag bis 31.12. = ein gemessener Tag desselben Kalendermonats (Grundgebühr und Pauschale für alle Tage).</li>
+  <li><b>Hochrechnung</b> („fehlende Tage schätzen“): jeder fehlende Tag bis 31.12. = ein gemessener vollständiger Tag desselben Kalendermonats (mindestens sieben, sonst des nächstliegenden Monats; Grundgebühr und Pauschale für alle Tage).</li>
   <li><b>Vorausplanung / Preise eines anderen Jahres:</b> Tage aus einem anderen Jahr werden mit dem Tarifblatt ab 01.01. des Zeilenjahres gerechnet; „gilt ab“ gilt dann nach Monat und Tag.</li>
 </ul>
 
