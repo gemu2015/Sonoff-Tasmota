@@ -15,6 +15,19 @@ Ein Batterie-Taster fuer die funkgesteuerten Lampen (Empfaenger: `examples/gm24g
 
 Ohne Schluessel kann jeder in Reichweite ein Paket senden; bei einer Lampe ist das vertretbar, sonst eine geschluesselte Pruefung in die Nutzdaten legen.
 
+## Konfigurationsmodus: ein Programm fuer jeden Taster (am 15.11.2026 auf einem ESP-12 erprobt)
+Statt jeden Taster zu uebersetzen: **`CFG_PIN` (Vorgabe GPIO4 auf einem ESP-12; ein ESP-01 hat kein GPIO4, dort `CFG_PIN 3` = RX setzen; nicht GPIO0 / 2 / 15, das sind Boot-Pins) beim Start an GND legen**, mit einer Steckbruecke oder einem zweiten Taster, dann RST druecken oder die Batterie einlegen. Der Taster oeffnet einen Zugangspunkt **`Taster-XXXXXX`** (offen, oder mit `AP_PASS`); das Formular oeffnet sich von selbst auf Handy oder Tablet (Captive Portal: ein DNS-Server beantwortet jeden Namen mit der Adresse des Tasters, unbekannte Seiten gehen zum Formular), sonst **http://192.168.4.1/** oeffnen (mit `http://`, und die mobilen Daten ausschalten, sonst schickt das Handy die Anfrage ueber das Mobilfunknetz):
+
+| Feld | Bedeutung |
+|---|---|
+| Empfaenger-MAC | MAC der Lampensteuerung (Tasmota `Status 5`); nur wirksam, wenn "Broadcast" aus ist |
+| Kanal (1..13) | Kanal des Routers: **im Router festlegen** |
+| Tastencode | 1 = alle Lampen, 2..5 = Zone 1..4 |
+| Aktion | 0 aus, 1 ein, 2 umschalten |
+| Broadcast | ein (empfohlen): der ESP8266 sieht die Bestaetigung des ESP32 nie |
+
+*Speichern* legt die Werte im Flash ab (EEPROM-Emulation, ueberlebt einen Batteriewechsel); *Speichern und Test senden* schickt zusaetzlich einen Satz aus fuenf Paketen (auf dem Kanal, auf dem der Zugangspunkt steht, und der folgt dem eingegebenen Kanal); *Beenden* schickt den Chip schlafen. Ohne Zugriff schlaeft er nach `CFG_TIMEOUT_S` (300 s) von selbst: der Konfigurationsmodus darf die Batterie nicht leeren. Ein Taster, der nie eingestellt wurde, nimmt die `#define`-Werte des Sketches. Die Steckbruecke darf im Normalbetrieb offen bleiben: der interne Pull-up zieht nur Strom, wenn der Pin nach unten gezogen wird. Erprobt am 15.11.2026: Formular, Speichern, "Speichern und Test senden" (die Lampensteuerung hat den Satz empfangen und geschaltet), Captive Portal auf einem iPad und einem Handy. ⚠️ Noch nicht erprobt: das Lesen der gespeicherten Werte nach einem Batteriewechsel und der Ruhestrom mit offenem Konfigurationspin.
+
 ## Auf Hardware gemessen (11.11.2026)
 
 - **Als Broadcast senden, nicht gezielt.** An die MAC des Empfaengers bekommt ein ESP8266 die Bestaetigung der ESP32 nie (`status=1` bei jeder Kopie); die Pakete kamen nur teilweise an (ein Tastendruck musste bis zu dreimal wiederholt werden). Als Broadcast (`USE_BROADCAST 1`) meldet jede Kopie `status=0`, und 11 von 11 Druecken kamen an. Der Empfaenger nimmt nur Pakete an, die mit `'B'` und einer bekannten Tasternummer beginnen.

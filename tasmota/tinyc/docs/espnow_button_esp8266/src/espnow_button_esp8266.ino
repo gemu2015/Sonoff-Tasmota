@@ -11,13 +11,14 @@
 //
 // Hardware: 3.0 .. 3.6 V (see README: no 3.3 V regulator with a big quiescent current, no USB-serial chip, no LED on the module).
 //
-// CONFIG MODE (14.11.2026, not yet tried on hardware): pull CFG_PIN to GND (a jumper or a second button) while the chip starts - by pressing
+// CONFIG MODE (14.11.2026, tried on an ESP-12 on 15.11.2026: form, save, test burst, captive portal): pull CFG_PIN to GND (a jumper or a second button) while the chip starts - by pressing
 // RST, or by inserting the battery - and the button opens an access point "Taster-XXXXXX" (open, or with AP_PASS) with a web form at
-// http://192.168.4.1/ : receiver MAC, channel, button id, action, broadcast. "Speichern" stores them in the flash (EEPROM emulation), "Test senden"
+// http://192.168.4.1/ (a captive portal: a phone opens the form by itself, a DNS server answers every name with the button's address): receiver MAC, channel, button id, action, broadcast. "Speichern" stores them in the flash (EEPROM emulation), "Test senden"
 // sends one burst with them. After CFG_TIMEOUT_S without a request the chip goes back to deep sleep. A button that was never configured
 // uses the values of the #defines below, so one binary works for every button.
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
+#include <DNSServer.h>
 #include <EEPROM.h>
 extern "C" {
 #include <espnow.h>
@@ -35,7 +36,7 @@ static uint8_t RECEIVER[6] = { 0xE0, 0x72, 0xA1, 0xE7, 0xE6, 0xF4 };   // MAC of
 #define TRIES      5             // copies sent (the receiver drops repeats by the counter byte). NB: an ESP8266 never sees the ESP32's ACK (status 1), so all copies go out
 // -------------------------------------------------------------------------------------------------------------------
 
-#define CFG_PIN    3             // config mode while this pin is LOW at start (GPIO3 = RX exists on ESP-01 and ESP-12; use 14 on an ESP-12 if RX is wired). NOT GPIO0 / 2 / 15 (boot pins)
+#define CFG_PIN    4             // config mode while this pin is LOW at start (GPIO4: ESP-12, not on an ESP-01; there use 3 = RX). NOT GPIO0 / 2 / 15 (boot pins)
 #define CFG_TIMEOUT_S 300        // config mode ends (deep sleep) after this many seconds without a request: it must not drain the battery
 #define AP_PASS    ""            // "" = open access point; else at least 8 characters
 
@@ -117,6 +118,7 @@ static void sendPackets(uint8_t role) {
 
 // ---- config mode ----------------------------------------------------------------------------------------------------
 static ESP8266WebServer server(80);
+static DNSServer dns;                                      // captive portal: every name resolves to the button, so a phone opens the form by itself
 static uint32_t lastRequest = 0;
 static char apName[20];
 static String note;                                        // message shown above the form
@@ -136,6 +138,9 @@ static bool parseMac(const String &s, uint8_t *out) {
 
 static void page() {
   lastRequest = millis();
+#if DEBUG
+  Serial.printf("[btn] request %s from %s\n", server.uri().c_str(), server.client().remoteIP().toString().c_str());
+#endif
   String h = F("<!DOCTYPE html><meta name=viewport content='width=device-width,initial-scale=1'><title>Taster</title>"
                "<style>body{font-family:sans-serif;margin:14px;max-width:420px}input,select{width:100%;padding:7px;margin:3px 0 10px;box-sizing:border-box}"
                "button{padding:9px;margin:4px 0;width:100%}.n{background:#dfd;padding:8px}</style><h3>ESP-NOW-Taster</h3>");
@@ -176,6 +181,13 @@ static bool readForm() {
   return true;
 }
 
+// captive portal: the probes phones / laptops send to find out whether the network has internet (Android /generate_204, iOS
+// /hotspot-detect.html, Windows /connecttest.txt ...) and every other unknown page go to the form
+static void redirectToForm() {
+  server.sendHeader("Location", "http://192.168.4.1/", true);
+  server.send(302, "text/plain", "");
+}
+
 static void configMode() {
   cfgLoad();
   WiFi.persistent(false);
@@ -201,30 +213,46 @@ static void configMode() {
     delay(300);
     ESP.deepSleep(0);
   });
+  server.onNotFound(redirectToForm);
+  dns.start(53, "*", WiFi.softAPIP());
   server.begin();
   lastRequest = millis();
 #if DEBUG
   Serial.printf("[btn] config mode, AP %s, http://192.168.4.1/\n", apName);
 #endif
+  uint32_t hb = millis();
   while (millis() - lastRequest < (uint32_t)CFG_TIMEOUT_S * 1000UL) {
+    dns.processNextRequest();
     server.handleClient();
     delay(2);
+#if DEBUG
+    if (millis() - hb > 3000) {
+      hb = millis();
+      Serial.printf("[btn] alive, %d station(s), channel %u, ip %s\n", WiFi.softAPgetStationNum(), (unsigned)wifi_get_channel(), WiFi.softAPIP().toString().c_str());
+    }
+#endif
   }
   ESP.deepSleep(0);                                        // nobody came: sleep, the battery must not be drained
 }
 
 void setup() {
+#if DEBUG
+  Serial.begin(115200);
+  Serial.printf("\n[btn] start, CFG_PIN %d\n", CFG_PIN);
+#endif
   // Config mode first: CFG_PIN low at start (jumper), whether started by RST or by the battery.
   pinMode(CFG_PIN, INPUT_PULLUP);
   delay(2);
+#if DEBUG
+  Serial.printf("[btn] CFG_PIN reads %d (0 = config mode)\n", digitalRead(CFG_PIN));
+#endif
   if (digitalRead(CFG_PIN) == LOW) { configMode(); }
 
   // A key press out of deep sleep is reported as EXT_SYS_RST *or* DEEP_SLEEP_AWAKE (SDK-dependent); only a real power-up (DEFAULT_RST,
   // battery inserted) or a watchdog / exception reset is skipped.
   uint32_t why = ESP.getResetInfoPtr()->reason;
 #if DEBUG
-  Serial.begin(115200);
-  Serial.printf("\n[btn] reset reason %u\n", (unsigned)why);
+  Serial.printf("[btn] reset reason %u\n", (unsigned)why);
 #endif
   if (!SEND_ON_POWER_ON && why != REASON_EXT_SYS_RST && why != REASON_DEEP_SLEEP_AWAKE) {
     ESP.deepSleep(0);                                      // power-up / watchdog: not a key press, sleep at once

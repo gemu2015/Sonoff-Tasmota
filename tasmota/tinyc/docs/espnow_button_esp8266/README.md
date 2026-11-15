@@ -15,8 +15,8 @@ A battery button for the radio-controlled lamps (receiver: `examples/gm24g_lamp.
 
 Without a key anyone in range could send a packet; for a lamp that is acceptable, otherwise put a keyed check into the payload.
 
-## Config mode: one binary for every button (14.11.2026, not yet tried on hardware)
-Instead of compiling every button, **pull `CFG_PIN` (default GPIO3 = RX, exists on ESP-01 and ESP-12; not GPIO0 / 2 / 15, they are boot pins) to GND while the chip starts**: with a jumper or a second button, then press RST or insert the battery. The button opens an access point **`Taster-XXXXXX`** (open, or with `AP_PASS`); the form is at **http://192.168.4.1/**:
+## Config mode: one binary for every button (tried on an ESP-12 on 15.11.2026)
+Instead of compiling every button, **pull `CFG_PIN` (default GPIO4 on an ESP-12; an ESP-01 has no GPIO4, set `CFG_PIN 3` = RX there; not GPIO0 / 2 / 15, they are boot pins) to GND while the chip starts**: with a jumper or a second button, then press RST or insert the battery. The button opens an access point **`Taster-XXXXXX`** (open, or with `AP_PASS`); the form opens by itself on a phone or tablet (captive portal: a DNS server answers every name with the button's address, the unknown pages go to the form), else open **http://192.168.4.1/** (type `http://`, and switch the mobile data off, otherwise the phone sends the request over the mobile network):
 
 | Field | Meaning |
 |---|---|
@@ -26,7 +26,7 @@ Instead of compiling every button, **pull `CFG_PIN` (default GPIO3 = RX, exists 
 | Action | 0 off, 1 on, 2 toggle |
 | Broadcast | on (recommended): the ESP8266 never sees the ESP32's acknowledgement |
 
-*Save* stores the values in the flash (EEPROM emulation, survives a battery change); *Save and send test* also sends one burst of five packets with them (on the channel the access point is on, which follows the channel you entered); *Done* puts the chip to sleep. Without any request for `CFG_TIMEOUT_S` (300 s) it sleeps by itself: the config mode must not drain the battery. A button that was never configured uses the `#define` values of the sketch. The jumper may stay open in normal operation: the internal pull-up only draws current when the pin is pulled low. ⚠️ Not yet tried on hardware: the test burst from the access point (ESP-NOW with `ESP_NOW_ROLE_COMBO`) and the reading of the stored values after a battery change.
+*Save* stores the values in the flash (EEPROM emulation, survives a battery change); *Save and send test* also sends one burst of five packets with them (on the channel the access point is on, which follows the channel you entered); *Done* puts the chip to sleep. Without any request for `CFG_TIMEOUT_S` (300 s) it sleeps by itself: the config mode must not drain the battery. A button that was never configured uses the `#define` values of the sketch. The jumper may stay open in normal operation: the internal pull-up only draws current when the pin is pulled low. Tried on 15.11.2026: form, save, "Save and send test" (the lamp controller received the burst and switched), captive portal on an iPad and a phone. ⚠️ Not yet tried: the reading of the stored values after a battery change, the battery current in sleep with the config pin open.
 
 ## Measured on hardware (11.11.2026)
 
