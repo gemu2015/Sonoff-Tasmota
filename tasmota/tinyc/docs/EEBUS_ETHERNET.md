@@ -23,7 +23,7 @@ For a Steuerbox and a SteuVE you need **two devices**.
 
 ### Set up
 
-1. **Flash.** New device: `.factory.bin` with esptool or a web installer. Device that already runs Tasmota: upload the
+1. **Flash.** New device: write the `.factory.bin` from address 0x0, for example with esptool or with web.esphome.io. ⚠️ With the Tasmota web installer the file was not written for one user (the progress ran to 100 % after a second and the board stayed empty; the ESPHome web installer worked). Device that already runs Tasmota: upload the
    `.bin` (OTA). ⚠️ Coming from another firmware the settings are reset, Wi-Fi included: make a backup first.
 2. **Ethernet pins.** The images start with the Waveshare ESP32-S3-ETH template as the default, so a device that starts with default settings (new, or after `Reset 5`) already has the pins and `EthType 8`; a device that keeps older settings needs this step. *Configure Module* (or the console), for the Waveshare ESP32-S3-ETH (pins as given by the
    manufacturer, confirmed on two boards by the author of the drivers):
@@ -101,7 +101,7 @@ Für Steuerbox und SteuVE braucht man **zwei Geräte**.
 
 ### Einrichten
 
-1. **Flashen.** Neues Gerät: `.factory.bin` mit esptool oder einem Web-Installer. Gerät mit Tasmota: die `.bin` per
+1. **Flashen.** Neues Gerät: die `.factory.bin` ab Adresse 0x0 schreiben, zum Beispiel mit esptool oder mit web.esphome.io. ⚠️ Mit dem Tasmota-Web-Installer wurde die Datei bei einem Nutzer nicht geschrieben (der Fortschritt stand nach einer Sekunde bei 100 % und das Board blieb leer; der ESPHome-Web-Installer funktionierte). Gerät mit Tasmota: die `.bin` per
    OTA. ⚠️ Von einer anderen Firmware kommend werden die Einstellungen samt WLAN zurückgesetzt: vorher sichern.
 2. **Ethernet-Pins.** Die Images starten mit dem Template des Waveshare ESP32-S3-ETH als Vorgabe; ein Gerät, das mit Standardeinstellungen startet (neu oder nach `Reset 5`), hat die Pins und `EthType 8` schon, ein Gerät mit älteren Einstellungen braucht diesen Schritt. Setzen (*Konfiguration → Gerät konfigurieren* oder Konsole), für das Waveshare ESP32-S3-ETH
    (Belegung laut Hersteller, auf zwei Boards vom Autor der Treiber bestätigt): siehe Tabelle oben. Konsole in einer Zeile:
