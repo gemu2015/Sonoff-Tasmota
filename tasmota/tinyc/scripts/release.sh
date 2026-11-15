@@ -282,6 +282,19 @@ run "cp '$TINYC_DIR/docs/EEBUS_ETHERNET.md' '$STAGE_DIR/'"
 run "cp '$TASMOTA_ROOT/tasmota/tasmota_xdrv_driver/steuerbox.html' '$STAGE_DIR/'"
 run "cp '$TASMOTA_ROOT/tasmota/tasmota_xdrv_driver/steuve.html' '$STAGE_DIR/'"
 run "cp '$TASMOTA_ROOT/info/xdrv_128_eebus_steuve.md' '$STAGE_DIR/'"
+# ESP-NOW wall button for an ESP12 (bare ESP8266, Arduino sketch, own PlatformIO project in docs/espnow_button_esp8266): the binary
+# is built here (unless --skip-build, then the last build is taken) and shipped with the wiring / first-start guides (EN/DE).
+BTN_DIR="$TINYC_DIR/docs/espnow_button_esp8266"
+if ! $SKIP_BUILD && ! $DRY_RUN; then
+  log "Building the ESP-NOW button (ESP8266 sketch)"
+  ( cd "$BTN_DIR" && pio run -e esp01_1m 2>&1 | tail -3 ) || die "ESP-NOW button build failed"
+fi
+if [[ -f "$BTN_DIR/.pio/build/esp01_1m/firmware.bin" ]] || $DRY_RUN; then
+  run "cp '$BTN_DIR/.pio/build/esp01_1m/firmware.bin' '$STAGE_DIR/espnow_button_esp8266.bin'"
+  run "cp '$BTN_DIR/ESPNOW_BUTTON_ESP12.md' '$BTN_DIR/ESPNOW_BUTTON_ESP12_DE.md' '$STAGE_DIR/'"
+else
+  warn "ESP-NOW button binary not found ($BTN_DIR/.pio/build/esp01_1m/firmware.bin): not in this release"
+fi
 # File manager: the page goes to /filemanager.html on the file system, the program (any slot) is started with TinyCRun
 run "cp '$TINYC_DIR/examples/filemanager.html' '$STAGE_DIR/'"
 run "cp '$TINYC_DIR/bytecode/filemanager.tcb' '$STAGE_DIR/'"
@@ -327,6 +340,7 @@ cat > "$COMBINED_NOTES" <<HEADER
 | \`PICOTTS_32.bin\` | Text-to-speech plugin (S3/ESP32): \`I2STTS\` speaks with it, no special firmware needed. Needs \`I2SAUDIO_32.bin\` and the voice files, see PICOTTS_PLUGIN.md |
 | \`MATTER_PLUGIN.md\` / \`_DE.md\` | How to install the Matter plugin, EN/DE |
 | \`PICOTTS_PLUGIN.md\` / \`_DE.md\` | How to install the speech plugin, EN/DE |
+| \`espnow_button_esp8266.bin\`, \`ESPNOW_BUTTON_ESP12.md\` / \`_DE.md\` | **ESP-NOW wall button** for a bare ESP-12 (ESP8266, Arduino sketch, not Tasmota): receiver, channel and button code are entered on a web form (config mode, captive portal), one file for every button. Wiring, flashing (\`esptool ... write-flash --flash-mode dout 0x0\`) and first start in the guide. Receiver: `gm24g_lamp.tc` |
 | \`tinyc_ide.html.gz\` | Browser IDE (upload to filesystem) |
 | \`filemanager.html\`, \`filemanager.tcb\` | File manager (Flash / SD / USB, rename, edit, \`.pvs\` → CSV): put both on the file system, \`TinyCRun 1 /filemanager.tcb\` (any slot), button "File Manager" on the main page. Needs this release's firmware |
 | \`TinyC_Reference.md\` / \`_DE.md\` | Documentation EN/DE |
