@@ -559,6 +559,32 @@ int en_nib(int id, int on) {
     return -1;
 }
 
+// Zustandsfuehrung fuer die Umschalt-Taster: JEDE gesendete Taste (ESP-NOW, Matter ueber LAMPTX, Weboberflaeche, Konsole) wird hier verbucht,
+// nicht nur die der Taster. Sonst weiss en_on[] nach "Lampe ueber Matter aus" noch "EIN" und der erste Umschaltklick sendet AUS (wirkungslos).
+// Nibble: alle 5 = EIN / 9 = AUS, Z1 8 / B, Z2 D / 3, Z3 7 / A, Z4 2 / 6. "alle" setzt alle Zonen; eine Zone setzt "alle" auf EIN, wenn irgendeine Zone an ist.
+void en_track(int nib) {
+    int id = 0;
+    int on = 0;
+    if (nib == 0x5) { id = 1; on = 1; }
+    if (nib == 0x9) { id = 1; on = 0; }
+    if (nib == 0x8) { id = 2; on = 1; }
+    if (nib == 0xB) { id = 2; on = 0; }
+    if (nib == 0xD) { id = 3; on = 1; }
+    if (nib == 0x3) { id = 3; on = 0; }
+    if (nib == 0x7) { id = 4; on = 1; }
+    if (nib == 0xA) { id = 4; on = 0; }
+    if (nib == 0x2) { id = 5; on = 1; }
+    if (nib == 0x6) { id = 5; on = 0; }
+    if (id == 0) { return; }
+    if (id == 1) {
+        en_on[1] = on; en_on[2] = on; en_on[3] = on; en_on[4] = on; en_on[5] = on;
+    } else {
+        en_on[id] = on;
+        en_on[1] = 0;
+        if (en_on[2] + en_on[3] + en_on[4] + en_on[5] > 0) { en_on[1] = 1; }
+    }
+}
+
 // alle wartenden Pakete lesen; das letzte gueltige wird zum naechsten Sendeauftrag
 void en_poll() {
     int n = 0;
@@ -619,6 +645,7 @@ void send_button(int nib) {
         r = r + 1;
     }
     tx_seq = (tx_seq + 1) & 0xFF;
+    en_track(nib);
     last_sent = nib;
     last_ms = millis();
 }
