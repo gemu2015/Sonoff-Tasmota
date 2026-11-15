@@ -11,7 +11,7 @@ Ein Batterie-Taster fuer die funkgesteuerten Lampen (Empfaenger: `examples/gm24g
 - Grobe Zahlen: 25 µA Schlaf + 20 Druecke am Tag zu je 5 µAh = 0,7 mAh am Tag, also halten 500 mAh etwa zwei Jahre; den Schlafstrom messen.
 
 ## Einstellen und flashen (`src/espnow_button_esp8266.ino`)
-`RECEIVER` = MAC der Lampensteuerung (Tasmota-Hauptseite, `Status 5`), `CHANNEL` = Kanal des Routers (**im Router festlegen**, ESP-NOW erreicht nur einen Empfaenger auf demselben Kanal), `BUTTON_ID`, `ACTION`. Bauen `pio run -e esp01_1m`, ueber einen seriellen Adapter mit GPIO0 an GND flashen (`-t upload`). Uebersetzt mit dem ESP8266-Arduino-Kern von PlatformIO (248 KB Flash).
+`RECEIVER` = MAC der Lampensteuerung (Tasmota-Hauptseite, `Status 5`), `CHANNEL` = Kanal des Routers (**im Router festlegen**, ESP-NOW erreicht nur einen Empfaenger auf demselben Kanal), `BUTTON_ID`, `ACTION`. Bauen `pio run -e esp01_1m`, ueber einen seriellen Adapter mit GPIO0 an GND flashen (`-t upload`). Uebersetzt mit dem ESP8266-Arduino-Kern von PlatformIO (282 KB Flash).
 
 Ohne Schluessel kann jeder in Reichweite ein Paket senden; bei einer Lampe ist das vertretbar, sonst eine geschluesselte Pruefung in die Nutzdaten legen.
 

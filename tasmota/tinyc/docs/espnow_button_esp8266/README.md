@@ -11,9 +11,22 @@ A battery button for the radio-controlled lamps (receiver: `examples/gm24g_lamp.
 - Rough numbers: 25 µA sleep + 20 presses a day at 5 µAh = 0.7 mAh a day, so 500 mAh last about two years; measure the sleep current.
 
 ## Configure and flash (sketch `src/espnow_button_esp8266.ino`)
-`RECEIVER` = MAC of the lamp controller (Tasmota main page, `Status 5`), `CHANNEL` = channel of the router (**fix it in the router**, ESP-NOW only reaches a receiver on the same channel), `BUTTON_ID`, `ACTION`. Build `pio run -e esp01_1m`, flash over a serial adapter with GPIO0 to GND (`-t upload`). Compiles with the ESP8266 Arduino core of PlatformIO (248 KB flash).
+`RECEIVER` = MAC of the lamp controller (Tasmota main page, `Status 5`), `CHANNEL` = channel of the router (**fix it in the router**, ESP-NOW only reaches a receiver on the same channel), `BUTTON_ID`, `ACTION`. Build `pio run -e esp01_1m`, flash over a serial adapter with GPIO0 to GND (`-t upload`). Compiles with the ESP8266 Arduino core of PlatformIO (282 KB flash).
 
 Without a key anyone in range could send a packet; for a lamp that is acceptable, otherwise put a keyed check into the payload.
+
+## Config mode: one binary for every button (14.11.2026, not yet tried on hardware)
+Instead of compiling every button, **pull `CFG_PIN` (default GPIO3 = RX, exists on ESP-01 and ESP-12; not GPIO0 / 2 / 15, they are boot pins) to GND while the chip starts**: with a jumper or a second button, then press RST or insert the battery. The button opens an access point **`Taster-XXXXXX`** (open, or with `AP_PASS`); the form is at **http://192.168.4.1/**:
+
+| Field | Meaning |
+|---|---|
+| Receiver MAC | MAC of the lamp controller (Tasmota `Status 5`); used only when "Broadcast" is off |
+| Channel (1..13) | channel of the router: **fix it in the router** |
+| Button code | 1 = all lamps, 2..5 = zone 1..4 |
+| Action | 0 off, 1 on, 2 toggle |
+| Broadcast | on (recommended): the ESP8266 never sees the ESP32's acknowledgement |
+
+*Save* stores the values in the flash (EEPROM emulation, survives a battery change); *Save and send test* also sends one burst of five packets with them (on the channel the access point is on, which follows the channel you entered); *Done* puts the chip to sleep. Without any request for `CFG_TIMEOUT_S` (300 s) it sleeps by itself: the config mode must not drain the battery. A button that was never configured uses the `#define` values of the sketch. The jumper may stay open in normal operation: the internal pull-up only draws current when the pin is pulled low. ⚠️ Not yet tried on hardware: the test burst from the access point (ESP-NOW with `ESP_NOW_ROLE_COMBO`) and the reading of the stored values after a battery change.
 
 ## Measured on hardware (11.11.2026)
 
