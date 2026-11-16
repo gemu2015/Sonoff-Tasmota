@@ -309,7 +309,7 @@ typedef struct {
 #ifdef ESP8266
 MODULE_DESCRIPTOR(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "", 0, "", 0, "", 0, "", 0)
 #else
-MODULE_DESCRIPTOR10(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "DOUT", GPIO_DOUT, "DIN/PDD", GPIO_DIN, "BCK", GPIO_BCK, "WS", GPIO_WS, "MC", GPIO_MC,"MODE", 0x01000200,"CODEC", 0x01000401,"APWR", GPIO_APWR,"PDC",GPIO_PDMC,"",0)
+MODULE_DESCRIPTOR10(MODNAME, MODULE_TYPE_DRIVER, I2S_REV, "DOUT", GPIO_DOUT, "DIN/PDD", GPIO_DIN, "BCK", GPIO_BCK, "WS", GPIO_WS, "MC", GPIO_MC,"MODE", 0x01000200,"CODEC", 0x01000501,"APWR", GPIO_APWR,"PDC",GPIO_PDMC,"",0)
 #endif
 
 // all functions must be declared MUDULE_PART
@@ -349,6 +349,9 @@ MODULE_PART int32_t i2s_record_shine(char *path, uint32_t stream);
 MODULE_PART void WebRadio(void);
 MODULE_PART void Say(void);
 MODULE_PART void AudioPwr(uint32_t pwr);
+MODULE_PART void WsExioPa(uint32_t pwr);
+MODULE_PART void WsExioW(uint8_t reg, uint8_t val);
+MODULE_PART uint8_t WsExioR(uint8_t reg);
 MODULE_PART void I2S_Enable(uint32_t enable);
 MODULE_PART void I2S_SetRate(uint32_t freq, uint32_t channels, uint32_t rxtx);
 MODULE_PART int32_t W8960_Init(void);
@@ -699,6 +702,16 @@ int32_t I2SAudio_Init() {
       pes8311_codec_set_voice_volume(75);
       pes7210_codec_init(&codec_bus);   // 4-mic ADC; non-fatal — speaker (ES8311) works without it
       break;
+    case 5:   // Waveshare ESP32-S3-CAM: ES8311 DAC (0x18) + ES7210 mic ADC (0x40) on the board bus (SDA 8 / SCL 7).
+              // The loudspeaker amplifier (PA_CTRL) is NOT a GPIO: it is pin EXIO4 of the CH32V003 expander (0x24), see AudioPwr().
+      if (pes8311_codec_init(AUDIO_HAL_MODE_SLAVE, AUDIO_HAL_BIT_LENGTH_16BITS, &codec_bus) < 0) {
+        I2SAudio_Deinit();
+        AddLog(LOG_LEVEL_INFO, GSTR(S_JSON_WMERR));
+        return -2;
+      }
+      pes8311_codec_set_voice_volume(75);
+      pes7210_codec_init(&codec_bus);   // non-fatal, like case 4
+      break;
   }
 #endif
 
@@ -707,11 +720,55 @@ int32_t I2SAudio_Init() {
   return 0;
 }
 
+// Waveshare ESP32-S3-CAM: the amplifier enable is bit 4 of the expander's output register. The expander also carries the camera
+// PWDN, the SD card select and the battery switch, so ONLY bit 4 may change: read the real pin levels (register 0x04 mirrors the
+// pins; register 0x03 does not read back reliably), then write the whole byte back. A TinyC program that keeps a shadow of the
+// register (ws_exio.tc) must do the same, or it clears this bit again.
+#define WS_EXIO_ADDR   0x24
+#define WS_EXIO_REG_DIR 0x02
+#define WS_EXIO_REG_OUT 0x03
+#define WS_EXIO_REG_IN  0x04
+#define WS_EXIO_PA      4
+MODULE_PART void WsExioW(uint8_t reg, uint8_t val) {
+  SETMEMREGS
+  I2C_beginTransmission(WS_EXIO_ADDR);
+  I2C_write(reg);
+  I2C_write(val);
+  I2C_endTransmission(true);
+}
+MODULE_PART uint8_t WsExioR(uint8_t reg) {
+  SETMEMREGS
+  I2C_beginTransmission(WS_EXIO_ADDR);
+  I2C_write(reg);
+  I2C_endTransmission(false);
+  I2C_requestFrom(WS_EXIO_ADDR, (size_t)1);
+  return I2C_read();
+}
+// Measured 16.11.2026: after an ESP restart the expander's direction register can be 0x67 (EXIO3 / EXIO4 inputs), then the amplifier
+// bit does nothing. Read the pin back; if it did not follow, make pins 0..6 outputs (that resets the outputs to high, so the
+// output byte is written once more).
+MODULE_PART void WsExioPa(uint32_t pwr) {
+  SETMEMREGS
+  uint8_t v;
+  I2C_SETWIRE(codec_bus);
+  v = WsExioR(WS_EXIO_REG_IN);
+  if (pwr) { v |= (1 << WS_EXIO_PA); } else { v &= ~(1 << WS_EXIO_PA); }
+  v &= 0x7F;   // bit 7 is the charger-detect INPUT
+  WsExioW(WS_EXIO_REG_OUT, v);
+  if (((WsExioR(WS_EXIO_REG_IN) >> WS_EXIO_PA) & 1) != (pwr ? 1 : 0)) {
+    WsExioW(WS_EXIO_REG_DIR, 0x7F);
+    WsExioW(WS_EXIO_REG_OUT, v);
+  }
+}
+
 MODULE_PART void AudioPwr(uint32_t pwr) {
   SETMEMREGS
   if (audio_pwr_pin >= 0) {
     digitalWrite(audio_pwr_pin, pwr);
   }
+#ifdef USE_AUDIO_CODECS
+  if (codec == 5) { WsExioPa(pwr); }
+#endif
   AddLog(LOG_LEVEL_INFO, PSTR("audio pwr: %d"), pwr);
 }
 
@@ -3005,6 +3062,7 @@ void I2SAudio_Deinit() {
       I2cResetActive(ES8311_ADDR, codec_bus);
       break;
     case 4:
+    case 5:
       I2cResetActive(ES8311_ADDR, codec_bus);
       I2cResetActive(ES7210_ADDR, codec_bus);
       break;

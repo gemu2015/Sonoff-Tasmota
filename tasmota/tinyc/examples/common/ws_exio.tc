@@ -60,6 +60,9 @@ int exio_init(int bus) {
 // one output pin (0..6) to 0 / 1
 void exio_set(int pin, int val) {
     if (exio_ok == 0 || pin < 0 || pin > 6) { return; }
+    // start from the REAL pin levels (register 0x04), not from the shadow: the I2SAUDIO plugin switches the amplifier (EXIO4) on its own,
+    // and a write of a stale shadow byte would clear that bit again. Pin 7 is an input, never written as 1.
+    exio_out = i2cRead8(EXIO_ADDR, EXIO_REG_IN, exio_bus) & 0x7F;
     if (val != 0) { exio_out = exio_out | (1 << pin); } else { exio_out = exio_out & (255 - (1 << pin)); }
     i2cWrite8(EXIO_ADDR, EXIO_REG_OUT, exio_out, exio_bus);
 }
