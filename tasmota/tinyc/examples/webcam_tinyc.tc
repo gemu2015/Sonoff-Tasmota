@@ -27,6 +27,15 @@
 // ═══════════════════════════════════════════════════════════════════
 // @defines: -DBOARD_DFROBOT
 
+// ⚠️ BOARD CHOICE. The line above is only the DEFAULT for the one-click build (the compiler ignores it when -D... is given on the command
+// line). For the Waveshare ESP32-S3-CAM write `#define BOARD_WAVESHARE` as the FIRST line of this file (before the comment block) or build with
+// -DBOARD_WAVESHARE: this block then switches the DFRobot default off, so HAS_NIGHT / the LTR-308 code (this board has no light sensor and
+// no IR LEDs) and the second `campins` stay out. Without it a Waveshare build also got the DFRobot block (measured 16.11.2026: the log said
+// "no LTR-308").
+#ifdef BOARD_WAVESHARE
+#undef BOARD_DFROBOT
+#endif
+
 // ─── Board-specific camera pins ───
 // Order: pwdn, reset, xclk, sda, scl, d7, d6, d5, d4, d3, d2, d1, d0, vsync, href, pclk
 #ifdef BOARD_DFROBOT
@@ -45,13 +54,13 @@ int campins[] = {-1, -1, 5, 8, 9, 4, 6, 7, 14, 17, 21, 18, 16, 1, 2, 15};
 
 #ifdef BOARD_WAVESHARE
 // Waveshare ESP32-S3-CAM-OV5640 / -GC0308 (Rev 1.1; ESP32-S3R8, 16 MB flash, 8 MB octal PSRAM).
-// ⚠️ PREPARED FROM THE SCHEMATIC AND DEMO CODE (14.11.2026), NOT YET TRIED ON A BOARD. Pins from the Waveshare demo, see
-// entwuerfe/waveshare_cam_daten_2026-11-14.md. PWDN is NOT a GPIO here: it hangs on the I/O expander (EXIO3, active high, low after reset =
-// camera on), RESET is tied high. SCCB SDA 8 / SCL 7 is the I2C bus of the whole board (codecs, expander, touch, connector J6).
+// Pins from the Waveshare demo (schematic Rev 1.1), tried on the board 16.11.2026 with an OV2640 module (the OV5640 module that came with the board was defective); see
+// entwuerfe/waveshare_cam_daten_2026-11-14.md. PWDN is NOT a GPIO here: it hangs on the I/O expander (EXIO3, active high; the expander's outputs are ALL HIGH after every reset = camera
+// POWERED DOWN, so exio_init() must run first), RESET is tied high. SCCB SDA 8 / SCL 7 is the I2C bus of the whole board (codecs, expander, touch, connector J6).
 int campins[] = {-1, -1, 38, 8, 7, 21, 39, 40, 42, 46, 48, 47, 45, 17, 18, 41};
 // Person detection: the board has the PSRAM for it. No night vision: no IR LEDs and no light sensor on this board.
 #define HAS_PERSON
-// The expander (loudspeaker amplifier, battery switch, LEDs) is started AFTER the camera, see main().
+// The expander (camera PWDN, SD card select, loudspeaker amplifier, battery switch, LEDs) is started BEFORE the camera, see main().
 #include "ws_exio.tc"
 #endif
 
@@ -1180,6 +1189,13 @@ int main() {
         fileMkdir("/PICS");
     }
 
+#ifdef BOARD_WAVESHARE
+    // The expander BEFORE the camera: its outputs are all high after every reset, and EXIO3 = camera PWDN (active high) keeps the sensor powered
+    // down, so cameraInit() fails with 0x106 (measured 16.11.2026, first on a good OV2640 module). exio_init() writes 0x67 (PWDN low).
+    if (exio_init(0) == 0) { addLog("TCC: Waveshare expander 0x24 not found"); }
+    delay(20);
+#endif
+
     // Initialize camera
     int ok = initCamera();
     if (ok != 0) {
@@ -1187,11 +1203,6 @@ int main() {
     }
     cam_ok = 1;
     res_masse();
-#ifdef BOARD_WAVESHARE
-    // The expander after the camera: its I2C traffic on the camera's own SCCB pins must not come first. Camera PWDN stays low (camera on).
-    if (exio_init(0) == 0) { addLog("TCC: Waveshare expander 0x24 not found"); }
-#endif
-
     // ⚠️ `Sleep 0` FOR A STREAMING CAMERA (gemu 03.10.2026). Tasmota's default `Sleep 50` also
     // switches the WiFi radio to modem sleep: a request to the web server then takes ~140 ms
     // instead of ~45 ms (measured on an AI-Thinker ESP32-CAM and on the DFR1154), and the
