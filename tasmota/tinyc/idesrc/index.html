@@ -1,6 +1,60 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <script id="webpwd">
+    // 16.11.2026 (Andreas, SMGW reader): web password. The IDE is served from port 82 but talks to port 80
+    // (/tc_upload, /tc_api). A browser does not send the port-80 login from a page on another port, so with a web
+    // password set every upload, run and file list failed ("Failed to fetch"). On a 401 the IDE asks once for the
+    // password of user "admin", keeps it for this tab (sessionStorage) and sends it itself (HTTP Basic). Without a
+    // web password nothing changes. Needs firmware that allows the Authorization header (CORS) and answers 401 with
+    // CORS headers (16.11.2026).
+    (function () {
+        var KEY = 'tinyc_webpwd';
+        var orig = window.fetch.bind(window);
+        function isDev(u) {
+            try {
+                var x = new URL(u, location.href);
+                return x.protocol === 'http:' && (x.port === '' || x.port === '80') && /^\/(tc_upload|tc_api)$/.test(x.pathname);
+            } catch (e) { return false; }
+        }
+        function withAuth(o, pw) {
+            o = Object.assign({}, o || {});
+            var h = new Headers(o.headers || {});
+            h.set('Authorization', 'Basic ' + btoa('admin:' + pw));
+            o.headers = h;
+            return o;
+        }
+        function getPw() { try { return sessionStorage.getItem(KEY); } catch (e) { return null; } }
+        // 16.11.2026: the IDE asks the device twice at once when it opens (version check + file list). Both got a
+        // 401 and each asked for the password, so it had to be typed twice. Now only one question is open at a time;
+        // a request that gets a 401 first uses a password another request has stored meanwhile.
+        var asking = null;
+        function askPw() {
+            if (!asking) {
+                asking = Promise.resolve().then(function () {
+                    var p = prompt('Das Gerät hat ein Webpasswort.\nPasswort für Benutzer "admin":');
+                    if (p) { try { sessionStorage.setItem(KEY, p); } catch (e) {} }
+                    return p;
+                }).finally(function () { asking = null; });
+            }
+            return asking;
+        }
+        window.fetch = async function (u, o) {
+            var url = (typeof u === 'string') ? u : ((u && u.url) || '');
+            if (!isDev(url)) { return orig(u, o); }
+            var used = getPw();
+            var r = await orig(u, used ? withAuth(o, used) : o);
+            if (r.status !== 401) { return r; }
+            var pw = getPw();
+            if (!pw || pw === used) { pw = asking ? await asking : null; }
+            if (!pw || pw === used) { pw = await askPw(); }
+            if (!pw) { return r; }
+            r = await orig(u, withAuth(o, pw));
+            if (r.status === 401 && getPw() === pw) { try { sessionStorage.removeItem(KEY); } catch (e) {} }
+            return r;
+        };
+    })();
+    </script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TinyC IDE - ESP32/ESP8266 Bytecode Compiler</title>

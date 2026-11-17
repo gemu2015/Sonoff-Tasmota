@@ -1414,7 +1414,9 @@ const char UFS_FORM_FILE_UPG[] PROGMEM =
   "if(f.size>%d){var d=(location.search.match(/dir=(\\d+)/)||[])[1]||'1';"
   "var p=(d=='2'?'/ffs/':'/')+f.name;"
   "eb('f2').innerHTML='uploading '+(f.size>>10)+' kB via :83 ...';"
-  "fetch(location.protocol+'//'+location.hostname+':83/ufs'+p,{method:'POST',body:new Blob([f],{type:'text/plain'})})"
+  // 16.11.2026 (Andreas): with a web password set, port 83 wants the upload token (TinyC /tc_api?cmd=ultok, needs the login)
+  "fetch('/tc_api?cmd=ultok').then(r=>r.json()).catch(()=>({})).then(j=>"
+  "fetch(location.protocol+'//'+location.hostname+':83/ufs'+p+(j&&j.tok?'?tok='+j.tok:''),{method:'POST',body:new Blob([f],{type:'text/plain'})}))"
   ".then(r=>r.text()).then(t=>{eb('f2').innerHTML=t;setTimeout(function(){location.href='/ufsd?dir='+d;},1500);})"
   ".catch(e=>{eb('f2').innerHTML='upload failed: '+e;});return false;}"
   "fo.action+=f.size;fo.submit();return false;}</script>"

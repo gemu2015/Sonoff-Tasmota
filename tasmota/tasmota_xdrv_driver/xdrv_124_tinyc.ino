@@ -213,6 +213,16 @@ int32_t tc_dl_person_get(int32_t sel);
 #include "include/xdrv_124_tinyc_vm.h"
 #include "include/xdrv_124_tinyc_repoide.h"   // /tcrepo page (USE_TINYC_REPO_IDE)
 
+// 16.11.2026 (Andreas, SMGW reader): upload token for port 83. With a web password set, port 83 accepts a file only
+// with the password (HTTP Basic, e.g. curl -u admin:<pw>) or with this token as ?tok=. Pages served on port 80
+// (file manager, own settings pages) cannot read the password the browser holds, so they ask /tc_api?cmd=ultok for the
+// token - /tc_api itself needs the login, so only a logged-in page gets it. Random, new on every boot.
+static char tc_ul_tok[17] = {0};
+[[maybe_unused]] static const char *tc_ul_token(void) {
+  if (!tc_ul_tok[0]) { snprintf_P(tc_ul_tok, sizeof(tc_ul_tok), PSTR("%08x%08x"), HwRandom(), HwRandom()); }
+  return tc_ul_tok;
+}
+
 // Stack per VM task. Starts from TC_VM_TASK_STACK, changeable with
 // `TinyCStack <bytes>` and remembered in /tinyc_stack.cfg (gemu 2026-08-17:
 // 12 kB per slot is not always needed). Takes effect on the next slot start.
@@ -2485,11 +2495,13 @@ static const char TC_CORS_HEADERS[] PROGMEM = "Access-Control-Allow-Headers";
 // Non-static so the lazy WSContentBegin path in xdrv_124_tinyc_vm.h's
 // SYS_WEB_SEND* dispatchers can reuse it from inside the VM TU.
 void TCSendCORS(const char *methods_ram) {
-  char hdr[40], val[16];
+  char hdr[40], val[32];
   strncpy_P(hdr, TC_CORS_ORIGIN, sizeof(hdr)); Webserver->sendHeader(hdr, "*");
   strncpy_P(hdr, TC_CORS_METHODS, sizeof(hdr)); Webserver->sendHeader(hdr, methods_ram);
   strncpy_P(hdr, TC_CORS_HEADERS, sizeof(hdr));
-  strcpy_P(val, PSTR("Content-Type"));
+  // 16.11.2026 (Andreas): + Authorization - the IDE is served from port 82 and sends the port-80 web password
+  // itself (a browser does not send the port-80 login from a page on another port).
+  strcpy_P(val, PSTR("Content-Type, Authorization"));
   Webserver->sendHeader(hdr, val);
 }
 // Shorthand for JSON responses
@@ -3503,6 +3515,7 @@ static bool tc_ext_path_blocked(const char *path, bool read);   // defined below
 static bool tc_upload_name_error = false;
 
 static void HandleTinyCUploadDone(void) {
+  if (Webserver->hasArg(F("api"))) { TCSendCORS("POST, OPTIONS"); }   // 16.11.2026: also on the 401, so the IDE can read it and ask for the password
   if (!HttpCheckPriviledgedAccess()) { return; }
 
   uint8_t slot_num = Tinyc ? Tinyc->upload_slot : 0;
@@ -3517,7 +3530,7 @@ static void HandleTinyCUploadDone(void) {
     // if THIS upload failed (malloc, bad slot, oversize, load error) the slot
     // still has the previous program loaded. Trust `Web.upload_error` as the
     // authoritative signal for this request.
-    TCSendCORS("POST, OPTIONS");
+    // (CORS headers already sent at the top of this function - 16.11.2026; twice would be rejected by the browser)
     if (Web.upload_error || !s || !s->loaded) {
       if (tc_upload_name_error) {
         char json[160];
@@ -4173,6 +4186,17 @@ static void HandleTinyCUpload(void) {
   HTTPUpload& upload = Webserver->upload();
 
   if (upload.status == UPLOAD_FILE_START) {
+    // 16.11.2026 (Andreas, SMGW reader): check the web password HERE, before anything is touched. The check in
+    // HandleTinyCUploadDone runs only after the whole body has been received - by then this handler had already
+    // unloaded the slot, stored the new program, loaded it and written /tinyc.cfg. With a web password set, an
+    // IDE on port 82 (no credentials) got "Failed to fetch" while its program was in fact installed: anyone on the
+    // network could replace a slot program, and a program may read the .secret files. Mark the request failed so
+    // WRITE/END discard it and the slot keeps its program; HandleTinyCUploadDone then answers 401 as before.
+    if (!WebAuthenticate()) {
+      Web.upload_error = 1;
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: Upload refused: web password required"));
+      return;
+    }
     // Determine target slot from ?slot=N parameter (default 0)
     Tinyc->upload_slot = 0;
     if (Webserver->hasArg(F("slot"))) {
@@ -4535,6 +4559,13 @@ static void HandleTinyCApi(void) {
     if (slot_num >= TC_MAX_VMS) slot_num = 0;
   }
   char json[384];
+
+  if (cmd == "ultok") {   // 16.11.2026: upload token for port 83 (see tc_ul_token)
+    snprintf_P(json, sizeof(json), PSTR("{\"ok\":true,\"tok\":\"%s\",\"pwd\":%d}"),
+               tc_ul_token(), strlen(SettingsText(SET_WEBPWD)) ? 1 : 0);
+    WSSendJSON(200, json);
+    return;
+  }
 
   if (cmd == "run") {
     // Allocate slot if needed
@@ -7542,14 +7573,47 @@ static void tc_ul_handle(WiFiClient &client) {
     if (tl <= 0 || tl >= (int)sizeof(target)) { tc_ul_reply(client, "400 Bad Request", "bad target"); return; }
     memcpy(target, ts, tl); target[tl] = 0; }
 
-  // --- optional ?fsz= (fallback size), then strip the query ---
+  // --- optional ?fsz= (fallback size) and ?tok= (upload token), then strip the query ---
   uint32_t fsz_url = 0;
+  char tok[20] = {0};
   { char *q = strchr(target, '?');
     if (q) {
       char *fp = strstr_P(q, PSTR("fsz="));
       if (fp) fsz_url = (uint32_t)strtoul(fp + 4, nullptr, 10);
+      char *tp = strstr_P(q, PSTR("tok="));
+      if (tp) { tp += 4; size_t i = 0; while (tp[i] && tp[i] != '&' && i < sizeof(tok) - 1) { tok[i] = tp[i]; i++; } tok[i] = 0; }
       *q = 0;
     } }
+
+  // --- 16.11.2026 (Andreas, SMGW reader): with a web password set, port 83 no longer writes for anyone on the
+  // network. Before, any program (.tcb), /tinyc.cfg or page could be replaced here without the password - and a
+  // replaced program runs at the next start and may read the .secret files. Accepted: the web password as HTTP Basic
+  // (curl -u admin:<pw>) or the upload token from /tc_api?cmd=ultok (needs the login) as ?tok=. ---
+  if (strlen(SettingsText(SET_WEBPWD))) {
+    bool auth_ok = (tok[0] && !strcmp(tok, tc_ul_token()));
+    if (!auth_ok) {
+      for (char *p = hdr; *p; p++) {
+        if ((*p == 'A' || *p == 'a') && (p == hdr || p[-1] == '\n') && 0 == strncasecmp(p, "authorization:", 14)) {
+          p += 14; while (*p == ' ' || *p == '\t') p++;
+          if (0 == strncasecmp(p, "basic ", 6)) {
+            p += 6;
+            char up[80]; snprintf_P(up, sizeof(up), PSTR(WEB_USERNAME ":%s"), SettingsText(SET_WEBPWD));
+            unsigned char want[112]; size_t wlen = 0;
+            if (0 == mbedtls_base64_encode(want, sizeof(want) - 1, &wlen, (const unsigned char *)up, strlen(up))) {
+              want[wlen] = 0;
+              size_t gl = 0; while (p[gl] && p[gl] != '\r' && p[gl] != '\n' && p[gl] != ' ') { gl++; }
+              auth_ok = (gl == wlen) && (0 == memcmp(p, want, wlen));
+            }
+          }
+          break;
+        }
+      }
+    }
+    if (!auth_ok) {
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: upload refused (web password required): %s"), target);
+      tc_ul_reply(client, "401 Unauthorized", "web password required (curl -u admin:<pw>, or ?tok= from /tc_api?cmd=ultok)"); return;
+    }
+  }
 
   // --- require /ufs/ prefix; keep the leading '/' of the fs path ---
   if (strncmp_P(target, PSTR("/ufs/"), 5) != 0) {
@@ -8918,6 +8982,16 @@ bool Xdrv124(uint32_t function) {
       TinyCShow(false);
       break;
     case FUNC_WEB_ADD_MAIN_BUTTON:
+#ifdef TINYC_INFO_WEBPWD
+      // 16.11.2026 (Andreas, SMGW reader): ask for a web password right after flashing, before any slot or file is
+      // on the device - without it anyone on the LAN can change the gateway credentials and download *.secret
+      // through the Tasmota file manager. Only builds with #define TINYC_INFO_WEBPWD; leaving it empty is the user's choice.
+      if (!strlen(SettingsText(SET_WEBPWD))) {
+        WSContentSend_P(PSTR("<p style='color:#e0a030;text-align:center;margin:10px 0 4px'>&#128274; Kein Passwort f&uuml;r die "
+                             "Weboberfl&auml;che &ndash; jeder im Heimnetz kann die Zugangsdaten &auml;ndern und herunterladen.</p>"
+                             "<form action='co' method='get'><button style='background:#d43535'>Webpasswort setzen</button></form>"));
+      }
+#endif
 #ifdef USE_MATTER_C
       // Only show the Matter pairing UI once a TinyC script has defined a Matter
       // device (any mtr* syscall lazily inits the core).
