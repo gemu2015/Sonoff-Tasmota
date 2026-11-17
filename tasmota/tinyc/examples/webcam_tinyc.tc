@@ -28,11 +28,17 @@
 // @defines: -DBOARD_DFROBOT
 
 // ⚠️ BOARD CHOICE. The line above is only the DEFAULT for the one-click build (the compiler ignores it when -D... is given on the command
-// line). For the Waveshare ESP32-S3-CAM write `#define BOARD_WAVESHARE` as the FIRST line of this file (before the comment block) or build with
+// line). For the Waveshare ESP32-S3-CAM (or GOOUUU / AI-Thinker) write `#define BOARD_WAVESHARE` (BOARD_GOOUUU, BOARD_AITHINKER) as the FIRST line of this file (before the comment block) or build with
 // -DBOARD_WAVESHARE: this block then switches the DFRobot default off, so HAS_NIGHT / the LTR-308 code (this board has no light sensor and
 // no IR LEDs) and the second `campins` stay out. Without it a Waveshare build also got the DFRobot block (measured 16.11.2026: the log said
 // "no LTR-308").
 #ifdef BOARD_WAVESHARE
+#undef BOARD_DFROBOT
+#endif
+#ifdef BOARD_GOOUUU
+#undef BOARD_DFROBOT
+#endif
+#ifdef BOARD_AITHINKER
 #undef BOARD_DFROBOT
 #endif
 
