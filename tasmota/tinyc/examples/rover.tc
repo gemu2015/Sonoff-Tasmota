@@ -13,6 +13,10 @@
 //     outside it (nothing returned = a drop) or a sensor that is missing / silent for CLIFF_STALE_MS counts as a CLIFF. Then:
 //     front cliff -> only straight reverse, rear cliff -> only straight forward, both (or a sensor fault) -> no movement at all.
 //     This runs in this program, independent of anything that sends commands. RoverCliff 0 switches the protection off (log warning).
+//  1b. OBSTACLE BRAKE (lidar, ROVER_LIDAR 1): ahead = lidar 240..300 deg, behind = 60..120 (measured with a hand in front of the nose). An echo closer than
+//     OBST_MM (250 mm, released at +50) refuses driving toward it; turning stays free; a silent lidar holds the motors (RoverObst 0 = off). d > 0 drives toward
+//     the NOSE (the end with FL / FR); the encoder ticks count negative for forward. Checked on the rover 17.11.2026: brake at 250 mm, stood at 236 mm
+//     (40 %, 0.17 m/s); the staircase guard on a table edge in front and behind.
 //  2. DEAD-MAN: a drive command must be renewed within WD_MS (300 ms), else the motors stop. The page sends one every 100 ms.
 //  3. Battery guard: below VBAT_MIN_MV the motors are refused (3S Li-ion, INA219 at 0x42).
 //  4. A slot stop (CleanUp) and the start of the program switch all motor pins off.
@@ -36,7 +40,7 @@
 //
 // TEST WITHOUT THE ROVER: ROVER_SIM 1 does not touch the motor pins, takes the battery voltage from RoverVbat and the four distances
 // from RoverTof (default 60 mm), so the display, the web page and the safety logic can be tried on any ESP32.
-// NOT yet tested on the rover (the I2C drivers' decoding is covered by wave_sensors_test.tc).
+// Tested on the rover 17.11.2026: floor sensors, lidar, drive, brake, joystick page (not at higher speed).
 
 #define ROVER_SIM   0            // 1 = simulated battery / floor sensors, no motor pins
 #define ROVER_LIDAR 1            // 1 = LD06/LD19 lidar on LIDAR_RX (about 10 kB RAM, a fifth of the VM time); 0 = off
