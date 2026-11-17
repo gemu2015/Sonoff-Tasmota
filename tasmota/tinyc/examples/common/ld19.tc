@@ -164,6 +164,13 @@ void lid_feed(int n) {
 }
 
 // open the serial port; returns the handle (or -1). main() only.
+// ⚠️ On the classic ESP32 a hardware UART opened with tx = -1 takes the UART's DEFAULT tx pin (UART2: GPIO17). On the WAVE ROVER that is the left
+// motor's AIN2: the idle-high UART line made the left wheel stop working (found 17.11.2026). A program that needs the pin for something else defines
+// LID_TX_PIN as a harmless GPIO before the #include (the lidar sends nothing, the pin only has to be free).
+#ifndef LID_TX_PIN
+#define LID_TX_PIN -1
+#endif
+
 int lid_init(int rx_pin) {
     int i = 0;
     lid_make_crc();
@@ -173,7 +180,7 @@ int lid_init(int rx_pin) {
         i = i + 1;
     }
     lid_pos = 0;
-    lid_h = serialBegin(rx_pin, -1, 230400, 3, 4096);
+    lid_h = serialBegin(rx_pin, LID_TX_PIN, 230400, 3, 4096);
     lid_scan_t0 = 0;
     return lid_h;
 }

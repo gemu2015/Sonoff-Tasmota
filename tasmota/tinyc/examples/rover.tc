@@ -66,6 +66,7 @@
 #endif
 #include "wheel_enc.tc"
 #if ROVER_LIDAR
+#define LID_TX_PIN 13             // the lidar sends nothing: GPIO13 (SD slot MOSI, unused) is only the UART's dummy tx. With tx = -1 the UART takes GPIO17 = left motor AIN2 and the left wheel stops (found 17.11.2026)
 #include "ld19.tc"
 #endif
 
