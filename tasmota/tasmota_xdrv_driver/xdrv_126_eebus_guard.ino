@@ -2443,11 +2443,14 @@ bool EebusShipConnect(int idx) {
   ESp->br_key.x = ESp->key_scalar;
   ESp->br_key.xlen = 32;
 
-   // Puffergroesse NICHT aendern: 2048 fuehrt dazu, dass BearSSL max_fragment_length=1024 anfordert
-   // (2^11 passt mit Overhead nicht in 2048, also 2^10). SHIP 9.2 verlangt genau MFLN=1024 — mit
-   // 4096er-Puffern fordert BearSSL 2048 an, und mbedtls-Gegenstellen lehnen das ClientHello dann
-   // mit handshake_failure (err=296) ab.
-  ESp->client = new BearSSL::WiFiClientSecure_light(2048, 2048);
+   // Sendepuffer 1024, Empfang 2048 (Andreas, 16.11.2026). SHIP TS 1.1.0 Kap. 9.2: ausgehende Pakete duerfen
+   // 1024 Byte (TLSPlaintext.length) NICHT ueberschreiten. setBufferSizes() in tls_mini rechnet den Overhead selbst
+   // dazu: aus (2048, 2048) wurden 2373/2133 Byte, BearSSL waehlte daraus 2^11 (ssl_engine.c Z. 429-447) und bat im
+   // ClientHello um 2048; gemessen: Datenbloecke von 2072 B (= 2048 + 24 B GCM). Die Fragment-Bitte richtet sich nach
+   // dem KLEINEREN Puffer: mit Senden 1024 bittet BearSSL um 1024 und sendet hoechstens 1024 je Block (gemessen
+   // 1048 B = 1024 + 24). Der Empfang bleibt bei 2048. Mit 4096er-Puffern wuerde 2048 angefordert, und
+   // mbedtls-Gegenstellen lehnen das ClientHello mit handshake_failure (err=296) ab.
+  ESp->client = new BearSSL::WiFiClientSecure_light(2048, 1024);
   if (nullptr == ESp->client) { strlcpy(ESp->err, "client new", sizeof(ESp->err)); goto fail; }
   ESp->client->setSendWaitMs(EEBUS_SEND_WAIT_MS);   // v226: nicht blockierend senden (siehe Kopf)
   ESp->client->setLoopTimeout(EEBUS_TLS_LOOP_MS);   // v231: jeder TLS-Lauf (Handshake und Datenphase) hoechstens 5 s statt fest 10 s (tls_mini)
