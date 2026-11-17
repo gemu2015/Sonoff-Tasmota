@@ -259,8 +259,10 @@ void rover_apply() {
     }
     if (enc_on == 1 && enc_stall != 0) { d = 0; t = 0; why = 7; }
     if (park == 1) { d = 0; t = 0; why = 6; }
-    l = rover_clamp(d + t, -100, 100);
-    r = rover_clamp(d - t, -100, 100);
+    // d > 0 = toward the NOSE, the end with the floor sensors FL / FR (lidar 270 degrees). The motors turn the other way for a positive
+    // value, so d is negated here (17.11.2026: a drive test took the rover AWAY from the obstacle the brake watched); turning is unchanged.
+    l = rover_clamp(t - d, -100, 100);
+    r = rover_clamp(0 - d - t, -100, 100);
     spd_pct[0] = l;
     spd_pct[1] = r;
     if (spd_full > 0) {
