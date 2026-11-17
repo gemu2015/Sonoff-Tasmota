@@ -20,7 +20,7 @@
 //  2. DEAD-MAN: a drive command must be renewed within WD_MS (300 ms), else the motors stop. The page sends one every 100 ms.
 //  3. Battery guard: below VBAT_MIN_MV the motors are refused (3S Li-ion, INA219 at 0x42).
 //  4. A slot stop (CleanUp) and the start of the program switch all motor pins off.
-//  4b. MOTOR STALL (wheel encoders, off until RoverEnc 1): a side that is commanded but gives no tick for ENC_STALL_MS stops the rover until
+//  4b. MOTOR STALL (wheel encoders, on by default since 17.11.2026, RoverEnc 0 switches it off): a side that is commanded but gives no tick for ENC_STALL_MS stops the rover until
 //     the stick is released (see common/wheel_enc.tc for wiring, counters and calibration).
 //  5. PARK MODE (RoverPark 1, or /rover_cmd?p=1): for a rover that stands still, on its charger or not. The motors are refused, the
 //     floor sensors, IMU, compass and the display are no longer served (the chips keep running, only the I2C traffic and the display
@@ -68,6 +68,7 @@
 #if ROVER_SIM
 #define ENC_SIM 1
 #endif
+#define ENC_ON 1                // the stall guard is on (encoders wired 13.11.2026): a side commanded but without a tick for 800 ms stops the rover
 #include "wheel_enc.tc"
 #if ROVER_LIDAR
 #define LID_TX_PIN 13             // the lidar sends nothing: GPIO13 (SD slot MOSI, unused) is only the UART's dummy tx. With tx = -1 the UART takes GPIO17 = left motor AIN2 and the left wheel stops (found 17.11.2026)
@@ -92,7 +93,7 @@
 #define I2C_BUS     0
 #define TOF_BUS     0            // bus of the floor sensors' multiplexer: 0 = the board's bus (GPIO32 / 33, since 17.11.2026); 1 = the SECOND Tasmota I2C bus on GPIO4 (SDA) / GPIO5 (SCL), set with `Gpio4 641`, `Gpio5 609`
 #define VBAT_MIN_MV 9300
-#define CLIFF_MIN   25           // floor window (mm along the beam); set to your mounting with RoverCliff <min> <max>
+#define CLIFF_MIN   40           // floor window (mm along the beam); set to your mounting with RoverCliff <min> <max>. The floor reads 51..73 mm here: a low obstacle ahead shortens the reading under 40 and counts as a cliff (25 before 17.11.2026)
 #define CLIFF_MAX   110
 #define CLIFF_STALE_MS 600       // a sensor that did not answer for this long is a fault
 #define SPD_WIN_MS  200          // speed control: the ticks of this window give the measured speed
