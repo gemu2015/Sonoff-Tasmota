@@ -5,7 +5,7 @@
 //
 //   http://<ip>/rover        joystick page (touch or mouse; arrow keys / WASD)
 //   http://<ip>/rover_cmd?d=<-100..100>&t=<-100..100>&m=<10..100>   one drive command, answers a small JSON
-//   console:  RoverEnc [0|1], RoverEncZero, RoverEncCal <mm>, RoverEncTpr <n>, RoverCalGyro, RoverYaw0, RoverCalMag 1|0, RoverCliff [0|1|<min> <max>], RoverObst [0|1|<mm>], RoverPark [0|1], RoverTof <ch> <mm> (-1 = silent sensor), RoverVbat <mV>
+//   console:  RoverEnc [0|1], RoverEncZero, RoverEncCal <mm>, RoverEncTpr <n>, RoverCalGyro, RoverYaw0, RoverCalMag 1|0, RoverCliff [0|1|<min> <max>], RoverObst [0|1|<mm>], RoverWander [<seconds>|0], RoverPark [0|1], RoverTof <ch> <mm> (-1 = silent sensor), RoverVbat <mV>
 //
 // SAFETY, in the order it matters:
 //  1. STAIRCASE: four VL53L0X floor sensors (TCA9548A channels 0..3 = rear left, rear right, front right, front left (as wired on gemu's rover, 17.11.2026), looking
@@ -716,7 +716,102 @@ void lk_poll() {
 }
 #endif
 
+// ── RANDOM WANDER (RoverWander <seconds>) ───────────────────────────────────────────────────────────────────────────────────────
+// The rover drives straight at WAN_D, and when the lidar brake or the staircase guard stops it, it backs off a cliff or turns on the spot in a random direction
+// for a random time, until the way ahead is free again. It stops by itself after the given time, when a safety guard is off or faulted, when ANY echo is
+// closer than WAN_SIDE_MM (turning would hit it), when a turn finds no free way for 8 s, or when somebody sends a drive command (joystick). It only sees what the
+// lidar plane and the four floor sensors see: nothing low on the floor, nothing above the lidar, no glass. Stay close and keep RoverWander short.
+#define WAN_D        40          // drive share (with vmax 40 about 0.17 m/s)
+#define WAN_T        50          // turn share
+#define WAN_FREE_MM  400         // the way ahead counts as free from this distance
+#define WAN_SIDE_MM  110         // an echo this close anywhere stops the run
+int wan_on    = 0;
+int wan_end   = 0;
+int wan_st    = 0;               // 0 straight, 1 backing off a cliff, 2 turning
+int wan_t0    = 0;
+int wan_dir   = 1;
+int wan_min   = 800;             // ms the turn lasts at least
+int wan_turns = 0;
+int wan_flt   = 0;               // millis() since when a sensor fault has been seen (0 = none)
+
+void wander_stop(int code) {     // 0 command, 1 time over, 2 guard off or faulted, 3 echo too close, 4 turn without a free way, 5 drive command
+    if (wan_on == 0) { return; }
+    wan_on = 0;
+    drive = 0;
+    turn = 0;
+    rover_apply();
+    addLog("ROVER: wander off (reason %d, %d turns)", code, wan_turns);
+}
+
+void wander_turn() {
+    wan_st = 2;
+    wan_t0 = millis();
+    if (random(0, 100) < 50) { wan_dir = 1; } else { wan_dir = -1; }
+    wan_min = 500 + random(0, 1000);
+    wan_turns = wan_turns + 1;
+}
+
+int wander_start(int sec) {
+#if ROVER_LIDAR
+    if (lid_ok() == 0 || park == 1 || low == 1 || obs_on == 0 || cl_on == 0 || obs_fault == 1 || cl_fault == 1) { return 0; }
+    vmax = VMAX_START;
+    wan_st = 0;
+    wan_turns = 0;
+    wan_flt = 0;
+    wan_end = millis() + sec * 1000;
+    wan_on = 1;
+    addLog("ROVER: wander on for %d s", sec);
+    return 1;
+#else
+    return 0;
+#endif
+}
+
+void wander_step() {
+#if ROVER_LIDAR
+    int nf = 0;
+    if (wan_on == 0) { return; }
+    if (park == 1 || low == 1 || obs_on == 0 || cl_on == 0) { wander_stop(2); return; }
+    if (obs_fault == 1 || cl_fault == 1) {          // the guards hold the motors by themselves; only a fault that stays ends the run
+        if (wan_flt == 0) { wan_flt = millis(); }
+        if (millis() - wan_flt > 1500) { wander_stop(2); return; }
+    } else {
+        wan_flt = 0;
+    }
+    if (millis() > wan_end) { wander_stop(1); return; }
+    lastcmd = millis();                           // wandering renews the dead-man itself
+    nf = lid_min(0, 359);
+    if (nf > 0 && nf < WAN_SIDE_MM) { wander_stop(3); return; }
+    if (wan_st == 0) {
+        drive = WAN_D;
+        turn = 0;
+        if (cl_front == 1) { wan_st = 1; wan_t0 = millis(); }
+        else if (obs_front == 1) { wander_turn(); }
+    } else if (wan_st == 1) {
+        drive = 0 - WAN_D;
+        turn = 0;
+        if (millis() - wan_t0 > 900 || cl_rear == 1 || obs_rear == 1) { wander_turn(); }
+    } else {
+        drive = 0;
+        turn = wan_dir * WAN_T;
+        nf = lid_min(OBST_FRONT_A0, OBST_FRONT_A1);
+        if (cl_front == 1) {
+            wan_st = 1;
+            wan_t0 = millis();
+        } else if (millis() - wan_t0 > wan_min && (nf == 0 || nf > WAN_FREE_MM)) {
+            wan_st = 0;
+            turn = 0;
+        } else if (millis() - wan_t0 > 8000) {
+            wander_stop(4);
+            return;
+        }
+    }
+    rover_apply();
+#endif
+}
+
 void Every50ms() {
+    wander_step();
     if (millis() - lastcmd > WD_MS) {
         if (motL != 0 || motR != 0) {
             if (drive != 0 || turn != 0) { stops = stops + 1; }
@@ -805,18 +900,29 @@ void rover_page() {
 
 void WebOn() {
     int h = webHandler();
+    int wd_a = 0;
+    int wd_b = 0;
     if (h == 1) {
         rover_page();
     }
     if (h == 2) {
-        if (webArg("d", cb) > 0) { drive = rover_clamp(strToInt(cb), -100, 100); }
-        if (webArg("t", cb) > 0) { turn = rover_clamp(strToInt(cb), -100, 100); }
-        if (webArg("m", cb) > 0) { vmax = rover_clamp(strToInt(cb), 10, 100); }
-        if (webArg("p", cb) > 0) { park_set(strToInt(cb)); }
-        if (park == 1 && (drive != 0 || turn != 0)) { park_set(0); }
-        lastcmd = millis();
-        if (drive == 0 && turn == 0) { enc_stall = 0; }   // the stick is released: a stall is cleared
-        rover_apply();
+        if (wan_on == 1) {                            // a status poll (d=0, t=0) leaves the wander alone, a real drive command ends it
+            wd_a = 0;
+            wd_b = 0;
+            if (webArg("d", cb) > 0) { wd_a = strToInt(cb); }
+            if (webArg("t", cb) > 0) { wd_b = strToInt(cb); }
+            if (wd_a != 0 || wd_b != 0) { wander_stop(5); }
+        }
+        if (wan_on == 0) {
+            if (webArg("d", cb) > 0) { drive = rover_clamp(strToInt(cb), -100, 100); }
+            if (webArg("t", cb) > 0) { turn = rover_clamp(strToInt(cb), -100, 100); }
+            if (webArg("m", cb) > 0) { vmax = rover_clamp(strToInt(cb), 10, 100); }
+            if (webArg("p", cb) > 0) { park_set(strToInt(cb)); }
+            if (park == 1 && (drive != 0 || turn != 0)) { park_set(0); }
+            lastcmd = millis();
+            if (drive == 0 && turn == 0) { enc_stall = 0; }   // the stick is released: a stall is cleared
+            rover_apply();
+        }
         sprintf(ob, "{\"v\":%d.%02d,\"l\":%d,\"r\":%d,\"wd\":%d,\"lo\":%d,\"cl\":%d,\"el\":%d,\"er\":%d,\"st\":%d,\"sl\":%d,\"sr\":%d,\"ob\":%d}", vbat_mv / 1000, (vbat_mv % 1000) / 10, motL, motR, stops, low, cliff_mask(), enc_ticks[0], enc_ticks[1], enc_stall, (int)spd_v[0], (int)spd_v[1], obs_mask());
         webSend(ob);
     }
@@ -913,6 +1019,19 @@ void Command(char cmd[]) {
             rover_apply();
         }
         sprintf(ob, "brake %d, stop below %d mm, ahead %d mm, behind %d mm, F%d R%d lidar fault %d", obs_on, obs_mm, obs_df, obs_dr, obs_front, obs_rear, obs_fault);
+        responseCmnd(ob);
+    } else if (strStartsWith(cmd, "WANDER")) {
+        strToken(a, cmd, ' ', 2);
+        if (strlen(a) > 0) {
+            ch = strToInt(a);
+            if (ch <= 0) {
+                wander_stop(0);
+            } else if (wander_start(rover_clamp(ch, 1, 600)) == 0) {
+                responseCmnd("not started: needs the lidar, no fault, no park, the obstacle brake and the staircase guard on");
+                return;
+            }
+        }
+        sprintf(ob, "wander %d, %d s left, state %d, turns %d", wan_on, wan_on * ((wan_end - millis()) / 1000), wan_st, wan_turns);
         responseCmnd(ob);
     } else if (strStartsWith(cmd, "PARK")) {
         strToken(a, cmd, ' ', 2);
