@@ -39,8 +39,8 @@
 // NOT yet tested on the rover (the I2C drivers' decoding is covered by wave_sensors_test.tc).
 
 #define ROVER_SIM   0            // 1 = simulated battery / floor sensors, no motor pins
-#define ROVER_LIDAR 0            // 1 = LD19 lidar on LIDAR_RX (about 10 kB RAM, a fifth of the VM time); 0 = off
-#define LIDAR_RX    27           // GPIO of the lidar TX line (IO27 = encoder channel B of the left wheel, so not with ENC_BOTH 1)
+#define ROVER_LIDAR 1            // 1 = LD06/LD19 lidar on LIDAR_RX (about 10 kB RAM, a fifth of the VM time); 0 = off
+#define LIDAR_RX    4            // GPIO of the lidar TX line: IO4 of the 10-pin header (checked 17.11.2026; TX on IO5 stopped the lidar). IO27 would be encoder channel B
 #define ROVER_LINK  0            // 1 = UDP link: a cam module (or any program) sends drive commands to LINK_PORT, the rover answers with its status
 #define LINK_PORT   5006
 #define DSP_EXTRA   1            // 1 = extra panel below the 4 OLED lines (TFT)
