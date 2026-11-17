@@ -2251,6 +2251,24 @@ void GpioInit(void)
   }
 #endif  // ESP32 && USE_USB_CDC_CONSOLE
 
+#if defined(ESP32) && !defined(USE_USB_CDC_CONSOLE) && !defined(CONFIG_IDF_TARGET_ESP32)
+  // The same release for builds WITHOUT the USB console (UART0 is the console, the standard TinyC S3 firmware): free the UART0 pads when a
+  // template gives them to a function other than the console itself (GPIO_TXD / GPIO_RXD). Example: the Waveshare ESP32-S3-CAM has its SD
+  // card on GPIO43 / 44 (SDIO CMD / D0); UART0 kept driving those pads and the card never answered (17.11.2026). Nothing changes for a
+  // template that leaves the pads alone or uses them as the console; classic ESP32 is left out (its console pads are never reassigned).
+  if (tasconsole_serial &&
+      ((TasmotaGlobal.gpio_pin[(uint32_t)SOC_TX0] && Pin(GPIO_TXD) != (int)SOC_TX0) ||
+       (TasmotaGlobal.gpio_pin[(uint32_t)SOC_RX0] && Pin(GPIO_RXD) != (int)SOC_RX0))) {
+    AddLog(LOG_LEVEL_INFO, PSTR("CMD: Serial console released, GPIO%d/GPIO%d used by template"),
+           (int)SOC_TX0, (int)SOC_RX0);
+    TasmotaGlobal.seriallog_level = 0;    // Stop logging to a console that is about to go away
+    Settings->seriallog_level = 0;
+    Serial.flush();
+    Serial.end();                         // Detaches the pads so the template function owns them
+    tasconsole_serial = false;
+  }
+#endif  // ESP32 && !USE_USB_CDC_CONSOLE
+
   uint32_t sspi_mosi = (PinUsed(GPIO_SSPI_SCLK) && PinUsed(GPIO_SSPI_MOSI)) ? SPI_MOSI : SPI_NONE;
   uint32_t sspi_miso = (PinUsed(GPIO_SSPI_SCLK) && PinUsed(GPIO_SSPI_MISO)) ? SPI_MISO : SPI_NONE;
   TasmotaGlobal.soft_spi_enabled = sspi_mosi + sspi_miso;

@@ -202,7 +202,69 @@ char *fileOnly(char *fname){
 
 
 #ifdef USE_SDCARD
+#ifdef ESP32
+// Start state of an I/O expander (Waveshare ESP32-S3-CAM). NO SPECIAL FIRMWARE: a file on the FLASH file system (mounted before the card)
+// describes the pins - /expander.cfg with "<i2c address>,<output levels>[,<direction>]", e.g. "0x24,0x67,0x7F". Without the file nothing
+// happens. It runs BEFORE the SD card is initialised, because on that board the card's DAT3/CS is pin EXIO2 of the expander (a CH32V003,
+// I2C 0x24), not an ESP pin, and it must be HIGH for the card to answer in SD mode. After power-up all expander outputs are LOW, so without
+// the file the card never answers (measured 17.11.2026: cold start gave "UfsType 3", no SD). The same file sets every other pin at the same
+// time (Waveshare: 0x67 = EXIO0, 1, 2, 5, 6 high = touch/LCD reset released, SD select high, battery switch on, LED; EXIO3 = camera PWDN low
+// = camera ON, EXIO4 = loudspeaker amplifier off), so a TinyC program or the audio plugin finds the board in a defined state.
+// Expander registers (CH32V003 firmware of the Waveshare boards): 0x02 direction (1 = output), 0x03 output levels, 0x04 pin levels (the only
+// one that reads back reliably). Writing the direction resets the outputs to high, so the direction goes first and the levels after it.
+// Needs the Tasmota I2C bus on the board pins (Gpio8 = I2C SDA, Gpio7 = I2C SCL).
+static void UfsExpanderWrite(uint8_t addr, uint8_t reg, uint8_t val) {
+  Wire.beginTransmission(addr); Wire.write(reg); Wire.write(val); Wire.endTransmission(true);
+}
+static uint8_t UfsExpanderRead(uint8_t addr, uint8_t reg) {
+  Wire.beginTransmission(addr); Wire.write(reg); Wire.endTransmission(false);
+  Wire.requestFrom(addr, (uint8_t)1);
+  return Wire.available() ? Wire.read() : 0;
+}
+static void UfsExpanderInit(void) {
+  if (!ffsp || !TasmotaGlobal.i2c_enabled[0]) { return; }
+  File f = ffsp->open("/expander.cfg", "r");
+  if (!f) { return; }
+  char buf[40]; size_t n = f.readBytes(buf, sizeof(buf) - 1); buf[n] = 0; f.close();
+  char *cp = buf;
+  uint32_t addr = strtoul(cp, &cp, 0);                 // base 0: "0x24" = hex
+  while (*cp == ',' || *cp == ' ') { cp++; }
+  char *ep = cp;
+  uint32_t levels = strtoul(cp, &ep, 0);
+  bool has_levels = (ep != cp);
+  cp = ep; while (*cp == ',' || *cp == ' ') { cp++; }
+  uint32_t dir = strtoul(cp, &ep, 0);
+  bool has_dir = (ep != cp);
+  if (addr < 0x08 || addr > 0x77 || !has_levels || levels > 0xFF || dir > 0xFF) {
+    AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_UFS "/expander.cfg ignored (need \"0x24,0x67[,0x7F]\")")); return;
+  }
+  if (!has_dir) { dir = 0x7F; }                        // Waveshare: pins 0..6 outputs, pin 7 = charger detect INPUT
+  Wire.beginTransmission(addr);
+  if (Wire.endTransmission(true) != 0) { return; }     // no expander at that address
+  uint8_t mask = dir & 0x7F;                           // compare only the output pins (bit 7 is an input here)
+  // Measured 17.11.2026: right after power-up (this runs ~90 ms after boot) the expander's own start-up is not finished and resets its pins
+  // AFTERWARDS (cold start read "in=0x80, direction 0x67" although the levels had been written). So: write, wait, read back, and write
+  // again until the state is still there after a pause (at most 10 rounds ~ 1 s; a warm restart needs one).
+  uint32_t rounds = 0;
+  bool ok = false;
+  while (!ok && rounds < 10) {
+    rounds++;
+    UfsExpanderWrite(addr, 0x02, dir);                 // direction first: it resets the outputs to high ...
+    UfsExpanderWrite(addr, 0x03, levels);              // ... then the wanted levels
+    delay(40);
+    ok = ((UfsExpanderRead(addr, 0x04) & mask) == (levels & mask));
+    if (ok) { delay(60); ok = ((UfsExpanderRead(addr, 0x04) & mask) == (levels & mask)); }   // still there after the expander's own start-up?
+  }
+  AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_UFS "Expander 0x%02X set: levels 0x%02X, direction 0x%02X, pins now 0x%02X, %i round(s)%s"),
+         addr, levels, dir, UfsExpanderRead(addr, 0x04), rounds, ok ? "" : " - NOT STABLE");
+  delay(10);
+}
+#endif  // ESP32
+
 void UfsCheckSDCardInit(void) {
+#ifdef ESP32
+  UfsExpanderInit();         // start state of an I/O expander (file /expander.cfg) FIRST: the card select can be a pin on it and must be high
+#endif
   // Try SPI mode first
   // SPI mode requires SDCARD_CS to be configured
 /*
