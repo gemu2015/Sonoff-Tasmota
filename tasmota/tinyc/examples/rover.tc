@@ -5,7 +5,7 @@
 //
 //   http://<ip>/rover        joystick page (touch or mouse; arrow keys / WASD)
 //   http://<ip>/rover_cmd?d=<-100..100>&t=<-100..100>&m=<10..100>   one drive command, answers a small JSON
-//   console:  RoverEnc [0|1], RoverEncZero, RoverEncCal <mm>, RoverEncTpr <n>, RoverCalGyro, RoverYaw0, RoverCalMag 1|0, RoverCliff [0|1|<min> <max>], RoverPark [0|1], RoverTof <ch> <mm> (-1 = silent sensor), RoverVbat <mV>
+//   console:  RoverEnc [0|1], RoverEncZero, RoverEncCal <mm>, RoverEncTpr <n>, RoverCalGyro, RoverYaw0, RoverCalMag 1|0, RoverCliff [0|1|<min> <max>], RoverObst [0|1|<mm>], RoverPark [0|1], RoverTof <ch> <mm> (-1 = silent sensor), RoverVbat <mV>
 //
 // SAFETY, in the order it matters:
 //  1. STAIRCASE: four VL53L0X floor sensors (TCA9548A channels 0..3 = rear left, rear right, front right, front left (as wired on gemu's rover, 17.11.2026), looking
@@ -41,6 +41,12 @@
 #define ROVER_SIM   0            // 1 = simulated battery / floor sensors, no motor pins
 #define ROVER_LIDAR 1            // 1 = LD06/LD19 lidar on LIDAR_RX (about 10 kB RAM, a fifth of the VM time); 0 = off
 #define LIDAR_RX    4            // GPIO of the lidar TX line: IO4 of the 10-pin header (checked 17.11.2026; TX on IO5 stopped the lidar). IO27 would be encoder channel B
+#define OBST_MM     250          // obstacle brake: stop driving toward anything closer than this (mm); RoverObst <mm> changes it, RoverObst 0 switches it off
+#define OBST_HYST   50           // released again only at OBST_MM + this (no flicker at the edge)
+#define OBST_FRONT_A0 240        // lidar degrees of "ahead" (measured 17.11.2026: a hand in front of the nose shows at 240..299, centre 270)
+#define OBST_FRONT_A1 300
+#define OBST_REAR_A0  60         // "behind" = opposite
+#define OBST_REAR_A1  120
 #define ROVER_LINK  0            // 1 = UDP link: a cam module (or any program) sends drive commands to LINK_PORT, the rover answers with its status
 #define LINK_PORT   5006
 #define DSP_EXTRA   1            // 1 = extra panel below the 4 OLED lines (TFT)
@@ -105,7 +111,7 @@ int motR    = 0;
 int stops   = 0;
 int vbat_mv = 0;
 int low     = 0;
-int why     = 0;                 // why the motors are held: 0 free, 1 battery, 2 sensor fault, 3 front cliff, 4 rear cliff, 5 both, 6 parked, 7 motor stall
+int why     = 0;                 // why the motors are held: 0 free, 1 battery, 2 sensor fault, 3 front cliff, 4 rear cliff, 5 both, 6 parked, 7 motor stall, 8 lidar silent, 9 obstacle ahead, 10 obstacle behind
 int park    = 0;                 // 1 = parked (see header)
 int spd_full = 0;                // RoverSpeed: mm/s at a full stick (0 = open loop)
 int spd_t0   = 0;
@@ -124,6 +130,13 @@ int cl_on   = 1;
 int cl_min  = CLIFF_MIN;
 int cl_max  = CLIFF_MAX;
 int cl_flag[4];                  // 1 = no floor in the window
+int obs_on    = 1;                // obstacle brake (RoverObst 0 = off)
+int obs_mm    = OBST_MM;
+int obs_front = 0;                // 1 = something closer than obs_mm ahead
+int obs_rear  = 0;
+int obs_fault = 0;                // 1 = the lidar sends nothing (the brake cannot see)
+int obs_df    = 0;                // nearest distance ahead / behind in mm (0 = nothing seen)
+int obs_dr    = 0;
 int cl_front = 0;
 int cl_rear  = 0;
 int cl_fault = 1;                // 1 until all four sensors answered
@@ -232,6 +245,15 @@ void rover_apply() {
         } else if (cl_rear == 1) {
             if (d < 0) { d = 0; }
             t = 0; why = 4;
+        }
+    }
+    if (obs_on == 1) {
+        if (obs_fault == 1) {
+            d = 0; t = 0;
+            if (why == 0) { why = 8; }
+        } else {
+            if (obs_front == 1 && d > 0) { d = 0; if (why == 0) { why = 9; } }
+            if (obs_rear == 1 && d < 0) { d = 0; if (why == 0) { why = 10; } }
         }
     }
     if (enc_on == 1 && enc_stall != 0) { d = 0; t = 0; why = 7; }
@@ -352,6 +374,40 @@ int spd_ctl() {
     return ch;
 }
 
+// lidar obstacle brake: nearest echo ahead / behind against obs_mm; returns 1 when the picture changed (then the motors must be re-evaluated)
+int obst_eval() {
+    int f = 0;
+    int r = 0;
+    int fault = 0;
+    int df = 0;
+    int dr = 0;
+    int lf = obs_mm;
+    int lr = obs_mm;
+#if ROVER_LIDAR
+    if (lid_ok() == 0) {
+        fault = 1;
+    } else {
+        df = lid_min(OBST_FRONT_A0, OBST_FRONT_A1);
+        dr = lid_min(OBST_REAR_A0, OBST_REAR_A1);
+        if (obs_front == 1) { lf = obs_mm + OBST_HYST; }
+        if (obs_rear == 1) { lr = obs_mm + OBST_HYST; }
+        if (df > 0 && df < lf) { f = 1; }
+        if (dr > 0 && dr < lr) { r = 1; }
+    }
+#endif
+    obs_df = df;
+    obs_dr = dr;
+    if (f == obs_front && r == obs_rear && fault == obs_fault) { return 0; }
+    obs_front = f;
+    obs_rear = r;
+    obs_fault = fault;
+    return 1;
+}
+
+int obs_mask() {
+    return obs_front + obs_rear * 2 + obs_fault * 4;
+}
+
 // evaluate the four floor sensors; returns 1 when the picture changed (then the motors must be re-evaluated)
 int cliff_eval() {
     int ch = 0;
@@ -418,6 +474,10 @@ void TaskLoop() {
             if (cl_fault == 0 && cl_on == 1) { addLog("ROVER: cliff F%d%d R%d%d", cl_flag[3], cl_flag[2], cl_flag[0], cl_flag[1]); }
             rover_apply();
         }
+        if (obst_eval() == 1) {
+            if (obs_on == 1) { addLog("ROVER: obstacle ahead %d behind %d lidar fault %d (nearest %d / %d mm)", obs_front, obs_rear, obs_fault, obs_df, obs_dr); }
+            rover_apply();
+        }
         qmi_poll();
         ak_poll();
 #if ROVER_LIDAR
@@ -460,6 +520,9 @@ void dsp_state(char t[]) {
     else if (why == 5) { strcpy(t, "CLIFF F+R"); }
     else if (why == 6) { strcpy(t, "PARKED"); }
     else if (why == 7) { strcpy(t, "MOTOR STALL"); }
+    else if (why == 8) { strcpy(t, "LIDAR SILENT"); }
+    else if (why == 9) { strcpy(t, "OBSTACLE AHEAD"); }
+    else if (why == 10) { strcpy(t, "OBSTACLE BEHIND"); }
     else if (motL == 0 && motR == 0) { strcpy(t, "STOP"); }
     else { sprintf(t, "L%d R%d", motL, motR); }
 }
@@ -705,7 +768,7 @@ void WebCall() {
     }
 #if ROVER_LIDAR
     if (lid_ok() == 1) {
-        sprintf(ob, "{s}Lidar front / left{m}%d / %d mm   back / right %d / %d mm{e}", lid_min(330, 30), lid_min(60, 120), lid_min(150, 210), lid_min(240, 300));
+        sprintf(ob, "{s}Lidar front / back{m}%d / %d mm   brake %d (stop below %d mm)   left %d / right %d mm (direction assumed){e}", lid_min(OBST_FRONT_A0, OBST_FRONT_A1), lid_min(OBST_REAR_A0, OBST_REAR_A1), obs_on, obs_mm, lid_min(150, 210), lid_min(330, 30));
         webSend(ob);
         sprintf(ob, "{s}Lidar scans / speed{m}%d  %d ms per turn  packets ok / crc %d / %d{e}", lid_scans, lid_scan_ms, lid_n_ok, lid_n_crc);
         webSend(ob);
@@ -747,7 +810,7 @@ void WebOn() {
         lastcmd = millis();
         if (drive == 0 && turn == 0) { enc_stall = 0; }   // the stick is released: a stall is cleared
         rover_apply();
-        sprintf(ob, "{\"v\":%d.%02d,\"l\":%d,\"r\":%d,\"wd\":%d,\"lo\":%d,\"cl\":%d,\"el\":%d,\"er\":%d,\"st\":%d,\"sl\":%d,\"sr\":%d}", vbat_mv / 1000, (vbat_mv % 1000) / 10, motL, motR, stops, low, cliff_mask(), enc_ticks[0], enc_ticks[1], enc_stall, (int)spd_v[0], (int)spd_v[1]);
+        sprintf(ob, "{\"v\":%d.%02d,\"l\":%d,\"r\":%d,\"wd\":%d,\"lo\":%d,\"cl\":%d,\"el\":%d,\"er\":%d,\"st\":%d,\"sl\":%d,\"sr\":%d,\"ob\":%d}", vbat_mv / 1000, (vbat_mv % 1000) / 10, motL, motR, stops, low, cliff_mask(), enc_ticks[0], enc_ticks[1], enc_stall, (int)spd_v[0], (int)spd_v[1], obs_mask());
         webSend(ob);
     }
 }
@@ -827,6 +890,23 @@ void Command(char cmd[]) {
             cl_max = strToInt(b);
             responseCmnd("window set");
         }
+    } else if (strStartsWith(cmd, "OBST")) {
+        strToken(a, cmd, ' ', 2);
+        if (strlen(a) > 0) {
+            ch = strToInt(a);
+            if (ch == 0) {
+                obs_on = 0;
+                addLog("ROVER: OBSTACLE BRAKE OFF - the rover can drive into things");
+            } else if (ch == 1) {
+                obs_on = 1;
+            } else if (ch >= 50) {
+                obs_on = 1;
+                obs_mm = ch;
+            }
+            rover_apply();
+        }
+        sprintf(ob, "brake %d, stop below %d mm, ahead %d mm, behind %d mm, F%d R%d lidar fault %d", obs_on, obs_mm, obs_df, obs_dr, obs_front, obs_rear, obs_fault);
+        responseCmnd(ob);
     } else if (strStartsWith(cmd, "PARK")) {
         strToken(a, cmd, ' ', 2);
         if (strlen(a) > 0) { park_set(strToInt(a)); }
