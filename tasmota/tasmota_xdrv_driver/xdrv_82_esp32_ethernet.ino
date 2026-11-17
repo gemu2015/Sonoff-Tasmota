@@ -19,6 +19,9 @@
 
 #ifdef ESP32
 #include "sdkconfig.h"
+#ifdef CONFIG_IDF_TARGET_ESP32P4
+#include "esp_mac.h"   // esp_base_mac_addr_set / esp_efuse_mac_get_default (P4 ETH MAC fix, Andreas)
+#endif
 #ifdef CONFIG_ETH_ENABLED
 #ifdef USE_ETHERNET
 /*********************************************************************************************\
@@ -285,6 +288,18 @@ void EthernetInit(void) {
     AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_ETH "Ethernet using RMII"));
 #endif // FIRMWARE_MINIMAL
 #ifdef CONFIG_IDF_TARGET_ESP32P4
+    // P4 ETH MAC fix (Andreas, 02.07./08.07.2026, from his commit 7d3fdc3bb9): a P4 Ethernet board without a C6 (e.g. 32088) has no
+    // ESP-Hosted co-processor to take the base MAC from, so it stays 00:00:00:00:00:00 and the EMAC gets no MAC, Ethernet does not come
+    // up. The P4 chip itself has a valid factory MAC in its eFuse: set the base MAC from it before ETH.begin(). It is set on EVERY P4
+    // (also with a C6): that is the version he tested (HEMS on a WIFI6 board with C6 since end of October, no MAC problem seen).
+    {
+      uint8_t p4_mac[6];
+      if (esp_efuse_mac_get_default(p4_mac) == ESP_OK) {
+        esp_base_mac_addr_set(p4_mac);
+        AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_ETH "P4 base MAC from eFuse %02X:%02X:%02X:%02X:%02X:%02X"),
+               p4_mac[0], p4_mac[1], p4_mac[2], p4_mac[3], p4_mac[4], p4_mac[5]);
+      }
+    }
     init_ok = (ETH.begin((eth_phy_type_t)eth_type, Settings->eth_address, eth_mdc, eth_mdio, eth_power, EMAC_CLK_EXT_IN));
 #else
     init_ok = (ETH.begin((eth_phy_type_t)eth_type, Settings->eth_address, eth_mdc, eth_mdio, eth_power, (eth_clock_mode_t)Settings->eth_clk_mode));
@@ -318,7 +333,7 @@ void EthernetInit(void) {
                          Pin(GPIO_SPI_CLK, spi_bus), Pin(GPIO_SPI_MISO, spi_bus), Pin(GPIO_SPI_MOSI, spi_bus)));
   }
   if (!init_ok) {
-    AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_ETH "Bad EthType %i or init error"),eth_type);
+    AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_ETH "Bad EthType %i or init error"),eth_type);   // INFO (was DEBUG): with a wrong EthType the device boots without network and, at the default log level, without a word (Andreas)
     return;
   };
 
