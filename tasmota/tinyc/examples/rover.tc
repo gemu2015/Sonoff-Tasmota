@@ -8,7 +8,7 @@
 //   console:  RoverEnc [0|1], RoverEncZero, RoverEncCal <mm>, RoverEncTpr <n>, RoverCalGyro, RoverYaw0, RoverCalMag 1|0, RoverCliff [0|1|<min> <max>], RoverPark [0|1], RoverTof <ch> <mm> (-1 = silent sensor), RoverVbat <mV>
 //
 // SAFETY, in the order it matters:
-//  1. STAIRCASE: four VL53L0X floor sensors (TCA9548A channels 0..3 = front left, front right, rear left, rear right, looking
+//  1. STAIRCASE: four VL53L0X floor sensors (TCA9548A channels 0..3 = rear left, rear right, front right, front left (as wired on gemu's rover, 17.11.2026), looking
 //     outward / down about 45 degrees). A sensor sees the floor when its distance is inside the window cl_min..cl_max (mm). A reading
 //     outside it (nothing returned = a drop) or a sensor that is missing / silent for CLIFF_STALE_MS counts as a CLIFF. Then:
 //     front cliff -> only straight reverse, rear cliff -> only straight forward, both (or a sensor fault) -> no movement at all.
@@ -79,6 +79,7 @@
 #define VMAX_START  40
 #define INA_ADDR    0x42
 #define I2C_BUS     0
+#define TOF_BUS     0            // bus of the floor sensors' multiplexer: 0 = the board's bus (GPIO32 / 33, since 17.11.2026); 1 = the SECOND Tasmota I2C bus on GPIO4 (SDA) / GPIO5 (SCL), set with `Gpio4 641`, `Gpio5 609`
 #define VBAT_MIN_MV 9300
 #define CLIFF_MIN   25           // floor window (mm along the beam); set to your mounting with RoverCliff <min> <max>
 #define CLIFF_MAX   110
@@ -379,7 +380,7 @@ int cliff_eval() {
         if (f != cl_flag[ch]) { changed = 1; }
         cl_flag[ch] = f;
         if (f == 1) {
-            if (ch < 2) { fr = 1; } else { re = 1; }
+            if (ch >= 2) { fr = 1; } else { re = 1; }   // channels 2, 3 = front; 0, 1 = rear
         }
         ch = ch + 1;
     }
@@ -414,7 +415,7 @@ void TaskLoop() {
         lid_poll();
 #endif
         if (cliff_eval() == 1) {
-            if (cl_fault == 0 && cl_on == 1) { addLog("ROVER: cliff F%d%d R%d%d", cl_flag[0], cl_flag[1], cl_flag[2], cl_flag[3]); }
+            if (cl_fault == 0 && cl_on == 1) { addLog("ROVER: cliff F%d%d R%d%d", cl_flag[3], cl_flag[2], cl_flag[0], cl_flag[1]); }
             rover_apply();
         }
         qmi_poll();
@@ -542,9 +543,9 @@ void display_update() {
         dcol(0xFFE0);
         dsp_line(2, 82, 20, "Floor sensors (mm)");
         dcol(0xFFFF);
-        sprintf(dl, "FL %d  FR %d", vl_dist[0], vl_dist[1]);
+        sprintf(dl, "FL %d  FR %d", vl_dist[3], vl_dist[2]);
         dsp_line(2, 100, 20, dl);
-        sprintf(dl, "RL %d  RR %d", vl_dist[2], vl_dist[3]);
+        sprintf(dl, "RL %d  RR %d", vl_dist[0], vl_dist[1]);
         dsp_line(2, 118, 20, dl);
         if (cl_on == 0) {
             dcol(0xFFE0);
@@ -671,7 +672,7 @@ void Every50ms() {
 // ---- web ---------------------------------------------------------------------------------------------------------------
 
 int cliff_mask() {
-    return cl_flag[0] + cl_flag[1] * 2 + cl_flag[2] * 4 + cl_flag[3] * 8;
+    return cl_flag[3] + cl_flag[2] * 2 + cl_flag[0] * 4 + cl_flag[1] * 8;   // bits: FL FR RL RR
 }
 
 void WebCall() {
@@ -684,7 +685,7 @@ void WebCall() {
     } else {
         webSend("{s}Battery (INA219){m}no data{e}");
     }
-    sprintf(ob, "{s}Floor sensors FL FR RL RR{m}%d  %d  %d  %d mm   window %d..%d{e}", vl_dist[0], vl_dist[1], vl_dist[2], vl_dist[3], cl_min, cl_max);
+    sprintf(ob, "{s}Floor sensors FL FR RL RR{m}%d  %d  %d  %d mm   window %d..%d{e}", vl_dist[3], vl_dist[2], vl_dist[0], vl_dist[1], cl_min, cl_max);
     webSend(ob);
     if (qmi_ok == 1) {
         sprintf(ob, "{s}IMU yaw / gyro z{m}%.1f deg  %.2f dps  %.1f C{e}", qmi_yaw, qmi_gz, qmi_temp);
@@ -814,7 +815,7 @@ void Command(char cmd[]) {
         strToken(a, cmd, ' ', 2);
         strToken(b, cmd, ' ', 3);
         if (strlen(a) == 0) {
-            sprintf(ob, "guard %d, window %d..%d mm, F%d%d R%d%d fault %d", cl_on, cl_min, cl_max, cl_flag[0], cl_flag[1], cl_flag[2], cl_flag[3], cl_fault);
+            sprintf(ob, "guard %d, window %d..%d mm, F%d%d R%d%d fault %d", cl_on, cl_min, cl_max, cl_flag[3], cl_flag[2], cl_flag[0], cl_flag[1], cl_fault);
             responseCmnd(ob);
         } else if (strlen(b) == 0) {
             cl_on = strToInt(a);
@@ -882,7 +883,7 @@ int main() {
     ina_addr = INA_ADDR;  ina_bus = I2C_BUS;  ina_release();
     qmi_addr = 0x6B;      qmi_bus = I2C_BUS;  qmi_release();
     ak_addr = AK_ADDR;    ak_bus = I2C_BUS;   ak_release();
-    vl_bus = I2C_BUS;  vl_claimed = 1;  vl_mux_ok = 1;  vl_release();
+    vl_bus = TOF_BUS;  vl_claimed = 1;  vl_mux_ok = 1;  vl_release();
     ina_init(INA_ADDR, I2C_BUS);
 #if ROVER_LIDAR
     lid_init(LIDAR_RX);
@@ -892,7 +893,7 @@ int main() {
     if (qmi_ok == 1) { qmi_cal_gyro(200); }
 #if ROVER_REAL
     {
-        if (vl_mux_init(I2C_BUS) == 1) {
+        if (vl_mux_init(TOF_BUS) == 1) {
             vl_timeout = 60;
             i = 0;
             while (i < 4) {
