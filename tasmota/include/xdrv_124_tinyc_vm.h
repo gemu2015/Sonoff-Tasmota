@@ -273,7 +273,9 @@ static FS *tc_file_path(char *path) {
   #define TC_OUTPUT_SIZE     128     // output buffer for MQTT (was 512)
 #endif
 
-#define TC_MAX_FILE_HANDLES  4      // max simultaneously open files
+#ifndef TC_MAX_FILE_HANDLES
+#define TC_MAX_FILE_HANDLES  4      // max simultaneously open files, ALL slots together; -D / user_config_override.h can raise it (xdrv_50 then raises the SD pool too)
+#endif
 // Outgoing TCP client slots (selected via tcpSelect). Bumped 4 → 8 in v1.5.1
 // after a Modbus-TCP user (5+ Wechselrichter / BMU / Smart-Meter modules
 // in parallel) ran out at 4. Each slot costs ~80 B in the Tinyc struct

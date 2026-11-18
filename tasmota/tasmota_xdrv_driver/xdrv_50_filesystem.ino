@@ -89,6 +89,16 @@ ftp       start stop ftp server: 0 = OFF, 1 = SDC, 2 = FlashFile
 
 const int UFS_FILENAME_SIZE = 50;
 
+// Open files on SD / SD_MMC: arduino-esp32 gives ONE pool of 5 to the whole firmware (web server, downloads, logs, TinyC). A TinyC build that raises
+// TC_MAX_FILE_HANDLES (user_config_override.h) has to raise this pool too, or the sixth open() fails: the pool follows, with 2 files of reserve.
+#ifndef UFS_SD_MAX_OPEN_FILES
+#define UFS_SD_MAX_OPEN_FILES 5
+#endif
+#if defined(USE_TINYC) && defined(TC_MAX_FILE_HANDLES) && ((TC_MAX_FILE_HANDLES + 2) > UFS_SD_MAX_OPEN_FILES)
+#undef UFS_SD_MAX_OPEN_FILES
+#define UFS_SD_MAX_OPEN_FILES (TC_MAX_FILE_HANDLES + 2)
+#endif
+
 // Global file system pointer
 FS *ufsp;
 // Flash file system pointer
@@ -292,7 +302,7 @@ void UfsCheckSDCardInit(void) {
     } else {
       SPI.begin(Pin(GPIO_SPI_CLK), Pin(GPIO_SPI_MISO), Pin(GPIO_SPI_MOSI), -1);
     }
-    if (SD.begin(cs, (1 == spi_bus) ? SPI_HSPI : SPI)) {
+    if (SD.begin(cs, (1 == spi_bus) ? SPI_HSPI : SPI, 4000000, "/sd", UFS_SD_MAX_OPEN_FILES)) {
 #endif // ESP32
 #ifdef ESP8266
       ufsp = &SDFS;
@@ -346,7 +356,7 @@ void UfsCheckSDCardInit(void) {
       SD_MMC.setPowerChannel(4);  // SD card IO power if not set by command Ldo4 (deprecated)
     }
 #endif
-    if (SD_MMC.begin("/sd", !bit_4_mode /*mode 1 bit*/, false /*format_if_failed*/)) {    // mount under "/sd" to be consistent with SD SPI
+    if (SD_MMC.begin("/sd", !bit_4_mode /*mode 1 bit*/, false /*format_if_failed*/, BOARD_MAX_SDMMC_FREQ, UFS_SD_MAX_OPEN_FILES)) {    // mount under "/sd" to be consistent with SD SPI
       ufsp = &SD_MMC;
 
       ufs_type = UFS_TSDC;
@@ -1736,6 +1746,28 @@ void UfsDirectory(void) {
   Web.upload_file_type = UPL_UFSFILE;
 }
 
+// File manager: folders first, then files, both alphabetical (case-insensitive). A folder's entries are read into a list first, which costs
+// UFS_SORT_MAX * sizeof(UfsSortEntry) bytes (about 10 kB, PSRAM when there is some) while the page is built and is freed again right after. Without
+// memory, or beyond UFS_SORT_MAX entries, the rest follows in the order the file system returns it. -DUFS_NO_SORT leaves the sorting out (ESP8266 has none).
+#if defined(ESP32) && !defined(UFS_NO_SORT)
+#define UFS_SORT_LIST
+#ifndef UFS_SORT_MAX
+#define UFS_SORT_MAX 128
+#endif
+struct UfsSortEntry {
+  char name[64];
+  uint32_t tm;
+  uint32_t size;
+  bool dir;
+};
+static int UfsSortCmp(const void *pa, const void *pb) {
+  const UfsSortEntry *a = (const UfsSortEntry*)pa;
+  const UfsSortEntry *b = (const UfsSortEntry*)pb;
+  if (a->dir != b->dir) { return a->dir ? -1 : 1; }
+  return strcasecmp(a->name, b->name);
+}
+#endif  // ESP32 && !UFS_NO_SORT
+
 void UfsListDir(char *path, uint8_t depth) {
   char name[UFS_FILENAME_SIZE];
   char npath[128];
@@ -1759,30 +1791,9 @@ void UfsListDir(char *path, uint8_t depth) {
       }
       WSContentSend_P(UFS_FORM_SDC_DIRd, npath, path, PSTR(".."));
     }
-    char *ep;
-    while (true) {
-      WiFiClient client = Webserver->client();
-      // abort if the client disconnected
-      // if there is a huge folder, then this gives a way out by refresh of browser
-      if (!client.connected()){
-        break;
-      }
-
-      File entry = dir.openNextFile();
-      if (!entry) {
-        break;
-      }
-      // esp32 returns path here, shorten to filename
-      ep = (char*)entry.name();
-      if (*ep == '/') { ep++; }
-      char *lcp = strrchr(ep,'/');
-      if (lcp) {
-        ep = lcp + 1;
-      }
-
-      uint32_t tm = entry.getLastWrite();
+    // one directory entry on the page (ep = file name, no path)
+    auto show = [&](const char *ep, bool isdir, uint32_t tm, uint32_t fsize) {
       String tstr = GetDT(tm);
-
       char *pp = path;
       if (!*(pp + 1)) { pp++; }
       char *cp = name;
@@ -1806,7 +1817,7 @@ void UfsListDir(char *path, uint8_t depth) {
 #else
         char delpath[2] = " ";
 #endif // GUI_TRASH_FILE
-        if (entry.isDirectory()) {
+        if (isdir) {
           ext_snprintf_P(npath, sizeof(npath), UFS_FORM_SDC_HREF, ppe, epe);
 
           WSContentSend_P(UFS_FORM_SDC_DIRb, hiddable ? UFS_FORM_SDC_DIR_HIDDABLE : UFS_FORM_SDC_DIR_NORMAL, npath, epe,
@@ -1831,12 +1842,65 @@ void UfsListDir(char *path, uint8_t depth) {
   #endif // GUI_TRASH_FILE
           ext_snprintf_P(npath, sizeof(npath), UFS_FORM_SDC_HREF, ppe, epe);
           WSContentSend_P(UFS_FORM_SDC_DIRb, hiddable ? UFS_FORM_SDC_DIR_HIDDABLE : UFS_FORM_SDC_DIR_NORMAL, npath, epe,
-                          HtmlEscape(name).c_str(), tstr.c_str(), entry.size(), delpath, editpath);
+                          HtmlEscape(name).c_str(), tstr.c_str(), fsize, delpath, editpath);
         }
-        entry.close();
-
         yield(); // trigger watchdog reset
       }
+    };
+
+    char *ep;
+#ifdef UFS_SORT_LIST
+    UfsSortEntry *list = (UfsSortEntry*)special_malloc(UFS_SORT_MAX * sizeof(UfsSortEntry));
+    uint32_t n = 0;
+    if (list) {
+      while (n < UFS_SORT_MAX) {
+        File entry = dir.openNextFile();
+        if (!entry) { break; }
+        ep = (char*)entry.name();
+        if (*ep == '/') { ep++; }
+        char *lcp = strrchr(ep, '/');
+        if (lcp) { ep = lcp + 1; }
+        if (strlen(ep) >= sizeof(list[0].name)) {          // too long for the list: show it at once, unsorted
+          show(ep, entry.isDirectory(), entry.getLastWrite(), entry.size());
+        } else {
+          strlcpy(list[n].name, ep, sizeof(list[n].name));
+          list[n].tm = entry.getLastWrite();
+          list[n].size = entry.size();
+          list[n].dir = entry.isDirectory();
+          n++;
+        }
+        entry.close();
+      }
+      qsort(list, n, sizeof(UfsSortEntry), UfsSortCmp);
+      for (uint32_t i = 0; i < n; i++) {
+        if (!Webserver->client().connected()) { break; }   // client gone (huge folder: a refresh of the browser is the way out)
+        show(list[i].name, list[i].dir, list[i].tm, list[i].size);
+      }
+      free(list);
+    }
+#endif  // UFS_SORT_LIST
+    // no list (memory, ESP8266, UFS_NO_SORT) or more entries than the list holds: the rest in the order the file system gives it
+    while (true) {
+      WiFiClient client = Webserver->client();
+      // abort if the client disconnected
+      // if there is a huge folder, then this gives a way out by refresh of browser
+      if (!client.connected()){
+        break;
+      }
+
+      File entry = dir.openNextFile();
+      if (!entry) {
+        break;
+      }
+      // esp32 returns path here, shorten to filename
+      ep = (char*)entry.name();
+      if (*ep == '/') { ep++; }
+      char *lcp = strrchr(ep,'/');
+      if (lcp) {
+        ep = lcp + 1;
+      }
+      show(ep, entry.isDirectory(), entry.getLastWrite(), entry.size());
+      entry.close();
     }
     dir.close();
   }
