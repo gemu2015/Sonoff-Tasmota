@@ -480,9 +480,15 @@ void TaskLoop() {
 #if ROVER_LIDAR
         lid_poll();                  // the ring holds 200 ms: poll between the slow I2C steps
 #endif
+#if ROVER_ESPNOW
+        en_poll();                   // here and not in Every50ms: a callback gets the VM only while this loop sleeps in delay(), so commands were answered 100..200 ms late
+#endif
         tof_step();
 #if ROVER_LIDAR
         lid_poll();
+#endif
+#if ROVER_ESPNOW
+        en_poll();
 #endif
         if (cliff_eval() == 1) {
             if (cl_fault == 0 && cl_on == 1) { addLog("ROVER: cliff F%d%d R%d%d", cl_flag[3], cl_flag[2], cl_flag[0], cl_flag[1]); }
@@ -891,7 +897,7 @@ void Every50ms() {
     lk_poll();
 #endif
 #if ROVER_ESPNOW
-    en_poll();
+    if (park == 1) { en_poll(); }        // parked: TaskLoop does nothing (delay 250), the callback has the VM; otherwise TaskLoop polls
 #endif
 }
 
