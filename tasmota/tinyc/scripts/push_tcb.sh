@@ -1,7 +1,10 @@
 #!/bin/bash
 # push_tcb.sh — ein .tc-Programm uebersetzen und auf ein Tasmota-Geraet laden
 #
-#     scripts/push_tcb.sh <datei.tc> [geraet-ip] [slot]
+#     scripts/push_tcb.sh <datei.tc> [geraet-ip] [slot] [-DNAME ...]
+#
+# ⚠️ -DNAME gehoert hinter die Ip/den Slot, z. B. `-DBOARD_GOOUUU`. Fuer webcam_tinyc.tc und camera.tc ist es PFLICHT: ohne Board bricht die Uebersetzung
+#    ab (frueher stand ein verstecktes `// @defines: -DBOARD_DFROBOT` in der Datei und gab dem falschen Geraet still das falsche Board, 18.11.2026).
 #
 # ⚠️ DAS SKRIPT WAR KAPUTT. Es rief `scripts/compile_cli.js` auf; die Datei
 # liegt seit einer Umraeumung in legacy_misc/. Node brach mit MODULE_NOT_FOUND
@@ -15,15 +18,17 @@
 # Datei laege unbenutzt im Dateisystem.
 set -o errexit -o pipefail
 
-EINGABE="${1:?Aufruf: push_tcb.sh <datei.tc> [geraet-ip] [slot]}"
+EINGABE="${1:?Aufruf: push_tcb.sh <datei.tc> [geraet-ip] [slot] [-DNAME ...]}"
 GERAET="${2:-192.168.188.128}"
 SLOT="${3:-0}"
+shift $(( $# < 3 ? $# : 3 ))
+DEFS=("$@")      # was nach Ip und Slot kommt: -DNAME ...
 NAME="$(basename "$EINGABE" .tc)"
 TCB="/tmp/${NAME}.tcb"
 HIER="$(cd "$(dirname "$0")" && pwd)"
 
 echo "1/5  uebersetzen …"
-node "$HIER/compile_one.mjs" "$EINGABE" "$TCB"
+node "$HIER/compile_one.mjs" "$EINGABE" "$TCB" ${DEFS[@]+"${DEFS[@]}"}
 
 GROESSE=$(stat -f%z "$TCB" 2>/dev/null || stat -c%s "$TCB" 2>/dev/null)
 echo "2/5  hochladen: ${NAME}.tcb (${GROESSE} Byte) -> ${GERAET}"

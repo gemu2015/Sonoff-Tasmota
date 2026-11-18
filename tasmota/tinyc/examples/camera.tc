@@ -7,7 +7,8 @@
 //      or: node compile_cli.js camera.tc camera.tcb -DBOARD_AITHINKER
 // Live view: http://<device-ip>/cam  (MJPEG stream from port 81)
 // ═══════════════════════════════════════════════════════════════════
-// @defines: -DBOARD_DFROBOT
+// ⚠️ NO DEFAULT BOARD: write `#define BOARD_DFROBOT` (or BOARD_GOOUUU / BOARD_AITHINKER) as the FIRST line of this file, or compile with -DBOARD_xxx.
+// (An invisible `// @defines:` comment used to pick DFROBOT here and defined it NEXT TO the board you named: gemu 18.11.2026.)
 
 // ─── Camera pixel formats ───
 #define PIXFORMAT_RGB565    0
@@ -69,6 +70,14 @@
 #define OV2640_PID          0x2642
 #define OV3660_PID          0x3660
 #define OV5640_PID          0x5640
+
+#ifndef BOARD_DFROBOT
+#ifndef BOARD_GOOUUU
+#ifndef BOARD_AITHINKER
+#error NO BOARD NAMED - write  #define BOARD_DFROBOT  (or BOARD_GOOUUU / BOARD_AITHINKER)  as the first line of this file, or compile with -DBOARD_xxx
+#endif
+#endif
+#endif
 
 // ═══════════════════════════════════════════════════════════════════
 // Board-specific pin definitions

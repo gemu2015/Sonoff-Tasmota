@@ -8,6 +8,7 @@
 // und trotzdem falsch gebaut — man sucht den Fehler dann an der falschen
 // Stelle. Genau das ist am 06.09.2026 passiert.
 import { preprocess } from '../idesrc/src/preprocessor.js';
+import { compile } from '../idesrc/src/compiler.js';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -68,6 +69,20 @@ console.log('── am echten Webcam-Skript ──');
     ist('DFROBOT hat Nachtsicht',       /camControl\(20/.test(preprocess(src, ['BOARD_DFROBOT'])), true);
     ist('GOOUUU hat sie NICHT',         /camControl\(20/.test(preprocess(src, ['BOARD_GOOUUU'])), false);
     ist('AITHINKER hat sie NICHT',      /camControl\(20/.test(preprocess(src, ['BOARD_AITHINKER'])), false);
+}
+
+console.log('── die Kamera-Skripte haben KEINE stille Board-Vorgabe (18.11.2026) ──');
+// ⚠️ Eine Kommentarzeile `// @defines: -DBOARD_DFROBOT` gab dem falschen Geraet still das falsche Board (push_tcb.sh ohne -D auf einem Goouuu: DFRobot-Pins,
+// cameraInit 0x106) und definierte in der IDE ein zweites Board NEBEN dem genannten. Das Pragma selbst bleibt (oben getestet), die beiden Dateien tragen keins mehr.
+for (const f of ['webcam_tinyc', 'camera']) {
+    const roh = readFileSync(join(HIER, '../examples/' + f + '.tc'), 'utf8');
+    ist(f + ': kein @defines-Kommentar', /^\s*\/\/\s*@defines:\s*-D/m.test(roh), false);
+    let ohne = false;
+    try { compile(roh, { defines: [] }); } catch (e) { ohne = true; }
+    ist(f + ': ohne Board bricht der Bau ab', ohne, true);
+    let mit = true;
+    try { compile(roh, { defines: ['BOARD_GOOUUU'] }); } catch (e) { mit = false; }
+    ist(f + ': mit -DBOARD_GOOUUU baut es', mit, true);
 }
 
 console.log(`\n${gut} gut, ${schlecht} schlecht`);

@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // compile_one.mjs — EIN .tc-Programm nach .tcb uebersetzen.
 //
-//     node scripts/compile_one.mjs <datei.tc> [ziel.tcb]
+//     node scripts/compile_one.mjs <datei.tc> [ziel.tcb] [-DNAME ...]
+//
+// -DNAME wie beim IDE-Uebersetzer, z. B. -DBOARD_GOOUUU fuer webcam_tinyc.tc. Eine Board-Angabe hat dort KEINE Vorgabe mehr (18.11.2026).
 //
 // ⚠️ WOZU NOCH EINES. `compile_examples.mjs` uebersetzt den ganzen Ordner und
 // schreibt nach bytecode/ -- fuer „schnell aufs Geraet schieben" ist das zu
@@ -20,9 +22,11 @@ const here  = dirname(fileURLToPath(import.meta.url));
 const root  = join(here, '..');                 // tasmota/tinyc
 const exDir = join(root, 'examples');
 
-const src = process.argv[2];
+const defs = process.argv.slice(2).filter(a => a.startsWith('-D')).map(a => a.slice(2));
+const pos  = process.argv.slice(2).filter(a => !a.startsWith('-D'));
+const src = pos[0];
 if (!src) { console.error('Aufruf: compile_one.mjs <datei.tc> [ziel.tcb]'); process.exit(2); }
-const dst = process.argv[3] || join('/tmp', basename(src, '.tc') + '.tcb');
+const dst = pos[1] || join('/tmp', basename(src, '.tc') + '.tcb');
 
 // #include zuerst neben dem Programm, dann in examples/, dann examples/common/ --
 // dieselbe Reihenfolge wie in der Sammelstrecke.
@@ -36,10 +40,16 @@ const getFile = (name) => {
 
 try {
   const roh = readFileSync(src, 'utf-8');
-  const bin = Buffer.from(new Uint8Array(compile(resolveIncludes(roh, getFile), { defines: [] }).binary));
+  const quelle = resolveIncludes(roh, getFile);
+  var zeilen = quelle.split('\n');
+  const bin = Buffer.from(new Uint8Array(compile(quelle, { defines: defs }).binary));
   writeFileSync(dst, bin);
-  console.log(`${src} -> ${dst}  (${bin.length} Byte)`);
+  console.log(`${src} -> ${dst}  (${bin.length} Byte)` + (defs.length ? `  defines: ${defs.join(' ')}` : ''));
 } catch (e) {
-  console.error(`Fehler: ${String(e.message).split('\n')[0]}`);
+  const msg = String(e.message).split('\n')[0];
+  console.error(`Fehler: ${msg}`);
+  // Eine `#error`-Zeile (z. B. "kein Board genannt") erzeugt nur "Expected 'define' after '#'": die Zeile selbst zeigen, dort steht der Grund.
+  const m = msg.match(/at (\d+):/);
+  if (m && typeof zeilen !== 'undefined' && /^\s*#\s*error/.test(zeilen[+m[1] - 1] || '')) console.error(`  Zeile ${m[1]}: ${zeilen[+m[1] - 1].trim()}`);
   process.exit(1);
 }

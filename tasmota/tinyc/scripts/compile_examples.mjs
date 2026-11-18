@@ -37,6 +37,10 @@ const pragma = (src, key) => {
   return m ? m[1].trim() : '';
 };
 
+// ⚠️ Das Board fuer die fertig uebersetzten Beispiele (bytecode/) wird HIER genannt, nicht mehr als Kommentar in der Quelle: die Kamera-Skripte haben keine
+// stille Board-Vorgabe mehr (18.11.2026). DFRobot ist das Board, fuer das die ausgelieferten .tcb gebaut werden.
+const BOARD_FUER_BYTECODE = { webcam_tinyc: ['BOARD_DFROBOT'], camera: ['BOARD_DFROBOT'] };
+
 const tcs = readdirSync(exDir).filter(f => f.endsWith('.tc')).sort();
 const ok = [], failed = [], changed = [], created = [], meta = [];
 for (const f of tcs) {
@@ -47,7 +51,7 @@ for (const f of tcs) {
   try {
     const raw = readFileSync(join(exDir, f), 'utf-8');
     const src = resolveIncludes(raw, getFile);
-    const bin = Buffer.from(new Uint8Array(compile(src, { defines: [] }).binary));
+    const bin = Buffer.from(new Uint8Array(compile(src, { defines: BOARD_FUER_BYTECODE[name] || [] }).binary));
     writeFileSync(out, bin);
     ok.push(name);
     meta.push({ file: name + '.tcb', name: pragma(raw, 'name'), info: pragma(raw, 'info'), version: pragma(raw, 'version') });

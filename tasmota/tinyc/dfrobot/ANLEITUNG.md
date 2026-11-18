@@ -165,12 +165,13 @@ TinyCIde
 Dann das Kameraskript, `webcam_tinyc.tc`, in **Slot 0**:
 
 ```bash
-node tasmota/tinyc/tc_deploy.mjs tasmota/tinyc/examples/webcam_tinyc.tc <ip> --slot 0
+node tasmota/tinyc/tc_deploy.mjs tasmota/tinyc/examples/webcam_tinyc.tc <ip> -DBOARD_DFROBOT --slot 0
 ```
 
 * `--slot 0` **nicht weglassen**: ohne Angabe geht alles nach Slot 0.
-* Das Skript trägt `// @defines: -DBOARD_DFROBOT` — die Nachtsicht und die Personenerkennung
-  hängen daran. Die Vorgabe greift von selbst.
+* **Das Board muss genannt werden**: `-DBOARD_DFROBOT` anhängen (oder `#define BOARD_DFROBOT` als erste Zeile
+  der Datei, wenn Du in der IDE baust). Die Nachtsicht und die Personenerkennung hängen daran. Es gibt keine
+  stille Vorgabe mehr (18.11.2026): ohne Angabe bricht der Bau an der `#error`-Zeile ab.
 * Kommt `node` bei dir nicht ins LAN (`EHOSTUNREACH`, auf dem Mac die fehlende Erlaubnis
   „Lokales Netzwerk“): mit `--no-upload` nur übersetzen und mit `curl` hochladen — siehe
   [`docs/ESP-DL_Bauanleitung.md`](../docs/ESP-DL_Bauanleitung.md), Schritt 5.

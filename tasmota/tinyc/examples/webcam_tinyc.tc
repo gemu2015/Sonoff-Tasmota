@@ -18,20 +18,20 @@
 //                     without either, camControl(21,…) just returns -1.
 //
 // Compile: node compile_cli.js webcam_tinyc.tc webcam_tinyc.tcb -DBOARD_DFROBOT
-//      or: node compile_cli.js webcam_tinyc.tc webcam_tinyc.tcb -DBOARD_WAVESHARE   (the `// @defines:` line below says DFROBOT: pass -DBOARD_WAVESHARE and take that line out)
+//      or: node compile_cli.js webcam_tinyc.tc webcam_tinyc.tcb -DBOARD_WAVESHARE
 //      or: node compile_cli.js webcam_tinyc.tc webcam_tinyc.tcb -DBOARD_GOOUUU
 //      or: node compile_cli.js webcam_tinyc.tc webcam_tinyc.tcb -DBOARD_AITHINKER
 //
 // Camera capture runs in TaskLoop (VM task thread) — required for
 // esp_camera_fb_get() which crashes if called from main thread.
 // ═══════════════════════════════════════════════════════════════════
-// @defines: -DBOARD_DFROBOT
 
-// ⚠️ BOARD CHOICE. The line above is only the DEFAULT for the one-click build (the compiler ignores it when -D... is given on the command
-// line). For the Waveshare ESP32-S3-CAM (or GOOUUU / AI-Thinker) write `#define BOARD_WAVESHARE` (BOARD_GOOUUU, BOARD_AITHINKER) as the FIRST line of this file (before the comment block) or build with
-// -DBOARD_WAVESHARE: this block then switches the DFRobot default off, so HAS_NIGHT / the LTR-308 code (this board has no light sensor and
-// no IR LEDs) and the second `campins` stay out. Without it a Waveshare build also got the DFRobot block (measured 16.11.2026: the log said
-// "no LTR-308").
+// ⚠️ BOARD CHOICE — THERE IS NO DEFAULT (18.11.2026). Name your board, either with `-DBOARD_X` on the compiler command line (tc_deploy.mjs, push_tcb.sh,
+// compile_cli.js) or, in the browser IDE, by writing `#define BOARD_X` (BOARD_DFROBOT, BOARD_WAVESHARE, BOARD_GOOUUU or BOARD_AITHINKER) as the FIRST line of this file.
+// Without one the build stops at the `#error` line below. It used to carry a hidden `// @defines: -DBOARD_DFROBOT` comment that the compiler read as a default:
+// a push without -D got the DFRobot pins and night vision on a Goouuu board (camera init failed with 0x106), and in the IDE `#define BOARD_GOOUUU` plus that comment
+// meant TWO boards were defined at once (gemu, 18.11.2026). The blocks below switch the DFRobot defaults off again where another board is named
+// (HAS_NIGHT / the LTR-308 code, the second `campins`).
 #ifdef BOARD_WAVESHARE
 #undef BOARD_DFROBOT
 #endif
@@ -78,6 +78,17 @@ int campins[] = {-1, -1, 15, 4, 5, 16, 17, 18, 12, 10, 8, 9, 11, 6, 7, 13};
 #ifdef BOARD_AITHINKER
 // AI-Thinker ESP32-CAM (OV2640), flash LED on GPIO4
 int campins[] = {32, -1, 0, 26, 27, 35, 34, 39, 36, 21, 19, 18, 5, 25, 23, 22};
+#endif
+
+// A board must have been named (see BOARD CHOICE above). Stops here, with this line number, instead of with a cryptic "campins" error further down.
+#ifndef BOARD_DFROBOT
+#ifndef BOARD_WAVESHARE
+#ifndef BOARD_GOOUUU
+#ifndef BOARD_AITHINKER
+#error NO BOARD NAMED - write  #define BOARD_DFROBOT  (or BOARD_WAVESHARE / BOARD_GOOUUU / BOARD_AITHINKER)  as the first line of this file, or compile with -DBOARD_xxx
+#endif
+#endif
+#endif
 #endif
 
 // ─── Camera constants ───
