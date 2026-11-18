@@ -1183,6 +1183,9 @@ const uint16_t kGpioNiceList[] PROGMEM = {
   AGPIO(GPIO_C8_CO2_5K_RX),                      // SC8-CO2-5K Serial interface
 #endif
 
+#if defined(ESP32) && defined(CONFIG_IDF_TARGET_ESP32C5) && defined(SOC_TWAI_SUPPORTED)
+#undef SOC_TWAI_SUPPORTED     // C5: the arduino-libs ship no legacy twai_* driver, so TinyC / xdrv_91 must not call it (18.11.2026)
+#endif
 #ifdef ESP32
 #ifdef USE_ESP32_TWAI
 #if SOC_TWAI_SUPPORTED

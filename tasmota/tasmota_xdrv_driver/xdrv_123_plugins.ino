@@ -2437,7 +2437,7 @@ uint32_t tmod_serialdispatch(uint32_t sel, uint32_t p1, uint32_t p2, uint32_t p3
       break;
 #endif
 
-#ifdef ESP32
+#if defined(ESP32) && !defined(CONFIG_IDF_TARGET_ESP32C5)       // C5: the arduino-libs ship no legacy twai_* driver (18.11.2026)
     case 70:
       return twai_driver_install((twai_general_config_t *)p1, (twai_timing_config_t*)p2, (twai_filter_config_t*)p3);
     case 71:
