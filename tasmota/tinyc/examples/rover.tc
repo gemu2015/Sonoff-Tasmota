@@ -51,6 +51,11 @@
 #define OBST_FRONT_A1 300
 #define OBST_REAR_A0  60         // "behind" = opposite
 #define OBST_REAR_A1  120
+#define ROVER_ESPNOW 0           // 1 = ESP-NOW link (radio, no router): a cam module sends the same text commands as the UDP link ("d=40 t=0 m=40 p=0"), the rover answers
+                                 //     with a short status. Without ESPNOW_ENC anyone in radio range can drive the rover (log line "OPEN"); with ESPNOW_ENC 1 only ESPNOW_PEER can
+#define ESPNOW_ENC   0           // 1 = encrypted (needs ESPNOW_KEY of 16 characters and the sender's MAC in ESPNOW_PEER, the sender sets the same key and lists the rover)
+#define ESPNOW_KEY   "0123456789abcdef"
+#define ESPNOW_PEER  "AA:BB:CC:DD:EE:FF"
 #define ROVER_LINK  0            // 1 = UDP link: a cam module (or any program) sends drive commands to LINK_PORT, the rover answers with its status
 #define LINK_PORT   5006
 #define DSP_EXTRA   1            // 1 = extra panel below the 4 OLED lines (TFT)
@@ -143,6 +148,7 @@ int obs_rear  = 0;
 int obs_fault = 0;                // 1 = the lidar sends nothing (the brake cannot see)
 int obs_df    = 0;                // nearest distance ahead / behind in mm (0 = nothing seen)
 int obs_dr    = 0;
+int wan_on    = 0;                // RoverWander is running (declared here: the links below must know it)
 int cl_front = 0;
 int cl_rear  = 0;
 int cl_fault = 1;                // 1 until all four sensors answered
@@ -658,64 +664,6 @@ void park_set(int on) {
     }
 }
 
-#if ROVER_LINK
-// UDP LINK. Commands (text datagram to LINK_PORT, any subset of the fields):  "d=50 t=0 m=60 p=0"  (drive -100..100, turn -100..100,
-// max speed 10..100, park 0/1). Same rules as /rover_cmd: every command re-arms the 300 ms watchdog, the battery / cliff / stall guards
-// still win. The rover learns the sender's IP from the datagrams and sends its status there five times a second:
-//   {"v":12.49,"l":0,"r":0,"wd":0,"lo":0,"cl":15,"why":2,"yaw":-0.3,"el":0,"er":0,"st":0,"age":120}   (age = ms since the last command)
-// NO authentication, like /rover_cmd: anyone in the WLAN can drive the rover. Only for a trusted network.
-char lk_rx[64];
-char lk_tx[140];
-char lk_ip[20];
-char lk_tmp[12];
-int  lk_open = 0;
-int  lk_try  = 0;
-int  lk_next = 0;
-int  lk_cmds = 0;
-
-int lk_int(char key[], int def) {
-    int pos = strFind(lk_rx, key);
-    if (pos < 0) { return def; }
-    strSub(lk_tmp, lk_rx, pos + strlen(key), 8);
-    return strToInt(lk_tmp);
-}
-
-void lk_status() {
-    sprintf(lk_tx, "{\"v\":%d.%02d,\"l\":%d,\"r\":%d,\"wd\":%d,\"lo\":%d,\"cl\":%d,\"why\":%d,\"yaw\":%.1f,\"el\":%d,\"er\":%d,\"st\":%d,\"age\":%d}",
-            vbat_mv / 1000, (vbat_mv % 1000) / 10, motL, motR, stops, low, cliff_mask(), why, qmi_yaw, enc_ticks[0], enc_ticks[1], enc_stall, millis() - lastcmd);
-    udp(6, lk_ip, LINK_PORT, lk_tx);
-}
-
-void lk_poll() {
-    int n = 0;
-    if (lk_open == 0) {
-        lk_try = lk_try + 1;
-        if (lk_try >= 20) {
-            lk_try = 0;
-            if (udp(0, LINK_PORT) == 1) { lk_open = 1; addLog("ROVER: UDP link on port %d", LINK_PORT); }
-        }
-        return;
-    }
-    n = udp(1, lk_rx);
-    if (n > 0) {
-        udp(4, lk_ip);
-        lk_cmds = lk_cmds + 1;
-        drive = rover_clamp(lk_int("d=", 0), -100, 100);
-        turn = rover_clamp(lk_int("t=", 0), -100, 100);
-        vmax = rover_clamp(lk_int("m=", vmax), 10, 100);
-        if (lk_int("p=", -1) >= 0) { park_set(lk_int("p=", 0)); }
-        if (park == 1 && (drive != 0 || turn != 0)) { park_set(0); }
-        lastcmd = millis();
-        if (drive == 0 && turn == 0) { enc_stall = 0; }
-        rover_apply();
-        lk_status();
-    }
-    if (strlen(lk_ip) > 0 && millis() >= lk_next) {
-        lk_next = millis() + 200;
-        lk_status();
-    }
-}
-#endif
 
 // ── RANDOM WANDER (RoverWander <seconds>) ───────────────────────────────────────────────────────────────────────────────────────
 // The rover drives straight at WAN_D, and when the lidar brake or the staircase guard stops it, it backs off a cliff or turns on the spot in a random direction
@@ -726,7 +674,6 @@ void lk_poll() {
 #define WAN_T        50          // turn share
 #define WAN_FREE_MM  400         // the way ahead counts as free from this distance
 #define WAN_SIDE_MM  110         // an echo this close anywhere stops the run
-int wan_on    = 0;
 int wan_end   = 0;
 int wan_st    = 0;               // 0 straight, 1 backing off a cliff, 2 turning
 int wan_t0    = 0;
@@ -811,6 +758,116 @@ void wander_step() {
 #endif
 }
 
+#if ROVER_LINK
+// UDP LINK. Commands (text datagram to LINK_PORT, any subset of the fields):  "d=50 t=0 m=60 p=0"  (drive -100..100, turn -100..100,
+// max speed 10..100, park 0/1). Same rules as /rover_cmd: every command re-arms the 300 ms watchdog, the battery / cliff / stall guards
+// still win. The rover learns the sender's IP from the datagrams and sends its status there five times a second:
+//   {"v":12.49,"l":0,"r":0,"wd":0,"lo":0,"cl":15,"why":2,"yaw":-0.3,"el":0,"er":0,"st":0,"age":120}   (age = ms since the last command)
+// NO authentication, like /rover_cmd: anyone in the WLAN can drive the rover. Only for a trusted network.
+char lk_rx[64];
+char lk_tx[140];
+char lk_ip[20];
+char lk_tmp[12];
+int  lk_open = 0;
+int  lk_try  = 0;
+int  lk_next = 0;
+int  lk_cmds = 0;
+
+int lk_int(char key[], int def) {
+    int pos = strFind(lk_rx, key);
+    if (pos < 0) { return def; }
+    strSub(lk_tmp, lk_rx, pos + strlen(key), 8);
+    return strToInt(lk_tmp);
+}
+
+void lk_status() {
+    sprintf(lk_tx, "{\"v\":%d.%02d,\"l\":%d,\"r\":%d,\"wd\":%d,\"lo\":%d,\"cl\":%d,\"why\":%d,\"yaw\":%.1f,\"el\":%d,\"er\":%d,\"st\":%d,\"age\":%d}",
+            vbat_mv / 1000, (vbat_mv % 1000) / 10, motL, motR, stops, low, cliff_mask(), why, qmi_yaw, enc_ticks[0], enc_ticks[1], enc_stall, millis() - lastcmd);
+    udp(6, lk_ip, LINK_PORT, lk_tx);
+}
+
+void lk_poll() {
+    int n = 0;
+    if (lk_open == 0) {
+        lk_try = lk_try + 1;
+        if (lk_try >= 20) {
+            lk_try = 0;
+            if (udp(0, LINK_PORT) == 1) { lk_open = 1; addLog("ROVER: UDP link on port %d", LINK_PORT); }
+        }
+        return;
+    }
+    n = udp(1, lk_rx);
+    if (n > 0) {
+        udp(4, lk_ip);
+        lk_cmds = lk_cmds + 1;
+        if (wan_on == 1) {                            // a wander runs: a command of zero leaves it alone, a real drive command ends it
+            if (lk_int("d=", 0) != 0 || lk_int("t=", 0) != 0) { wander_stop(5); } else { lk_status(); return; }
+        }
+        drive = rover_clamp(lk_int("d=", 0), -100, 100);
+        turn = rover_clamp(lk_int("t=", 0), -100, 100);
+        vmax = rover_clamp(lk_int("m=", vmax), 10, 100);
+        if (lk_int("p=", -1) >= 0) { park_set(lk_int("p=", 0)); }
+        if (park == 1 && (drive != 0 || turn != 0)) { park_set(0); }
+        lastcmd = millis();
+        if (drive == 0 && turn == 0) { enc_stall = 0; }
+        rover_apply();
+        lk_status();
+    }
+    if (strlen(lk_ip) > 0 && millis() >= lk_next) {
+        lk_next = millis() + 200;
+        lk_status();
+    }
+}
+#endif
+
+#if ROVER_ESPNOW
+// ESP-NOW LINK. Same commands as the UDP link, as text in ONE packet (up to 250 bytes, here at most 63): "d=40 t=0 m=40 p=0". The rover answers every packet to its
+// sender with "v=<mV> l=<motor> r=<motor> w=<why> c=<cliff mask> a=<ms since the last command>". The radio's own ACK tells the sender whether the rover got the packet.
+// Same safety as /rover_cmd: every command re-arms the 300 ms watchdog, the battery / cliff / obstacle / stall guards still win, a drive command ends a wander.
+// Without ESPNOW_ENC anyone in radio range can send a packet: use it only for tests; with ESPNOW_ENC 1 (CCMP) only the listed peer is accepted.
+char en_mac[20];
+char en_rx[64];
+char en_tx[80];
+char en_tmp[12];
+int  en_ok   = 0;
+int  en_cmds = 0;
+int  en_t0   = 0;
+int  en_rssi = 0;
+
+int en_int(char key[], int def) {
+    int pos = strFind(en_rx, key);
+    if (pos < 0) { return def; }
+    strSub(en_tmp, en_rx, pos + strlen(key), 8);
+    return strToInt(en_tmp);
+}
+
+void en_poll() {
+    int n = 0;
+    if (en_ok == 0) { return; }
+    while (espnowAvailable() > 0) {
+        n = espnowRecv(en_mac, en_rx, 63);
+        if (n <= 0) { break; }
+        en_rx[n] = 0;
+        en_cmds = en_cmds + 1;
+        en_t0 = millis();
+        en_rssi = espnowRssi();
+        if (wan_on == 1) {
+            if (en_int("d=", 0) != 0 || en_int("t=", 0) != 0) { wander_stop(5); } else { continue; }
+        }
+        drive = rover_clamp(en_int("d=", 0), -100, 100);
+        turn = rover_clamp(en_int("t=", 0), -100, 100);
+        vmax = rover_clamp(en_int("m=", vmax), 10, 100);
+        if (en_int("p=", -1) >= 0) { park_set(en_int("p=", 0)); }
+        if (park == 1 && (drive != 0 || turn != 0)) { park_set(0); }
+        lastcmd = millis();
+        if (drive == 0 && turn == 0) { enc_stall = 0; }
+        rover_apply();
+        sprintf(en_tx, "v=%d l=%d r=%d w=%d c=%d a=%d", vbat_mv, motL, motR, why, cliff_mask(), millis() - lastcmd);
+        espnowSend(en_mac, en_tx, strlen(en_tx));       // waits for the radio's ACK, at most 100 ms (the sender just spoke, so it is there)
+    }
+}
+#endif
+
 void Every50ms() {
     wander_step();
     if (millis() - lastcmd > WD_MS) {
@@ -832,6 +889,9 @@ void Every50ms() {
     }
 #if ROVER_LINK
     lk_poll();
+#endif
+#if ROVER_ESPNOW
+    en_poll();
 #endif
 }
 
@@ -878,6 +938,10 @@ void WebCall() {
     } else {
         webSend("{s}Lidar{m}no data (LIDAR_RX wired? 5 V on?){e}");
     }
+#endif
+#if ROVER_ESPNOW
+    sprintf(ob, "{s}ESP-NOW commands / last RSSI / age{m}%d / %d dBm / %d ms{e}", en_cmds, en_rssi, millis() - en_t0);
+    webSend(ob);
 #endif
     webSend("{s}Rover page{m}<a href='/rover'>/rover</a>{e}");
 }
@@ -1115,6 +1179,16 @@ int main() {
     tasmInfo(2, ip);
     webOn(1, "/rover");
     webOn(2, "/rover_cmd");
+#if ROVER_ESPNOW
+#if ESPNOW_ENC
+    espnowKey(ESPNOW_KEY);                           // the key counts for the peers added AFTER this call, on both sides
+    espnowPeer(ESPNOW_PEER);
+#else
+    addLog("ROVER: ESP-NOW link is OPEN (no key): anyone in radio range can drive the rover");
+#endif
+    en_ok = espnowBegin(0);                          // 0 = keep the channel of the WiFi link
+    addLog("ROVER: ESP-NOW begin %d, encrypted %d", en_ok, ESPNOW_ENC);
+#endif
     display_first();
     addLog("ROVER: ready (sim %d), page /rover, watchdog %d ms, cliff window %d..%d mm", ROVER_SIM, WD_MS, cl_min, cl_max);
     return 0;

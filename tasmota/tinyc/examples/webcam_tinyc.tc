@@ -105,6 +105,12 @@ int campins[] = {32, -1, 0, 26, 27, 35, 34, 39, 36, 21, 19, 18, 5, 25, 23, 22};
 #define RES_FIRST           6       // index 0 = FRAMESIZE_QVGA 320x240
 #define RES_DEFAULT         4       // index 4 = FRAMESIZE_VGA 640x480
 
+// 1 = the camera hangs upside down (USB connectors up, e.g. on the rover): the picture is turned by 180 degrees (vflip + hmirror flipped against the
+// standard mounting, 18.11.2026). Set it in a LOCAL copy for such a device; the repository default stays 0.
+#ifndef CAM_ROTATE180
+#define CAM_ROTATE180       0
+#endif
+
 // Sensor parameter IDs for camControl(9, param, value)
 #define CAM_VFLIP           0
 #define CAM_BRIGHTNESS      1
@@ -231,10 +237,14 @@ int initCamera() {
     addLog("TCC: sensor PID = 0x%x", pid);
 
     if (pid == OV3660_PID) {
-        camControl(9, CAM_VFLIP, 1);
+        camControl(9, CAM_VFLIP, CAM_ROTATE180 == 1 ? 0 : 1);     // the stand mounting needs vflip 1; upside down: vflip 0 and hmirror 1
+        camControl(9, CAM_HMIRROR, CAM_ROTATE180);
         camControl(9, CAM_BRIGHTNESS, 1);
         camControl(9, CAM_SATURATION, -2);
         addLog("TCC: OV3660 settings applied");
+    } else if (CAM_ROTATE180 == 1) {
+        camControl(9, CAM_VFLIP, 1);
+        camControl(9, CAM_HMIRROR, 1);
     }
 
     return 0;
