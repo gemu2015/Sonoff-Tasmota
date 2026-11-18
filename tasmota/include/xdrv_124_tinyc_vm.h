@@ -3394,6 +3394,35 @@ static void tc_pcb_census(uint8_t *active, uint8_t *tw) {
   tcpip_api_call(tc_pcb_census_run, &s.ncall);
   *active = s.active; *tw = s.tw;
 }
+// httpGet diagnostic (Andreas, HEMS on an ESP32-P4, 17.11.2026): 33 % of the polls failed with -1 after 1 ms, against 24 different devices, with heap and
+// network fine. Nothing leaves the device when connect() fails that fast, so the suspects are "no free socket" (CONFIG_LWIP_MAX_SOCKETS=16, EMFILE),
+// the PCB pool, or network_down. On a failure under 20 ms this counts how many sockets socket() still hands out (they are closed again at once, an
+// unconnected socket leaves no TIME_WAIT) and logs it with the PCB census. At most one line per 3 s; the number of fast failures since boot is in it.
+#define TC_HTTP_DIAG_FAST_MS   20
+#define TC_HTTP_DIAG_PROBE_MAX 40
+static void tc_http_fail_diag(int httpCode, uint32_t ms, const char *url) {
+  static uint32_t n_fast = 0;
+  static uint32_t last_log = 0;
+  if (ms >= TC_HTTP_DIAG_FAST_MS) { return; }
+  n_fast++;
+  uint32_t now = millis();
+  if (last_log != 0 && (now - last_log) < 3000) { return; }
+  last_log = now;
+  int fds[TC_HTTP_DIAG_PROBE_MAX];
+  int n = 0;
+  int err = 0;
+  while (n < TC_HTTP_DIAG_PROBE_MAX) {
+    int s = socket(AF_INET, SOCK_STREAM, 0);
+    if (s < 0) { err = errno; break; }
+    fds[n++] = s;
+  }
+  for (int i = 0; i < n; i++) { close(fds[i]); }
+  uint8_t a = 0, tw = 0;
+  tc_pcb_census(&a, &tw);
+  AddLog(LOG_LEVEL_INFO, PSTR("TCC: httpGet fast fail #%u rc=%d after %u ms, sockets still free=%d%s errno=%d, PCB active=%u time_wait=%u, network_down=%d, %s"),
+         (unsigned)n_fast, httpCode, (unsigned)ms, n, (n >= TC_HTTP_DIAG_PROBE_MAX) ? "+" : "", err, a, tw,
+         TasmotaGlobal.global_state.network_down ? 1 : 0, url);
+}
 // RAII guard for the Powerwall path (ESP_SSLClient), which has many early-exit stop()s:
 // set the pause flag on entry, auto-clear on ANY return so a missed clear can't strand
 // the multicast paused. (The raw-TLS path sets/clears the flag explicitly instead.)
@@ -12496,7 +12525,9 @@ static int tc_syscall_impl(TcVM *vm, uint16_t id) {
         bool _on_vm_task = (_hs && _hs->vm_mutex && xSemaphoreGetMutexHolder(_hs->vm_mutex) == xTaskGetCurrentTaskHandle());   // OWNER test, not task test -- see TC_FTP_UNLOCK
         if (_on_vm_task && _hs->vm_mutex) xSemaphoreGive(_hs->vm_mutex);
 #endif
+        uint32_t _t_get = millis();
         int httpCode = http.GET();
+        uint32_t _get_ms = millis() - _t_get;
         if (httpCode > 0 && lbuf) {
           int32_t gsize = http.getSize();          // -1 = chunked / unknown
           WiFiClient *st = http.getStreamPtr();
@@ -12564,6 +12595,9 @@ static int tc_syscall_impl(TcVM *vm, uint16_t id) {
 #endif
         http.end();
         bool transport_err = (httpCode <= 0);
+#ifdef ESP32
+        if (transport_err) { tc_http_fail_diag(httpCode, _get_ms, url); }
+#endif
         // Name the TLS buffer when nothing reached the wire: a failed 16 kB
         // allocation and an unreachable host look identical from here (both
         // return <= 0 within ~20 ms), and telling them apart cost Hans a long
