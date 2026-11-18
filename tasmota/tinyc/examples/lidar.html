@@ -1,0 +1,28 @@
+<!DOCTYPE html><meta name=viewport content='width=device-width,initial-scale=1'><title>Rover lidar</title><style>body{font-family:sans-serif;margin:8px;text-align:center;background:#111;color:#ddd}canvas{background:#000;border:1px solid #444;border-radius:50%;touch-action:none}select,button{font-size:14px;margin:2px}#st{font-size:13px;min-height:2.4em}a{color:#8cf}</style>
+<div id=st>-</div><canvas id=c></canvas><div id=inf>&nbsp;</div><div>Range <select id=rg><option value=0>auto<option value=500>0.5 m<option value=1000>1 m<option value=2000>2 m<option value=4000>4 m<option value=8000>8 m<option value=12000>12 m</select> <select id=md><option value=0>dots<option value=1>filled</select> <label><input type=checkbox id=mi>mirror</label> <button id=fz>freeze</button> <a href=/rover>joystick</a></div>
+<script>
+// distances come in lidar degrees (0 = lidar forward); the rover's nose is at 270 (j.f0..j.f1 = brake sector ahead), so the picture is turned by 90: nose up
+var c=document.getElementById('c'),x=c.getContext('2d'),J=null,D=[],R=2000,F=0,W=300,S=0,OFF=90;
+function sz(){W=Math.max(200,Math.min(innerWidth-24,innerHeight-190,720));c.width=c.height=W;S=W/2*0.96}sz();
+function ang(i){return(i+OFF)%360}
+function pt(a,d){var r=d/R*S,t=a*Math.PI/180,m=mi.checked?-1:1;return[W/2+m*r*Math.sin(t),W/2-r*Math.cos(t)]}
+function nice(){var m=0,i;for(i=0;i<360;i++){if(D[i]>m&&D[i]<=4000)m=D[i]}return m<=450?500:m<=900?1000:m<=1900?2000:4000}
+function wedge(a0,a1,r,col){var i,p;x.beginPath();x.moveTo(W/2,W/2);for(i=a0;i<=a1;i+=2){p=pt(ang(i%360),r);x.lineTo(p[0],p[1])}x.closePath();x.fillStyle=col;x.fill()}
+function draw(){var h=W/2,i,p,f=1,n=0,na=-1,j=J;R=+rg.value||nice();x.clearRect(0,0,W,W);
+x.strokeStyle='#444';x.fillStyle='#888';x.font='11px sans-serif';var sp=R>6000?2000:R>2500?1000:R>1200?500:R>600?250:100;
+for(i=sp;i<=R;i+=sp){x.beginPath();x.arc(h,h,i/R*S,0,7);x.stroke();x.fillText(i/1000+' m',h+3,h-i/R*S+11)}
+for(i=0;i<360;i+=30){p=pt(i,R);x.beginPath();x.moveTo(h,h);x.lineTo(p[0],p[1]);x.stroke()}
+if(j&&j.on){wedge(j.f0,j.f1,Math.min(j.mm,R),'rgba(255,160,0,.18)');wedge(j.b0,j.b1,Math.min(j.mm,R),'rgba(255,160,0,.18)')}
+if(md.value==1){x.beginPath();for(i=0;i<360;i++){if(D[i]>0){p=pt(ang(i),Math.min(D[i],R));if(f){x.moveTo(p[0],p[1]);f=0}else{x.lineTo(p[0],p[1])}}}x.closePath();x.fillStyle='rgba(40,170,120,.35)';x.fill();x.strokeStyle='#2a7';x.stroke()}
+for(i=0;i<360;i++){if(D[i]>0){if(n==0||D[i]<n){n=D[i];na=i}if(md.value==0&&D[i]<=R){p=pt(ang(i),D[i]);x.fillStyle='hsl('+Math.round(D[i]/R*120)+',85%,50%)';x.fillRect(p[0]-1.5,p[1]-1.5,3,3)}}}
+x.fillStyle='#fff';x.beginPath();x.moveTo(h,h-9);x.lineTo(h-6,h+4);x.lineTo(h+6,h+4);x.fill();
+if(na>=0&&n<=R){p=pt(ang(na),n);x.strokeStyle='#f44';x.lineWidth=2;x.beginPath();x.arc(p[0],p[1],7,0,7);x.stroke();x.lineWidth=1}
+inf.textContent=na>=0?'nearest '+n+' mm  ('+((ang(na)+180)%360-180)+' deg from the nose, + = right if not mirrored)':'no echo'}
+c.onpointermove=function(e){var r=c.getBoundingClientRect(),dx=(e.clientX-r.left)*W/r.width-W/2,dy=W/2-(e.clientY-r.top)*W/r.height;if(mi.checked)dx=-dx;var a=(Math.round(Math.atan2(dx,dy)*180/Math.PI)+360)%360,d=Math.round(Math.hypot(dx,dy)/S*R);inf.textContent=a+' deg from the nose  '+d+' mm  (echo here: '+(D[(a-OFF+360)%360]||'none')+' mm)'};
+fz.onclick=function(){F=!F;fz.textContent=F?'resume':'freeze'};
+rg.onchange=md.onchange=mi.onchange=function(){if(D.length)draw()};window.onresize=function(){sz();if(D.length)draw()};
+function tick(){if(F||document.hidden){setTimeout(tick,300);return}
+fetch('lidar_data').then(function(r){return r.json()}).then(function(j){J=j;D=j.d;draw();
+st.textContent=j.ok?'ahead '+j.nf+' mm   behind '+j.nb+' mm   brake '+(j.on?'on, stop below '+j.mm+' mm':'off')+'   '+j.sc+' turns, '+j.ms+' ms per turn':'NO DATA from the lidar';
+setTimeout(tick,150)}).catch(function(){st.textContent='no link';setTimeout(tick,1000)})}tick();
+</script>

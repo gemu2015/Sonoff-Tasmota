@@ -933,6 +933,7 @@ void WebCall() {
     if (lid_ok() == 1) {
         sprintf(ob, "{s}Lidar front / back{m}%d / %d mm   brake %d (stop below %d mm)   left %d / right %d mm (direction assumed){e}", lid_min(OBST_FRONT_A0, OBST_FRONT_A1), lid_min(OBST_REAR_A0, OBST_REAR_A1), obs_on, obs_mm, lid_min(150, 210), lid_min(330, 30));
         webSend(ob);
+        webSend("{s}Lidar display{m}<a href='/lidar'>/lidar</a>{e}");
         sprintf(ob, "{s}Lidar scans / speed{m}%d  %d ms per turn  packets ok / crc %d / %d{e}", lid_scans, lid_scan_ms, lid_n_ok, lid_n_crc);
         webSend(ob);
     } else {
@@ -963,6 +964,20 @@ void rover_page() {
     webSendFile("/rover.html");
 }
 
+#if ROVER_LIDAR
+// /lidar_data: the raw scan in lidar degrees (0 = lidar's own forward, "ahead" of the rover is 270): the page /lidar (file /lidar.html) turns it
+void lidar_data() {
+    int i = 0;
+    sprintf(ob, "{\"ok\":%d,\"sc\":%d,\"ms\":%d,\"f0\":%d,\"f1\":%d,\"b0\":%d,\"b1\":%d,\"on\":%d,\"mm\":%d,\"nf\":%d,\"nb\":%d,\"d\":[", lid_ok(), lid_scans, lid_scan_ms, OBST_FRONT_A0, OBST_FRONT_A1, OBST_REAR_A0, OBST_REAR_A1, obs_on, obs_mm, lid_min(OBST_FRONT_A0, OBST_FRONT_A1), lid_min(OBST_REAR_A0, OBST_REAR_A1));
+    webSend(ob);
+    while (i < 360) {
+        sprintf(ob, "%d,%d,%d,%d,%d%s", lid_dist[i], lid_dist[i + 1], lid_dist[i + 2], lid_dist[i + 3], lid_dist[i + 4], i < 355 ? "," : "]}");
+        webSend(ob);
+        i = i + 5;
+    }
+}
+#endif
+
 void WebOn() {
     int h = webHandler();
     int wd_a = 0;
@@ -970,6 +985,14 @@ void WebOn() {
     if (h == 1) {
         rover_page();
     }
+#if ROVER_LIDAR
+    if (h == 3) {
+        webSendFile("/lidar.html");
+    }
+    if (h == 4) {
+        lidar_data();
+    }
+#endif
     if (h == 2) {
         if (wan_on == 1) {                            // a status poll (d=0, t=0) leaves the wander alone, a real drive command ends it
             wd_a = 0;
@@ -1179,6 +1202,10 @@ int main() {
     tasmInfo(2, ip);
     webOn(1, "/rover");
     webOn(2, "/rover_cmd");
+#if ROVER_LIDAR
+    webOn(3, "/lidar");
+    webOn(4, "/lidar_data");
+#endif
 #if ROVER_ESPNOW
 #if ESPNOW_ENC
     espnowKey(ESPNOW_KEY);                           // the key counts for the peers added AFTER this call, on both sides
