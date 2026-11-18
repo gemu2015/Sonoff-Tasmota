@@ -488,6 +488,52 @@ int vl_poll(int ch) {
     return d;
 }
 
+// ---- non-blocking service for several sensors (18.11.2026) ------------------------------------------------------------
+// vl_poll() busy-waits in the VM for the end of ONE measurement (about 43 ms measured), so four sensors took 170 ms and, together with the rest of the
+// rover's loop, every sensor was refreshed only every 600..800 ms. vl_service(ch) never waits: it collects a finished measurement and starts the next one,
+// so all four sensors measure in parallel in their own hardware. Call it for every channel once per pass of the loop (a pass takes longer than a measurement).
+int vl_busy[4];              // 1 = a measurement was started and not collected yet
+int vl_t0[4];                // when it was started
+
+// 1 = vl_dist[ch] / vl_age[ch] were updated by this call (a result, or a measurement that never finished)
+int vl_service(int ch) {
+    int got = 0;
+    int d = 0;
+    if (ch < 0 || ch > 3) { return 0; }
+    if (vl_up[ch] == 0) { return 0; }
+    if (vl_select(ch) == 0) { vl_dist[ch] = 65535; vl_age[ch] = millis(); vl_busy[ch] = 0; return 1; }
+    vl_stop_var = vl_sv[ch];
+    if (vl_busy[ch] == 1) {
+        if ((vl_rd(RESULT_INTERRUPT_STATUS) & 7) != 0) {
+            d = vl_rd16(0x1E);
+            vl_wr(SYSTEM_INTERRUPT_CLEAR, 0x01);
+            if (d >= 8190) { d = 65535; }
+            vl_dist[ch] = d;
+            vl_age[ch] = millis();
+            vl_busy[ch] = 0;
+            got = 1;
+        } else if (millis() - vl_t0[ch] > 150) {          // never finished: report no result and start again
+            vl_dist[ch] = 65535;
+            vl_age[ch] = millis();
+            vl_busy[ch] = 0;
+            got = 1;
+        } else {
+            return 0;
+        }
+    }
+    vl_wr(0x80, 0x01);
+    vl_wr(0xFF, 0x01);
+    vl_wr(0x00, 0x00);
+    vl_wr(0x91, vl_stop_var);
+    vl_wr(0x00, 0x01);
+    vl_wr(0xFF, 0x00);
+    vl_wr(0x80, 0x00);
+    vl_wr(SYSRANGE_START, 0x01);
+    vl_busy[ch] = 1;
+    vl_t0[ch] = millis();
+    return got;
+}
+
 void vl_release() {
     if (vl_claimed == 1) { I2cResetActive(VL_ADDR, vl_bus); vl_claimed = 0; }
     if (vl_mux_ok == 1) { I2cResetActive(VL_MUX_ADDR, vl_bus); vl_mux_ok = 0; }

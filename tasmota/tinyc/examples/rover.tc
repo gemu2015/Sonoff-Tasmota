@@ -56,7 +56,7 @@
 #define ESPNOW_ENC   0           // 1 = encrypted (needs ESPNOW_KEY of 16 characters and the sender's MAC in ESPNOW_PEER, the sender sets the same key and lists the rover)
 #define ESPNOW_KEY   "0123456789abcdef"
 #define ESPNOW_PEER  "AA:BB:CC:DD:EE:FF"
-#define ROVER_LINK  0            // 1 = UDP link: a cam module (or any program) sends drive commands to LINK_PORT, the rover answers with its status
+#define ROVER_LINK  1            // 1 = UDP link: a cam module (or any program) sends drive commands to LINK_PORT, the rover answers with its status
 #define LINK_PORT   5006
 #define DSP_EXTRA   1            // 1 = extra panel below the 4 OLED lines (TFT)
 
@@ -73,6 +73,7 @@
 #if ROVER_SIM
 #define ENC_SIM 1
 #endif
+#define ENC_STALL_MS 1500       // (800 before 18.11.2026) the speed controller needs about a second to bring a standing wheel from the minimum PWM up to its breakaway
 #define ENC_ON 1                // the stall guard is on (encoders wired 13.11.2026): a side commanded but without a tick for 800 ms stops the rover
 #include "wheel_enc.tc"
 #if ROVER_LIDAR
@@ -100,7 +101,7 @@
 #define VBAT_MIN_MV 9300
 #define CLIFF_MIN   40           // floor window (mm along the beam); set to your mounting with RoverCliff <min> <max>. The floor reads 51..73 mm here: a low obstacle ahead shortens the reading under 40 and counts as a cliff (25 before 17.11.2026)
 #define CLIFF_MAX   110
-#define CLIFF_STALE_MS 600       // a sensor that did not answer for this long is a fault
+#define CLIFF_STALE_MS 1000      // a sensor that did not answer for this long is a fault
 #define SPD_WIN_MS  200          // speed control: the ticks of this window give the measured speed
 #define SPD_PWM_LO  5            // lowest PWM the speed controller may use
 #define SPD_PULSE_BELOW 24       // below this speed (mm/s) a wheel is driven in bursts (pulse mode), at or above it the PI controller
@@ -376,8 +377,13 @@ int spd_ctl() {
             if (a > 0 && spd_out[s] > 0.0) {
                 tg = (float)a * (float)spd_full / 100.0;
                 err = tg - spd_v[s];
-                spd_out[s] = spd_out[s] + SPD_KP * (err - spd_err[s]) + SPD_KI * err;
-                spd_err[s] = err;
+                if (spd_v[s] < 0.3 * tg && spd_out[s] < 90.0) {
+                    spd_out[s] = spd_out[s] + 12.0;      // a wheel that has not got going yet (breakaway of the tyres on tiles needs about 40..60 PWM): ramp instead of the slow PI
+                    spd_err[s] = err;
+                } else {
+                    spd_out[s] = spd_out[s] + SPD_KP * (err - spd_err[s]) + SPD_KI * err;
+                    spd_err[s] = err;
+                }
                 if (spd_out[s] < (float)SPD_PWM_LO) { spd_out[s] = (float)SPD_PWM_LO; }
                 if (spd_out[s] > 255.0) { spd_out[s] = 255.0; }
                 ch = 1;
@@ -461,35 +467,52 @@ int cliff_eval() {
     return changed;
 }
 
-// one floor sensor per call (about 35 ms each on the real sensor)
+// all four floor sensors per call, without waiting (vl_service starts / collects; before 18.11.2026 ONE sensor per call, 43 ms each, so a sensor was
+// refreshed only every 600..800 ms and the cliff guard reacted after 12 cm of travel)
 void tof_step() {
-    int ch = tof_ch;
+    int ch = 0;
+    while (ch < 4) {
 #if ROVER_SIM
-    if (sim_tof[ch] >= 0) {                  // a negative value simulates a silent sensor (RoverTof <ch> -1)
-        vl_dist[ch] = sim_tof[ch];
-        vl_age[ch] = millis();
-    }
+        if (sim_tof[ch] >= 0) {                  // a negative value simulates a silent sensor (RoverTof <ch> -1)
+            vl_dist[ch] = sim_tof[ch];
+            vl_age[ch] = millis();
+        }
 #else
-    vl_poll(ch);
+        vl_service(ch);
 #endif
-    tof_ch = (ch + 1) & 3;
+        ch = ch + 1;
+    }
+}
+
+int tl_cnt = 0;
+int tl_rate = 0;
+int tl_t = 0;
+
+// the command links are polled several times per pass of TaskLoop (every step below can take 5..40 ms): the dead-man (WD_MS 300 ms) needs a command to be
+// noticed within about 50 ms, and a callback (Every50ms) gets the VM only while this loop sleeps
+void link_poll_all() {
+#if ROVER_LINK
+    lk_poll();
+#endif
+#if ROVER_ESPNOW
+    en_poll();
+#endif
+    fast_tasks();
 }
 
 void TaskLoop() {
+    tl_cnt = tl_cnt + 1;
+    if (millis() - tl_t >= 1000) { tl_rate = tl_cnt; tl_cnt = 0; tl_t = millis(); }
     if (park == 0) {
 #if ROVER_LIDAR
-        lid_poll();                  // the ring holds 200 ms: poll between the slow I2C steps
+        lid_poll();                  // the ring holds 200 ms: poll between the slow steps
 #endif
-#if ROVER_ESPNOW
-        en_poll();                   // here and not in Every50ms: a callback gets the VM only while this loop sleeps in delay(), so commands were answered 100..200 ms late
-#endif
+        link_poll_all();
         tof_step();
 #if ROVER_LIDAR
         lid_poll();
 #endif
-#if ROVER_ESPNOW
-        en_poll();
-#endif
+        link_poll_all();
         if (cliff_eval() == 1) {
             if (cl_fault == 0 && cl_on == 1) { addLog("ROVER: cliff F%d%d R%d%d", cl_flag[3], cl_flag[2], cl_flag[0], cl_flag[1]); }
             rover_apply();
@@ -499,9 +522,14 @@ void TaskLoop() {
             rover_apply();
         }
         qmi_poll();
+        link_poll_all();
         ak_poll();
 #if ROVER_LIDAR
         lid_poll();
+#endif
+        link_poll_all();
+#if ROVER_LINK && ROVER_LIDAR
+        lk_scan();
 #endif
     }
     if (millis() >= ina_next) {
@@ -771,7 +799,7 @@ void wander_step() {
 //   {"v":12.49,"l":0,"r":0,"wd":0,"lo":0,"cl":15,"why":2,"yaw":-0.3,"el":0,"er":0,"st":0,"age":120}   (age = ms since the last command)
 // NO authentication, like /rover_cmd: anyone in the WLAN can drive the rover. Only for a trusted network.
 char lk_rx[64];
-char lk_tx[140];
+char lk_tx[200];
 char lk_ip[20];
 char lk_tmp[12];
 int  lk_open = 0;
@@ -787,13 +815,50 @@ int lk_int(char key[], int def) {
 }
 
 void lk_status() {
-    sprintf(lk_tx, "{\"v\":%d.%02d,\"l\":%d,\"r\":%d,\"wd\":%d,\"lo\":%d,\"cl\":%d,\"why\":%d,\"yaw\":%.1f,\"el\":%d,\"er\":%d,\"st\":%d,\"age\":%d}",
-            vbat_mv / 1000, (vbat_mv % 1000) / 10, motL, motR, stops, low, cliff_mask(), why, qmi_yaw, enc_ticks[0], enc_ticks[1], enc_stall, millis() - lastcmd);
+    sprintf(lk_tx, "{\"v\":%d.%02d,\"l\":%d,\"r\":%d,\"wd\":%d,\"lo\":%d,\"cl\":%d,\"ob\":%d,\"sp\":%d,\"why\":%d,\"yaw\":%.1f,\"el\":%d,\"er\":%d,\"st\":%d,\"ox\":%d,\"oy\":%d,\"age\":%d}",
+            vbat_mv / 1000, (vbat_mv % 1000) / 10, motL, motR, stops, low, cliff_mask(), obs_mask(), spd_full, why, qmi_yaw, enc_ticks[0], enc_ticks[1], enc_stall, (int)enc_x, (int)enc_y, millis() - lastcmd);
     udp(6, lk_ip, LINK_PORT, lk_tx);
+}
+
+// The lidar picture for the controlling program, 5 times a second, as 3 datagrams of 120 degrees each: "S<seq>,<first degree>," followed by 2 characters
+// per degree = the distance in 16 mm steps (12 bit: chars 48 + (v >> 6) and 48 + (v & 63)). Instead of /lidar_data: that handler keeps the VM for about
+// 300 ms per call and starved the floor sensors (the cliff guard saw them 'stale' and refused to drive, found 18.11.2026).
+char lk_sc[260];
+int  lk_sc_next = 0;
+int  lk_sc_seq = 0;
+
+void lk_scan() {
+    int i = 0;
+    int k = 0;
+    int p = 0;
+    int v = 0;
+    if (lk_open == 0 || strlen(lk_ip) == 0) { return; }
+    if (millis() - lastcmd > 2000) { return; }               // nobody is steering
+    if (millis() < lk_sc_next) { return; }
+    lk_sc_next = millis() + 250;
+    lk_sc_seq = lk_sc_seq + 1;
+    while (p < 3) {
+        sprintf(lk_sc, "S%d,%d,", lk_sc_seq, p * 120);
+        k = strlen(lk_sc);
+        i = 0;
+        while (i < 120) {
+            v = lid_dist[p * 120 + i] / 16;
+            if (v > 4095) { v = 4095; }
+            lk_sc[k] = 48 + (v >> 6);
+            lk_sc[k + 1] = 48 + (v & 63);
+            k = k + 2;
+            i = i + 1;
+        }
+        lk_sc[k] = 0;
+        udp(6, lk_ip, LINK_PORT, lk_sc);
+        p = p + 1;
+    }
 }
 
 void lk_poll() {
     int n = 0;
+    int got = 0;
+    int sp_new = 0;
     if (lk_open == 0) {
         lk_try = lk_try + 1;
         if (lk_try >= 20) {
@@ -805,13 +870,28 @@ void lk_poll() {
     n = udp(1, lk_rx);
     if (n > 0) {
         udp(4, lk_ip);
-        lk_cmds = lk_cmds + 1;
+        got = 1;
+        while (got < 8) {                             // drain the socket: only the newest command counts (one packet per pass made the answers lag behind)
+            n = udp(1, lk_rx);
+            if (n <= 0) { break; }
+            udp(4, lk_ip);
+            got = got + 1;
+        }
+        lk_cmds = lk_cmds + got;
         if (wan_on == 1) {                            // a wander runs: a command of zero leaves it alone, a real drive command ends it
             if (lk_int("d=", 0) != 0 || lk_int("t=", 0) != 0) { wander_stop(5); } else { lk_status(); return; }
         }
         drive = rover_clamp(lk_int("d=", 0), -100, 100);
         turn = rover_clamp(lk_int("t=", 0), -100, 100);
         vmax = rover_clamp(lk_int("m=", vmax), 10, 100);
+        sp_new = lk_int("s=", -1);                    // s=<mm/s>: speed control like RoverSpeed, sent with EVERY command, so a rover that restarted is back in it at once
+        if (sp_new >= 0 && sp_new != spd_full) {
+            spd_full = rover_clamp(sp_new, 0, 600);
+            spd_out[0] = 0.0;
+            spd_out[1] = 0.0;
+            spd_mode[0] = 0;
+            spd_mode[1] = 0;
+        }
         if (lk_int("p=", -1) >= 0) { park_set(lk_int("p=", 0)); }
         if (park == 1 && (drive != 0 || turn != 0)) { park_set(0); }
         lastcmd = millis();
@@ -874,7 +954,24 @@ void en_poll() {
 }
 #endif
 
-void Every50ms() {
+int e50_cnt = 0;
+int e50_rate = 0;
+int e50_t = 0;
+
+// Dead-man, wheel encoders / stall guard, speed control and the wander run here, NOT only in Every50ms(): a callback gets the VM only while TaskLoop sleeps in
+// delay(), and with the lidar streaming TaskLoop is busy 97 % of the time, so Every50ms ran 2..3 times per second instead of 20 (measured 18.11.2026: the dead-man
+// was checked every 300..500 ms, the speed controller's 200 ms windows were seconds long and the stall guard tripped on a wheel that had just started).
+// TaskLoop calls this between its steps (service_points); the throttle keeps it at about 20 Hz whoever gets there first.
+int ft_t = 0;
+int ft_cnt = 0;
+int ft_rate = 0;
+int ft_t1 = 0;
+
+void fast_tasks() {
+    if (millis() - ft_t < 40) { return; }
+    ft_t = millis();
+    ft_cnt = ft_cnt + 1;
+    if (millis() - ft_t1 >= 1000) { ft_rate = ft_cnt; ft_cnt = 0; ft_t1 = millis(); }
     wander_step();
     if (millis() - lastcmd > WD_MS) {
         if (motL != 0 || motR != 0) {
@@ -887,6 +984,12 @@ void Every50ms() {
     enc_update(motL * DIR_L, motR * DIR_R);
     if (spd_ctl() == 1) { rover_apply(); }
     if (enc_on == 1 && enc_stall != 0 && why != 7) { rover_apply(); }
+}
+
+void Every50ms() {
+    e50_cnt = e50_cnt + 1;
+    if (millis() - e50_t >= 1000) { e50_rate = e50_cnt; e50_cnt = 0; e50_t = millis(); }
+    fast_tasks();
     if (PARK_AUTO_S > 0 && park == 0 && millis() - lastcmd > PARK_AUTO_S * 1000) { park_set(1); }
     dsp_n = dsp_n + 1;
     if (dsp_n >= 10) {
@@ -894,7 +997,7 @@ void Every50ms() {
         if (park == 0) { display_update(); }
     }
 #if ROVER_LINK
-    lk_poll();
+    if (park == 1) { lk_poll(); }
 #endif
 #if ROVER_ESPNOW
     if (park == 1) { en_poll(); }        // parked: TaskLoop does nothing (delay 250), the callback has the VM; otherwise TaskLoop polls
@@ -950,6 +1053,8 @@ void WebCall() {
     sprintf(ob, "{s}ESP-NOW commands / last RSSI / age{m}%d / %d dBm / %d ms{e}", en_cmds, en_rssi, millis() - en_t0);
     webSend(ob);
 #endif
+    sprintf(ob, "{s}Loop rates (per second){m}TaskLoop %d, Every50ms %d, fast tasks (dead-man, encoders, speed control) %d; a floor sensor is stale after %d ms{e}", tl_rate, e50_rate, ft_rate, CLIFF_STALE_MS);
+    webSend(ob);
     webSend("{s}Rover page{m}<a href='/rover'>/rover</a>{e}");
 }
 
