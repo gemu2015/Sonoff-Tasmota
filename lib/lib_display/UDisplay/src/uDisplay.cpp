@@ -773,10 +773,15 @@ uDisplay::uDisplay(char *lp) : Renderer(800, 600) {
             panel_config->epd.lut_partial_len = panel_config->epd.lutpsize;
             break;
           case 'T':
-            // Parse timing directly into EPD config
-            panel_config->epd.lut_full_time = next_val(&lp1);
-            panel_config->epd.lut_partial_time = next_val(&lp1);
-            panel_config->epd.update_time = next_val(&lp1);
+            // Parse timing directly into EPD config.
+            // Not for SPI colour panels: in PanelConfigUnion the epd timing fields (bytes 6..11) overlay spi.cmd_set_addr_x/y and
+            // spi.cmd_write_ram, so an old ":TI2,38,32,23" touch line in a ST7789 descriptor replaced 2A/2B/2C with 00/00/26
+            // and the panel showed only noise (found by Andreas, 17.11.2026).
+            if (!((interface == _UDSP_SPI || interface == _UDSP_QSPI) && bpp >= 16)) {
+              panel_config->epd.lut_full_time = next_val(&lp1);
+              panel_config->epd.lut_partial_time = next_val(&lp1);
+              panel_config->epd.update_time = next_val(&lp1);
+            }
             break;
           case 'B':
             lvgl_param.flushlines = next_val(&lp1);
