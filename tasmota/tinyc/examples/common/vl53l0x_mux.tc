@@ -456,7 +456,15 @@ int vl_start(int ch) {
     if (ch < 0 || ch > 3) { return 0; }
     vl_up[ch] = 0;
     if (vl_select(ch) == 0) { return 0; }
-    if (vl_rd(IDENTIFICATION_MODEL_ID) != VL_ID) { return 0; }
+    vl_wr(0xFF, 0x00);                                   // a sensor stopped in the middle of its init / a measurement keeps register page 1 selected and then reads wrong
+    if (vl_rd(IDENTIFICATION_MODEL_ID) != VL_ID) {
+        vl_wr(0xBF, 0x00);                               // soft reset (SOFT_RESET_GO2_SOFT_RESET_N): back to the power-up state without removing the power
+        delay(5);
+        vl_wr(0xBF, 0x01);
+        delay(10);
+        if (vl_rd(IDENTIFICATION_MODEL_ID) != VL_ID) { return 0; }
+        addLog("VL53L0X ch%d: recovered by soft reset", ch);
+    }
     if (vl_claimed == 0) {
         i2cSetActiveFound(VL_ADDR, "VL53L0X", vl_bus);
         vl_claimed = 1;
