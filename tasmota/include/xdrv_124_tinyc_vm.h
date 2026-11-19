@@ -14954,6 +14954,16 @@ static int tc_syscall_impl(TcVM *vm, uint16_t id) {
         config.pin_sccb_sda  = -1;          // tell esp_camera to NOT install its own I2C driver
         config.pin_sccb_scl  = -1;
         AddLog(LOG_LEVEL_INFO, PSTR("TCC: sharing I2C bus 2 for SCCB"));
+      } else if (TasmotaGlobal.i2c_enabled[0] && pins[3] >= 0 && pins[4] >= 0 &&
+                 pins[3] == Pin(GPIO_I2C_SDA, 0) && pins[4] == Pin(GPIO_I2C_SCL, 0)) {
+        // Tasmota already runs I2C bus 1 (Wire, port 0) on the very pins the camera uses for SCCB
+        // (e.g. Waveshare S3-CAM: expander, codec and sensor share GPIO8/7). Without this, esp_camera
+        // installs its own driver on port 0 and removes it again on deinit: the Tasmota bus is dead
+        // afterwards (I2CScan "Error 5").
+        config.sccb_i2c_port = 0;
+        config.pin_sccb_sda  = -1;
+        config.pin_sccb_scl  = -1;
+        AddLog(LOG_LEVEL_INFO, PSTR("TCC: sharing I2C bus 1 for SCCB"));
       }
 
       config.pin_d7       = pins[5];
