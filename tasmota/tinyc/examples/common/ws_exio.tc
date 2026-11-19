@@ -45,9 +45,13 @@ int exio_ok  = 0;
 int exio_out = EXIO_OUT_START;   // shadow of register 0x03
 
 // main() only. 1 = the expander answered
+// bus = the Tasmota bus to try first (0 = bus 1, 1 = bus 2); the other one is tried when the expander does not answer there
 int exio_init(int bus) {
     exio_ok = 0;
-    if (i2cSetDevice(EXIO_ADDR, bus) == 0) { return 0; }
+    if (i2cSetDevice(EXIO_ADDR, bus) == 0) {
+        bus = 1 - bus;
+        if (i2cSetDevice(EXIO_ADDR, bus) == 0) { return 0; }
+    }
     i2cSetActiveFound(EXIO_ADDR, "WS-EXIO", bus);
     exio_bus = bus;
     exio_ok = 1;

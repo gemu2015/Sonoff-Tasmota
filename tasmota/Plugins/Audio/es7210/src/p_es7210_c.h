@@ -88,10 +88,13 @@ MODULE_PART uint32_t pes7210_codec_init(uint8_t *twi_bus) {
 SETREGS
     uint32_t ret_val = ESP_OK;
 
-    uint8_t bus = 0;
+    // *twi_bus on entry = the bus to try FIRST (the one the speaker codec was found on); the other bus is tried second.
+    // Address 0x40 is shared with other devices (e.g. a PCA9685 on the other bus): scanning the wrong bus first would write
+    // codec registers into them.
+    uint8_t bus = (*twi_bus == 1) ? 1 : 0;
     I2C_SETWIRE(bus);
     if (!I2cSetDevice(ES7210_ADDR, bus)) {
-        bus++;
+        bus = 1 - bus;
         I2C_SETWIRE(bus);
         if (!I2cSetDevice(ES7210_ADDR, bus)) {
             return -1;

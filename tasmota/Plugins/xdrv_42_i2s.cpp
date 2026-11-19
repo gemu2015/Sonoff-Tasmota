@@ -700,7 +700,9 @@ int32_t I2SAudio_Init() {
         return -2;
       }
       pes8311_codec_set_voice_volume(75);
-      pes7210_codec_init(&codec_bus);   // 4-mic ADC; non-fatal — speaker (ES8311) works without it
+      { uint8_t dac_bus = codec_bus;                       // bus the speaker codec answered on
+        pes7210_codec_init(&codec_bus);   // 4-mic ADC (tries that bus first); non-fatal — speaker (ES8311) works without it
+        codec_bus = dac_bus; }
       break;
     case 5:   // Waveshare ESP32-S3-CAM: ES8311 DAC (0x18) + ES7210 mic ADC (0x40) on the board bus (SDA 8 / SCL 7).
               // The loudspeaker amplifier (PA_CTRL) is NOT a GPIO: it is pin EXIO4 of the CH32V003 expander (0x24), see AudioPwr().
@@ -710,7 +712,9 @@ int32_t I2SAudio_Init() {
         return -2;
       }
       pes8311_codec_set_voice_volume(75);
-      pes7210_codec_init(&codec_bus);   // non-fatal, like case 4
+      { uint8_t dac_bus = codec_bus;                       // bus of ES8311 AND of the expander (EXIO4 amplifier), see WsExioPa()
+        pes7210_codec_init(&codec_bus);   // non-fatal, like case 4; tries the ES8311 bus first
+        codec_bus = dac_bus; }
       break;
   }
 #endif

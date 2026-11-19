@@ -223,16 +223,18 @@ char *fileOnly(char *fname){
 // Expander registers (CH32V003 firmware of the Waveshare boards): 0x02 direction (1 = output), 0x03 output levels, 0x04 pin levels (the only
 // one that reads back reliably). Writing the direction resets the outputs to high, so the direction goes first and the levels after it.
 // Needs the Tasmota I2C bus on the board pins (Gpio8 = I2C SDA, Gpio7 = I2C SCL).
+// The expander may sit on either Tasmota I2C bus (bus 1 = Wire, bus 2 = Wire1): UfsExpanderInit picks the one that answers.
+static TwoWire *ufs_ex_wire = &Wire;
 static void UfsExpanderWrite(uint8_t addr, uint8_t reg, uint8_t val) {
-  Wire.beginTransmission(addr); Wire.write(reg); Wire.write(val); Wire.endTransmission(true);
+  ufs_ex_wire->beginTransmission(addr); ufs_ex_wire->write(reg); ufs_ex_wire->write(val); ufs_ex_wire->endTransmission(true);
 }
 static uint8_t UfsExpanderRead(uint8_t addr, uint8_t reg) {
-  Wire.beginTransmission(addr); Wire.write(reg); Wire.endTransmission(false);
-  Wire.requestFrom(addr, (uint8_t)1);
-  return Wire.available() ? Wire.read() : 0;
+  ufs_ex_wire->beginTransmission(addr); ufs_ex_wire->write(reg); ufs_ex_wire->endTransmission(false);
+  ufs_ex_wire->requestFrom(addr, (uint8_t)1);
+  return ufs_ex_wire->available() ? ufs_ex_wire->read() : 0;
 }
 static void UfsExpanderInit(void) {
-  if (!ffsp || !TasmotaGlobal.i2c_enabled[0]) { return; }
+  if (!ffsp || !(TasmotaGlobal.i2c_enabled[0] || TasmotaGlobal.i2c_enabled[1])) { return; }
   File f = ffsp->open("/expander.cfg", "r");
   if (!f) { return; }
   char buf[40]; size_t n = f.readBytes(buf, sizeof(buf) - 1); buf[n] = 0; f.close();
@@ -249,8 +251,17 @@ static void UfsExpanderInit(void) {
     AddLog(LOG_LEVEL_INFO, PSTR(D_LOG_UFS "/expander.cfg ignored (need \"0x24,0x67[,0x7F]\")")); return;
   }
   if (!has_dir) { dir = 0x7F; }                        // Waveshare: pins 0..6 outputs, pin 7 = charger detect INPUT
-  Wire.beginTransmission(addr);
-  if (Wire.endTransmission(true) != 0) { return; }     // no expander at that address
+  bool found = false;
+  if (TasmotaGlobal.i2c_enabled[0]) {                  // bus 1 first, then bus 2
+    Wire.beginTransmission(addr);
+    if (0 == Wire.endTransmission(true)) { ufs_ex_wire = &Wire; found = true; }
+  }
+  if (!found && TasmotaGlobal.i2c_enabled[1]) {
+    Wire1.beginTransmission(addr);
+    if (0 == Wire1.endTransmission(true)) { ufs_ex_wire = &Wire1; found = true; }
+  }
+  if (!found) { return; }                              // no expander at that address
+  AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_UFS "Expander 0x%02X found on I2C bus %d"), addr, (ufs_ex_wire == &Wire) ? 1 : 2);
   uint8_t mask = dir & 0x7F;                           // compare only the output pins (bit 7 is an input here)
   // Measured 17.11.2026: right after power-up (this runs ~90 ms after boot) the expander's own start-up is not finished and resets its pins
   // AFTERWARDS (cold start read "in=0x80, direction 0x67" although the levels had been written). So: write, wait, read back, and write
