@@ -3402,6 +3402,63 @@ static void tc_pcb_census(uint8_t *active, uint8_t *tw) {
 // unconnected socket leaves no TIME_WAIT) and logs it with the PCB census. At most one line per 3 s; the number of fast failures since boot is in it.
 #define TC_HTTP_DIAG_FAST_MS   20
 #define TC_HTTP_DIAG_PROBE_MAX 40
+// Who holds the sockets? (Andreas, 18.11.2026: free=0 on every fast failure, 7 active TCP PCBs, the other ~9 of 16 sockets unaccounted for.) Opens NOTHING: walks the
+// socket numbers lwIP hands out (FD_SETSIZE - CONFIG_LWIP_MAX_SOCKETS .. FD_SETSIZE - 1, the same formula as LWIP_SOCKET_OFFSET in lwipopts.h) and asks each one for
+// its type (SO_TYPE; EBADF = not open), whether it listens (SO_ACCEPTCONN), its local port (getsockname) and its peer (getpeername; only connected sockets have one).
+// One log line "TCC: sockets in use: fd48 TCP L:80 listen, fd53 TCP L:49152 R:192.168.188.20:80, fd55 UDP L:5353" (split in several lines when long), at most once per 30 s.
+static void tc_sock_list(void) {
+  static uint32_t last_list = 0;
+  uint32_t now = millis();
+  if (last_list != 0 && (now - last_list) < 30000) { return; }
+  last_list = now;
+  char line[420];
+  line[0] = 0;
+  size_t used = 0;
+  int found = 0;
+  int first = FD_SETSIZE - CONFIG_LWIP_MAX_SOCKETS;
+  for (int fd = first; fd < FD_SETSIZE; fd++) {
+    int type = 0;
+    socklen_t tl = sizeof(type);
+    if (getsockopt(fd, SOL_SOCKET, SO_TYPE, &type, &tl) != 0) { continue; }       // not an open socket
+    found++;
+    int accepting = 0;
+    socklen_t al = sizeof(accepting);
+    if (SOCK_STREAM != type || getsockopt(fd, SOL_SOCKET, SO_ACCEPTCONN, &accepting, &al) != 0) { accepting = 0; }
+    struct sockaddr_storage ss;
+    socklen_t sl = sizeof(ss);
+    int lport = -1;
+    if (getsockname(fd, (struct sockaddr *)&ss, &sl) == 0) {
+      lport = (AF_INET6 == ss.ss_family) ? ntohs(((struct sockaddr_in6 *)&ss)->sin6_port) : ntohs(((struct sockaddr_in *)&ss)->sin_port);
+    }
+    char rem[56];
+    rem[0] = 0;
+    sl = sizeof(ss);
+    if (getpeername(fd, (struct sockaddr *)&ss, &sl) == 0) {
+      char ip[40];
+      ip[0] = 0;
+      if (AF_INET6 == ss.ss_family) {
+        inet_ntop(AF_INET6, &((struct sockaddr_in6 *)&ss)->sin6_addr, ip, sizeof(ip));
+        snprintf(rem, sizeof(rem), " R:[%s]:%u", ip, (unsigned)ntohs(((struct sockaddr_in6 *)&ss)->sin6_port));
+      } else {
+        inet_ntop(AF_INET, &((struct sockaddr_in *)&ss)->sin_addr, ip, sizeof(ip));
+        snprintf(rem, sizeof(rem), " R:%s:%u", ip, (unsigned)ntohs(((struct sockaddr_in *)&ss)->sin_port));
+      }
+    }
+    char one[120];
+    int n = snprintf(one, sizeof(one), "%sfd%d %s L:%d%s%s", used ? ", " : "", fd,
+                     (SOCK_STREAM == type) ? "TCP" : ((SOCK_DGRAM == type) ? "UDP" : "RAW"), lport, accepting ? " listen" : "", rem);
+    if (n < 0) { continue; }
+    if (used + (size_t)n >= sizeof(line) - 1) {                                    // line is full: write it out and start the next one
+      AddLog(LOG_LEVEL_INFO, PSTR("TCC: sockets in use: %s"), line);
+      line[0] = 0; used = 0;
+      n = snprintf(one, sizeof(one), "fd%d %s L:%d%s%s", fd, (SOCK_STREAM == type) ? "TCP" : ((SOCK_DGRAM == type) ? "UDP" : "RAW"), lport, accepting ? " listen" : "", rem);
+    }
+    memcpy(line + used, one, (size_t)n + 1);
+    used += (size_t)n;
+  }
+  if (used) { AddLog(LOG_LEVEL_INFO, PSTR("TCC: sockets in use: %s"), line); }
+  AddLog(LOG_LEVEL_INFO, PSTR("TCC: sockets in use: %d of %d (fd %d..%d)"), found, (int)CONFIG_LWIP_MAX_SOCKETS, first, FD_SETSIZE - 1);
+}
 static void tc_http_fail_diag(int httpCode, uint32_t ms, const char *url) {
   static uint32_t n_fast = 0;
   static uint32_t last_log = 0;
@@ -3421,6 +3478,7 @@ static void tc_http_fail_diag(int httpCode, uint32_t ms, const char *url) {
   for (int i = 0; i < n; i++) { close(fds[i]); }
   uint8_t a = 0, tw = 0;
   tc_pcb_census(&a, &tw);
+  if (0 == n) { tc_sock_list(); }                    // the pool is full: show who holds the sockets (the probe above opened nothing in that case)
   AddLog(LOG_LEVEL_INFO, PSTR("TCC: httpGet fast fail #%u rc=%d after %u ms, sockets still free=%d%s errno=%d, PCB active=%u time_wait=%u, network_down=%d, %s"),
          (unsigned)n_fast, httpCode, (unsigned)ms, n, (n >= TC_HTTP_DIAG_PROBE_MAX) ? "+" : "", err, a, tw,
          TasmotaGlobal.global_state.network_down ? 1 : 0, url);
