@@ -644,7 +644,7 @@ bool     I2cSetDevice(uint32_t addr, uint8_t bus = 0)                           
 void (* const MODULE_JUMPTABLE[])(void) PROGMEM = {
   JMPTBL&Wire,
 #ifdef ESP32
-#ifdef USE_I2C_BUS2
+#if defined(USE_I2C_BUS2) || (MAX_I2C > 1)   // the core's own test for a second bus (support_a_i2c.ino); USE_I2C_BUS2 alone was only set in the P4 build, so on the S3 a plugin on bus 2 talked to Wire
   JMPTBL&Wire1,
 #else
   JMPTBL&Wire,
