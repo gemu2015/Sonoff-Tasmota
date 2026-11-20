@@ -65,11 +65,34 @@ const uint8_t WIFI_RETRY_OFFSET_SEC = WIFI_RETRY_SECONDS;  // seconds
 //     mdns_netif_action(new_sta, MDNS_EVENT_ENABLE_IP4);
 //     mdns_netif_action(new_sta, MDNS_EVENT_ENABLE_IP6);
 // }
+// mDNS (esp-protocols 1.15.x) caches the esp_netif_t pointer in s_esp_netifs[].netif.
+// mdns_priv_pcb_disable() clears it, but pcb_if_deinit() -> join_group(false) -> mdns_priv_get_esp_netif()
+// refills it while the netif still exists. After the netif is destroyed the cache holds a dangling pointer,
+// and the next ENABLE (GOT_IP) crashes in esp_netif_is_netif_up() (tcpip_thread, join_group).
+// Fix: remember the handle and post DISABLE again AFTER the netif is gone. That run finds the pcb already
+// off, never reaches join_group() and leaves the cache cleared. The queue is FIFO so it precedes ENABLE.
+#if defined(ESP32) && defined(USE_DISCOVERY)
+static esp_netif_t *WifiMdnsLastSta = nullptr;
+#endif
+void WifiMDNSAfterNetifDestroyed(void)
+{
+#if defined(ESP32) && defined(USE_DISCOVERY)
+  if (WifiMdnsLastSta) {
+    mdns_netif_action(WifiMdnsLastSta, MDNS_EVENT_DISABLE_IP4);
+#ifdef USE_IPV6
+    mdns_netif_action(WifiMdnsLastSta, MDNS_EVENT_DISABLE_IP6);
+#endif // USE_IPV6
+    WifiMdnsLastSta = nullptr;
+  }
+#endif // defined(ESP32) && defined(USE_DISCOVERY)
+}
+
 void WifiMDNSBeforeDisconnect(void)
 {
 #if defined(ESP32) && defined(USE_DISCOVERY)
   esp_netif_t *sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
   if (sta) {
+      WifiMdnsLastSta = sta;
       mdns_netif_action(sta, MDNS_EVENT_DISABLE_IP4);
 #ifdef USE_IPV6
       mdns_netif_action(sta, MDNS_EVENT_DISABLE_IP6);
@@ -389,6 +412,7 @@ void WifiBegin(uint8_t flag, uint8_t channel) {
   
   WiFi.disconnect(true);  // Delete SDK wifi config
   delay(200);
+  WifiMDNSAfterNetifDestroyed();
   WifiSetMode(WIFI_STA);  // Disable AP mode
 #ifdef USE_WIFI_RANGE_EXTENDER
   }
@@ -1708,6 +1732,7 @@ void WifiDisable(void) {
     XdrvXsnsCall(FUNC_NETWORK_DOWN);
     WifiShutdown();
     WifiSetMode(WIFI_OFF);
+    WifiMDNSAfterNetifDestroyed();
 #ifdef USE_WEBSERVER
     // Reopen the listening socket with a clean accept backlog.
     // This is needed when Ethernet is active so the webserver
