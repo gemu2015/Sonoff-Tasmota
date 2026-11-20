@@ -16,14 +16,18 @@
 //  4. POWER: six MG996R can draw several amps when they start or stall. A bench supply of 6 V and at least 5 A on the servo rail of the
 //     PCA9685 (V+), NOT the 5 V of the ESP32 or USB. GND of the supply, PCA9685 and ESP32 has to be common. A large electrolytic
 //     (>= 1000 uF) at the servo rail. Never power the servos from the 5 V rail of the rover.
-// I2C: SDA/SCL of the ESP32 to the PCA9685 (3.3 V logic), address 0x40 (all address jumpers open).
+// I2C: SDA/SCL of the ESP32 to the PCA9685 (3.3 V logic), address 0x40 (all address jumpers open); -DPCA_A0 for A0 closed (address 0x41).
 // Run on 12.11.2026 on an ESP32-S3 with a PCA9685 and ONE servo (joint 1 = PCA channel 0): sweep 700..2300 us and back to centre, about 40 mA
 // without load. The other five joints and the load of the real arm are not tested yet. Joints count 1..6 in the commands, PCA channels 0..15.
 
 #include "pca9685.tc"
 
 #define I2C_BUS    0
+#ifdef PCA_A0
+#define PCA_ADDR   0x41          // pushed with -DPCA_A0: the A0 jumper is closed (the arm on the Waveshare camera board)
+#else
 #define PCA_ADDR   0x40
+#endif
 #define NSRV       6
 #define ARM_MIN    700
 #define ARM_MAX    2300
@@ -125,7 +129,7 @@ void WebCall() {
     webSlider(s4, ARM_MIN, ARM_MAX, "5 Wrist roll");
     webSlider(s5, ARM_MIN, ARM_MAX, "6 Gripper");
     webButton(do_center, "Centre all (1500 us)");
-    if (pca_ok == 0) { webSend("{s}PCA9685{m}not found at 0x40{e}"); }
+    if (pca_ok == 0) { webSend("{s}PCA9685{m}not found{e}"); }
 }
 
 void Command(char cmd[]) {
@@ -189,6 +193,6 @@ int main() {
     int j = 0;
     while (j < NSRV) { lo[j] = ARM_MIN; hi[j] = ARM_MAX; cur[j] = ARM_CENTRE; sent[j] = 0; j = j + 1; }
     addCommand("Arm");
-    if (pca_init(PCA_ADDR, I2C_BUS) == 0) { addLog("ARM: no PCA9685 at 0x40"); }
+    if (pca_init(PCA_ADDR, I2C_BUS) == 0) { addLog("ARM: no PCA9685 found"); }
     return 0;
 }
