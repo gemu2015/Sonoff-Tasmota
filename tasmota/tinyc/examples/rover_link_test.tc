@@ -1,0 +1,61 @@
+// @name: Rover link test (cam side)
+// Counterpart of the UDP link in rover.tc (ROVER_LINK 1): sends "d=.. t=.. m=.." to the rover five times a second and shows the status
+// datagrams it gets back on the Tasmota main page. Runs on any TinyC device in the same WLAN (an ESP32-S3 camera module, for instance).
+// Set rover_ip, then try: DRIVE 0 / TURN 0 first (the rover just answers). With a drive value the rover obeys only if its guards allow
+// it (battery, cliff sensors, stall); the status shows "l" / "r" (motor values) and "why" (why it refuses). Stop the program or set
+// DRIVE 0: after 300 ms without a command the rover's watchdog stops the motors by itself.
+
+#define LINK_PORT   5006
+#define DRIVE       0
+#define TURN        0
+#define SPEED       30
+
+char rover_ip[] = "192.168.188.131";   // the rover
+char rx[160];
+char tx[48];
+int  open = 0;
+int  sent = 0;
+int  got  = 0;
+int  last = 0;
+char st[160];
+
+void Every100ms() {
+    int n = 0;
+    if (open == 0) {
+        if (udp(0, LINK_PORT) == 1) { open = 1; addLog("LINK: port %d open", LINK_PORT); }
+        return;
+    }
+    n = udp(1, rx);
+    if (n > 0) {
+        got = got + 1;
+        last = millis();
+        strcpy(st, rx);
+    }
+}
+
+void EverySecond() {
+    // 1 Hz is enough for the test; the fast loop below keeps the rover's watchdog fed
+}
+
+void Every50ms() {
+    int t = 0;
+    if (open == 0) { return; }
+    t = millis() / 100;
+    if (t != sent) {
+        sent = t;
+        sprintf(tx, "d=%d t=%d m=%d", DRIVE, TURN, SPEED);
+        udp(6, rover_ip, LINK_PORT, tx);
+    }
+}
+
+void WebCall() {
+    char b[200];
+    sprintf(b, "{s}Rover link{m}port open %d, status packets %d, last %d ms ago{e}", open, got, millis() - last);
+    webSend(b);
+    sprintf(b, "{s}Rover status{m}%s{e}", st);
+    webSend(b);
+}
+
+int main() {
+    return 0;
+}

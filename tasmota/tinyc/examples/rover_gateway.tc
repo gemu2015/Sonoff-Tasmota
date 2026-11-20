@@ -1,0 +1,74 @@
+// @name: Rover gateway (cam module)
+// Runs on the cam module (ESP32-S3). The Mac Studio talks only to this device, this device passes the commands on to the rover (ROVER_LINK 1 in
+// rover.tc) and passes the rover's status back to the Studio. One UDP port (LINK_PORT) for both: a datagram that starts with '{' is the rover's
+// status, anything else is a command from the Studio ("d=50 t=0 m=60 p=0", see rover.tc).
+//
+// SAFETY: the rover stops by itself 300 ms after its last command. This gateway keeps that watchdog fed only while the Studio keeps sending:
+// if no command arrived for HOLD_MS, it sends "d=0 t=0" instead. So a dead Studio or a broken WLAN link to the Studio stops the rover within
+// HOLD_MS + 300 ms; the rover's own guards (battery, cliff sensors, stall) still decide what it may do.
+// The Studio gets every status datagram (about 5 per second) at its own IP, port LINK_PORT; it is learned from the last command.
+// Same port on both sides, so the Studio program has to listen on LINK_PORT too.
+
+char rover_ip[] = "192.168.188.131";   // the rover
+#define LINK_PORT   5006
+#define HOLD_MS     500
+
+char halt[] = "d=0 t=0";
+char rx[160];
+char cmd[64];
+char studio[20];
+char st[160];
+int  open     = 0;
+int  last_cmd = -100000;
+int  next_fwd = 0;
+int  n_cmd    = 0;
+int  n_stat   = 0;
+int  last_st  = 0;
+int  studio_ok = 0;
+
+void Every50ms() {
+    int n = 0;
+    if (open == 0) {
+        if (udp(0, LINK_PORT) == 1) { open = 1; addLog("GATEWAY: port %d open", LINK_PORT); }
+        return;
+    }
+    n = udp(1, rx);
+    if (n > 0) {
+        if (rx[0] == 123) {                         // '{' : status from the rover -> Studio
+            n_stat = n_stat + 1;
+            last_st = millis();
+            strcpy(st, rx);
+            if (studio_ok == 1) { udp(6, studio, LINK_PORT, rx); }
+        } else {                                    // command from the Studio -> rover
+            udp(4, studio);
+            studio_ok = 1;
+            n_cmd = n_cmd + 1;
+            last_cmd = millis();
+            strSub(cmd, rx, 0, 60);
+            udp(6, rover_ip, LINK_PORT, cmd);
+            next_fwd = millis() + 100;
+        }
+    }
+    if (millis() >= next_fwd) {                     // keep the rover's watchdog fed while the Studio is alive
+        next_fwd = millis() + 100;
+        if (millis() - last_cmd < HOLD_MS) {
+            udp(6, rover_ip, LINK_PORT, cmd);
+        } else {
+            udp(6, rover_ip, LINK_PORT, halt);
+        }
+    }
+}
+
+void WebCall() {
+    char b[200];
+    sprintf(b, "{s}Gateway{m}port open %d, Studio %s, commands %d, last %d ms ago{e}", open, studio, n_cmd, millis() - last_cmd);
+    webSend(b);
+    sprintf(b, "{s}Rover status{m}%d packets, last %d ms ago{e}", n_stat, millis() - last_st);
+    webSend(b);
+    sprintf(b, "{s}Rover{m}%s{e}", st);
+    webSend(b);
+}
+
+int main() {
+    return 0;
+}
