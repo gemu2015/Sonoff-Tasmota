@@ -357,6 +357,13 @@ extern "C" {
 
 // tc_slot_callback() is in vm.h (Arduino auto-prototype workaround)
 
+// "Running" in the JSON is only the TaskLoop flag (s->running). A slot that works through callbacks alone (main() ends,
+// then EverySecond / JsonCall / Command, e.g. the HEMS driver) is halted but alive: its "Running" is always 0. Active is what the
+// web page shows as the green dot: task running OR loaded + halted in callback mode + no error (19.11.2026, Andreas).
+static inline bool tc_slot_active(const TcSlot *s) {
+  return s && (s->running || (s->loaded && s->vm.halted && s->vm.error == TC_OK));
+}
+
 // Call a named callback on ALL active (loaded + halted + no-error) slots
 static void tc_all_callbacks(const char *name) {
   if (!Tinyc) return;
@@ -2000,11 +2007,12 @@ void CmndTinyC(void) {
     // page, so a rising count is the direct answer to "why does my display flicker /
     // why is the chart sometimes missing" -- the answer is the slot's own TaskLoop,
     // not the browser. Give it more delay(), or move the drawing to a webOn endpoint.
-    ResponseAppend_P(PSTR("{\"Slot\":%d,\"Loaded\":%d,\"Running\":%d,\"Size\":%d,"
+    ResponseAppend_P(PSTR("{\"Slot\":%d,\"Loaded\":%d,\"Running\":%d,\"Active\":%d,\"Size\":%d,"
       "\"PC\":%d,\"SP\":%d,\"Instr\":%u,\"WebSkip\":%u,\"Error\":\"%s\",\"File\":\"%s\"}"),
       i,
       s->loaded ? 1 : 0,
       s->running ? 1 : 0,
+      tc_slot_active(s) ? 1 : 0,
       s->program_size,
       s->vm.pc - s->vm.code_offset,
       s->vm.sp,
@@ -2949,7 +2957,7 @@ static void HandleTinyCPage(void) {
       if (!s && !Tinyc->slot_config[si].filename[0]) continue;
 
       // Running = task active OR halted in callback mode (loaded + halted + no error)
-      bool active = s && (s->running || (s->loaded && s->vm.halted && s->vm.error == TC_OK));
+      bool active = tc_slot_active(s);
       const char *state, *sc;
       if (active) { state = "Run"; sc = "tc-run"; }
       else if (s && s->loaded) { state = "Rdy"; sc = "tc-load"; }
@@ -6955,17 +6963,19 @@ static void TinyCShow(bool json) {
       if (!s) continue;
       if (i == 0) {
         // Slot 0 uses backward-compatible key "TinyC"
-        ResponseAppend_P(PSTR(",\"TinyC\":{\"Running\":%d,\"Loaded\":%d,\"Size\":%d,\"Instr\":%u,\"Heap\":\"%u/%u\"}"),
+        ResponseAppend_P(PSTR(",\"TinyC\":{\"Running\":%d,\"Active\":%d,\"Loaded\":%d,\"Size\":%d,\"Instr\":%u,\"Heap\":\"%u/%u\"}"),
           s->running ? 1 : 0,
+          tc_slot_active(s) ? 1 : 0,
           s->loaded ? 1 : 0,
           s->program_size,
           s->vm.instruction_count,
           s->vm.heap_used,
           s->vm.heap_capacity);
       } else {
-        ResponseAppend_P(PSTR(",\"TinyC%d\":{\"Running\":%d,\"Loaded\":%d,\"Size\":%d,\"Instr\":%u}"),
+        ResponseAppend_P(PSTR(",\"TinyC%d\":{\"Running\":%d,\"Active\":%d,\"Loaded\":%d,\"Size\":%d,\"Instr\":%u}"),
           i,
           s->running ? 1 : 0,
+          tc_slot_active(s) ? 1 : 0,
           s->loaded ? 1 : 0,
           s->program_size,
           s->vm.instruction_count);
