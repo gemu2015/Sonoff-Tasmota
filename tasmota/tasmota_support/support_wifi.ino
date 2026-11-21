@@ -1748,6 +1748,10 @@ void WifiDisable(void) {
       // so they can reopen their sockets on the Ethernet interface.
       XdrvXsnsCall(FUNC_NETWORK_UP);
     }
+    // wifi_down is set directly below (WifiSetState(0) would also raise the "Wifi disconnected" rule
+    // event), so stamp the start of the downtime here. Without it the next WifiSetState(1) adds
+    // UpTime() - <stale last_event> and Status 11 shows days of downtime (reported by Andreas 21.11.2026).
+    Wifi.last_event = UpTime();
   }
   TasmotaGlobal.global_state.wifi_down = 1;
 }
