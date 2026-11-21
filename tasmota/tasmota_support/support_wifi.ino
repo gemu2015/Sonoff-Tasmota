@@ -71,9 +71,9 @@ const uint8_t WIFI_RETRY_OFFSET_SEC = WIFI_RETRY_SECONDS;  // seconds
 // and the next ENABLE (GOT_IP) crashes in esp_netif_is_netif_up() (tcpip_thread, join_group).
 // Fix: remember the handle and post DISABLE again AFTER the netif is gone. That run finds the pcb already
 // off, never reaches join_group() and leaves the cache cleared. The queue is FIFO so it precedes ENABLE.
-// Fork 20.11.2026: Builds with USE_EEBUS_HEMS start mDNS in the EEBUS driver while USE_DISCOVERY is off,
-// so the disable/re-disable around the WiFi netif teardown must run there too (otherwise both are empty).
-#if defined(ESP32) && (defined(USE_DISCOVERY) || defined(USE_EEBUS_HEMS))
+// Fork 21.11.2026: Builds with USE_EEBUS_HEMS (and TinyC, Berry, scripter, ...) start mDNS outside
+// USE_DISCOVERY, so the guard is simply ESP32. Without a running mDNS server mdns_netif_action() does nothing.
+#if defined(ESP32)
 #include "mdns.h"
 #define WIFI_MDNS_NETIF_CLEANUP
 static esp_netif_t *WifiMdnsLastSta = nullptr;
