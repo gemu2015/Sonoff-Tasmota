@@ -71,12 +71,16 @@ const uint8_t WIFI_RETRY_OFFSET_SEC = WIFI_RETRY_SECONDS;  // seconds
 // and the next ENABLE (GOT_IP) crashes in esp_netif_is_netif_up() (tcpip_thread, join_group).
 // Fix: remember the handle and post DISABLE again AFTER the netif is gone. That run finds the pcb already
 // off, never reaches join_group() and leaves the cache cleared. The queue is FIFO so it precedes ENABLE.
-#if defined(ESP32) && defined(USE_DISCOVERY)
+// Fork 20.11.2026: Builds with USE_EEBUS_HEMS start mDNS in the EEBUS driver while USE_DISCOVERY is off,
+// so the disable/re-disable around the WiFi netif teardown must run there too (otherwise both are empty).
+#if defined(ESP32) && (defined(USE_DISCOVERY) || defined(USE_EEBUS_HEMS))
+#include "mdns.h"
+#define WIFI_MDNS_NETIF_CLEANUP
 static esp_netif_t *WifiMdnsLastSta = nullptr;
 #endif
 void WifiMDNSAfterNetifDestroyed(void)
 {
-#if defined(ESP32) && defined(USE_DISCOVERY)
+#ifdef WIFI_MDNS_NETIF_CLEANUP
   if (WifiMdnsLastSta) {
     mdns_netif_action(WifiMdnsLastSta, MDNS_EVENT_DISABLE_IP4);
 #ifdef USE_IPV6
@@ -84,12 +88,12 @@ void WifiMDNSAfterNetifDestroyed(void)
 #endif // USE_IPV6
     WifiMdnsLastSta = nullptr;
   }
-#endif // defined(ESP32) && defined(USE_DISCOVERY)
+#endif // WIFI_MDNS_NETIF_CLEANUP
 }
 
 void WifiMDNSBeforeDisconnect(void)
 {
-#if defined(ESP32) && defined(USE_DISCOVERY)
+#ifdef WIFI_MDNS_NETIF_CLEANUP
   esp_netif_t *sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
   if (sta) {
       WifiMdnsLastSta = sta;
@@ -98,7 +102,7 @@ void WifiMDNSBeforeDisconnect(void)
       mdns_netif_action(sta, MDNS_EVENT_DISABLE_IP6);
 #endif // USE_IPV6
   }
-#endif // defined(ESP32) && defined(USE_DISCOVERY)
+#endif // WIFI_MDNS_NETIF_CLEANUP
 }
 
 void WifiMDNSAfterReconnectv4(void)
