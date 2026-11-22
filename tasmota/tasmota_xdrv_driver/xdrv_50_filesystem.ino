@@ -256,10 +256,12 @@ static void UfsExpanderInit(void) {
     Wire.beginTransmission(addr);
     if (0 == Wire.endTransmission(true)) { ufs_ex_wire = &Wire; found = true; }
   }
+#if defined(SOC_I2C_NUM) && (SOC_I2C_NUM > 1)         // Wire1 only exists with a second I2C controller (not on the C3 / C6)
   if (!found && TasmotaGlobal.i2c_enabled[1]) {
     Wire1.beginTransmission(addr);
     if (0 == Wire1.endTransmission(true)) { ufs_ex_wire = &Wire1; found = true; }
   }
+#endif  // SOC_I2C_NUM > 1
   if (!found) { return; }                              // no expander at that address
   AddLog(LOG_LEVEL_DEBUG, PSTR(D_LOG_UFS "Expander 0x%02X found on I2C bus %d"), addr, (ufs_ex_wire == &Wire) ? 1 : 2);
   uint8_t mask = dir & 0x7F;                           // compare only the output pins (bit 7 is an input here)
