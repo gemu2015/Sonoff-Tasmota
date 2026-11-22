@@ -6,6 +6,23 @@
   sie nach aussen (Tasmota-Ereignis/Befehl), damit z. B. ein Skript Verbraucher schaltet.
 
   Abgeleitet aus xdrv_126_eebus_guard.ino v184 (Steuerbox). Eigene Versionszaehlung ab SteuVE v001.
+  SteuVE v032 (21.11.2026, Andreas: Rueckmeldung, dass geschaltet wurde): das ACK auf eine Grenze ist eine Zusage, sie
+    einzuhalten - nicht nur eine Empfangsbestaetigung (LPC TS 2.2 [LPC-002]/[LPC-003], LPC IG 2.4). Bisher ging es immer
+    sofort raus, auch wenn das Skript nichts abschalten konnte. Neu, nur wenn das Skript sie benutzt (alte Skripte wie bisher):
+      EEBusCsReady <W>|unbekannt  Skript meldet laufend, auf welche Leistung es gerade herunter kann. Eine AKTIVE Grenze
+                                  unter diesem Wert, oder bei Meldung aelter als 60 s / unbekannt, wird mit NACK
+                                  (errorNumber 7) abgelehnt, der Zustand bleibt ([LPC-907]).
+      EEBusCsFail [Text]          Skript kann eine angenommene Grenze nicht (mehr) einhalten -> Grenze deaktivieren,
+                                  Energy Guard per Notify informieren (isLimitActive false, [LPC-923], [LPC-009]).
+      EEBusCsQuelle m|c|e         valueSource der gemeldeten Leistung: measuredValue / calculatedValue / empiricalValue
+                                  (SPINE MeasurementValueSourceEnumType) - z. B. e bei Relais ohne Messung.
+  SteuVE v031 (20.11.2026, Andreas: "Wir muessen uns mit allen Geraeten an die Norm halten"; Firmware-Nummer beim Bau):
+    Eingehende Verbindungen setzen zerstueckelte WebSocket-Nachrichten zusammen (RFC 6455 5.4; SHIP TS 1.1.0 Z. 834-836),
+    wie der Client-Weg (EebusWsRecv) und der Server-Weg der Steuerbox (126 v231). Bis v030 verwarf EebusSrvAppData jedes
+    Fragment ("Etappe 2 verworfen") - eine grosse Nachricht einer anrufenden Gegenstelle (z. B. Detailed Discovery in
+    1024-B-Stuecken) ging verloren. Zusammenbau in ESrv.frag (PSRAM, erst beim ersten Fragment, frei in EebusSrvFree),
+    Verarbeitung ueber EebusSrvMsgHandle (unveraendert herausgeloest); Pong (0xA) wird nicht mehr als SHIP-Nachricht
+    geparst. Gleiche Aenderung in 129 (HEMS v037).
   SteuVE v030 = Firmware-Stand v030 (06.11.2026; Kopf-Historie zaehlte v026 -> v030, Firmware v027-v29 gab es schon; Pruefung aller Treiber, Befundliste 2026-11-06--1245): gesammelte Korrekturen, eine Version.
     Senden (wie Steuerbox v187/v204/v226/v228): Frame in EINEM Puffer und EINEM write(); nicht blockierend (tls_mini
     setSendWaitMs 3 s, beim Abbau 100 ms); sendStuck im 100-ms-Takt -> sofort abbauen; ein halb gesendeter Frame baut ab
@@ -294,7 +311,7 @@ const char kEebusCommands[] PROGMEM = D_PRFX_EEBUS "|"   // Prefix
   "Scan|Peers|Cert|Connect|Disconnect|Status|Trust|ConnectIp|Advertise|Log|"
   "Role|Lpc|ReleaseAll|Release|Target|Probe|Provide|Open|Hems|PeerMode|DelDur|"
   "LppFrei|Lpp|Anmeld|Data|Mess|Struct|Read|AutoConn|"
-  "CsPower|CsMax|CsFs|CsSim|CsTrust|CsStreng|CsTyp|CsMsg|Cs";   // ReleaseAll VOR Release, LppFrei VOR Lpp, Cs* VOR Cs (Praefix-Match!)
+  "CsPower|CsMax|CsFs|CsSim|CsTrust|CsStreng|CsTyp|CsMsg|CsReady|CsFail|CsQuelle|Cs";   // ReleaseAll VOR Release, LppFrei VOR Lpp, Cs* VOR Cs (Praefix-Match!)
 
 void (* const EebusCommand[])(void) PROGMEM = {
   &CmndEebusScan, &CmndEebusPeers, &CmndEebusCert,
@@ -305,7 +322,8 @@ void (* const EebusCommand[])(void) PROGMEM = {
   &CmndEebusPeerMode, &CmndEebusDelDur,
   &CmndEebusLppFrei, &CmndEebusLpp, &CmndEebusAnmeld, &CmndEebusData,
   &CmndEebusMess, &CmndEebusStruct, &CmndEebusRead, &CmndEebusAutoConn,
-  &CmndEebusCsPower, &CmndEebusCsMax, &CmndEebusCsFs, &CmndEebusCsSim, &CmndEebusCsTrust, &CmndEebusCsStreng, &CmndEebusCsTyp, &CmndEebusCsMsg, &CmndEebusCs };   // SteuVE v004, CsTrust v006, CsTyp v007, CsMsg v009
+  &CmndEebusCsPower, &CmndEebusCsMax, &CmndEebusCsFs, &CmndEebusCsSim, &CmndEebusCsTrust, &CmndEebusCsStreng, &CmndEebusCsTyp, &CmndEebusCsMsg,
+  &CmndEebusCsReady, &CmndEebusCsFail, &CmndEebusCsQuelle, &CmndEebusCs };   // SteuVE v004, CsTrust v006, CsTyp v007, CsMsg v009, CsReady/CsFail/CsQuelle v032
 
 // Blind-Adressierung (Waermepumpen-Gateway liefert ihre Discovery nicht — Gateway-Karte als Vorlage:
 // LoadControl/server auf entity 3 "HeatPumpAppliance"):
@@ -428,6 +446,11 @@ bool     eebus_cs_pwr_have   = false;   // wurde ueberhaupt schon ein Messwert g
 bool     eebus_cs_pwr_unk_push = false; // v026: "unbekannt" wurde gesetzt, ein Notify mit valueState error steht aus
 int32_t  eebus_cs_pwr_sent   = 0;       // zuletzt per Notify gesendeter Wert
 uint32_t eebus_cs_pwr_sent_at = 0;      // millis() des letzten Messwert-Notify
+// SteuVE v032: Rueckmeldung des Skripts (siehe Kopf)
+int32_t  eebus_cs_ready_w    = -1;      // kleinste Leistung, die das Skript gerade erreichen kann (W); -1 = unbekannt
+uint32_t eebus_cs_ready_at   = 0;       // millis() der letzten EEBusCsReady-Meldung; 0 = nie (altes Skript -> ACK wie bisher)
+uint8_t  eebus_cs_pwr_src    = 0;       // valueSource der Leistung: 0 measuredValue, 1 calculatedValue, 2 empiricalValue
+#define EEBUS_CS_READY_MAX_MS 60000UL   // aeltere Meldung: Skript haelt nicht Schritt -> aktive Grenze nicht zusagen
 #define EEBUS_CS_MEAS_MIN_MS   10000UL
 #define EEBUS_CS_MEAS_KEEP_MS  60000UL
 void EebusCsMeasNotify(void);           // SteuVE v003: Vorwaertsdeklaration
@@ -593,15 +616,25 @@ void EebusCsLimitBody(char *body, size_t n) {
 
 // SteuVE v003: measurementListData der Einrichtung (Read-Antwort und Notify). Solange noch kein Messwert
 // gemeldet wurde, steht valueState "error" — der Energy Guard soll keine erfundene 0 W sehen.
+// SteuVE v032: valueSource nach EEBusCsQuelle (SPINE MeasurementValueSourceEnumType)
+const char *EebusCsPwrSrcName(void) {
+  switch (eebus_cs_pwr_src) {
+    case 1:  return "calculatedValue";
+    case 2:  return "empiricalValue";
+    default: return "measuredValue";
+  }
+}
+
 void EebusCsMeasBody(char *body, size_t n) {
   const char *st = eebus_cs_pwr_have ? "normal" : "error";
+  const char *src = EebusCsPwrSrcName();   // SteuVE v032: bisher fest measuredValue
   snprintf(body, n,
     "{\"measurementListData\":[{\"measurementData\":["
     "[{\"measurementId\":1},{\"valueType\":\"value\"},{\"value\":[{\"number\":%d},{\"scale\":0}]},"
-    "{\"valueSource\":\"measuredValue\"},{\"valueState\":\"%s\"}],"
+    "{\"valueSource\":\"%s\"},{\"valueState\":\"%s\"}],"
     "[{\"measurementId\":2},{\"valueType\":\"value\"},{\"value\":[{\"number\":%u},{\"scale\":0}]},"
-    "{\"valueSource\":\"measuredValue\"},{\"valueState\":\"%s\"}]"
-    "]}]}", (int)eebus_cs_pwr_w, st, eebus_cs_energy_wh,   // SteuVE v005: Reihenfolge = Formatstring
+    "{\"valueSource\":\"%s\"},{\"valueState\":\"%s\"}]"
+    "]}]}", (int)eebus_cs_pwr_w, src, st, eebus_cs_energy_wh, src,   // SteuVE v005: Reihenfolge = Formatstring
     (eebus_cs_pwr_have && eebus_cs_energy_wh) ? "normal" : "error");
 }
 
@@ -3337,6 +3370,27 @@ bool EebusCsLimitWriteOk(const char *json) {
     EebusMsgSetLast("abgelehnt - Grenze unter 0 W", 2);
     return false;
   }
+   // SteuVE v032: ACK = Zusage, die Grenze einzuhalten ([LPC-002]/[LPC-003], LPC IG 2.4 "an ACK is NOT only an
+   // acknowledgement of receipt"). Meldet das Skript per EEBusCsReady, wie weit es herunter kann, wird eine AKTIVE Grenze
+   // darunter (oder ohne frische Meldung) abgelehnt - vor jeder Aenderung, der Zustand bleibt ([LPC-907]).
+   // Aufheben (isLimitActive false) wird immer angenommen. Ohne EEBusCsReady (altes Skript) wie bisher.
+  if (eebus_cs_ready_at) {
+    bool neu_aktiv = eebus_cs_lim_active;
+    if (strstr(json, "\"isLimitActive\":true")) { neu_aktiv = true; }
+    else if (strstr(json, "\"isLimitActive\":false")) { neu_aktiv = false; }
+    uint32_t neu_w = eebus_cs_lim_w;
+    EebusCsScaledValue(strstr(json, "\"value\""), &neu_w);   // ohne Wert im Write bleibt der bisherige
+    if (neu_aktiv) {
+      uint32_t alter = millis() - eebus_cs_ready_at;
+      if ((alter >= EEBUS_CS_READY_MAX_MS) || (eebus_cs_ready_w < 0) || ((uint32_t)eebus_cs_ready_w > neu_w)) {
+        char zb[16];
+        AddLog(LOG_LEVEL_INFO, PSTR("EBG: SteuVE: Grenze %u W von %s ABGELEHNT - nicht erreichbar (Skript kann auf %s W, Meldung vor %u s)"),
+               neu_w, ESp->peer_ip, (eebus_cs_ready_w < 0) ? "?" : itoa((int)eebus_cs_ready_w, zb, 10), alter / 1000);
+        EebusMsgSetLast("abgelehnt - Grenze nicht erreichbar", 2);
+        return false;
+      }
+    }
+  }
   bool had_active = eebus_cs_lim_active;
   if (strstr(json, "\"isLimitActive\":true")) {
     eebus_cs_lim_active = true;
@@ -3694,10 +3748,12 @@ void EebusCsJson(char *b, size_t n) {
   snprintf(b, n,
     "{\"Zustand\":\"%s\",\"Begrenzt\":%s,\"Grenze\":%u,\"RestS\":%ld,\"EnergyGuard\":\"%s\","
     "\"Failsafe\":%u,\"FailsafeDauerS\":%ld,\"Max\":%u,\"Leistung\":%d,\"Bekannt\":%d,\"Zaehler\":%u,\"HerzschlagS\":%ld,"
-    "\"Vertraut\":\"%s\",\"Abgewiesen\":%u,\"AbgewiesenVon\":\"%s\",\"Ski\":\"%s\",\"Id\":\"%s\",\"Typ\":\"%s\"}",   // SteuVE v006, Typ v007
+    "\"Vertraut\":\"%s\",\"Abgewiesen\":%u,\"AbgewiesenVon\":\"%s\",\"Ski\":\"%s\",\"Id\":\"%s\",\"Typ\":\"%s\","   // SteuVE v006, Typ v007
+    "\"ZusageW\":%ld,\"ZusageAlterS\":%ld,\"Quelle\":\"%s\"}",   // SteuVE v032
     EebusCsStateName(eebus_cs_state), lim ? "true" : "false", w, rest, eebus_cs_lim_from,
     eebus_cs_fs_w, eebus_cs_fs_dur_s, eebus_cs_max_w, (int)eebus_cs_pwr_w, eebus_cs_pwr_have ? 1 : 0, eebus_cs_energy_wh, hb,
-    eebus_cs_trust, eebus_cs_rej_cnt, eebus_cs_rej_from, Eebus.own_ski, eebus_adv_id, EebusCsTypName());
+    eebus_cs_trust, eebus_cs_rej_cnt, eebus_cs_rej_from, Eebus.own_ski, eebus_adv_id, EebusCsTypName(),
+    (long)eebus_cs_ready_w, eebus_cs_ready_at ? (long)((millis() - eebus_cs_ready_at) / 1000UL) : -1L, EebusCsPwrSrcName());
 }
 
 // SteuVE v004: Ereignis {"EEBusCs":{...}} (Regeln/MQTT), sobald sich Zustand oder wirksame Grenze aendern.
@@ -3779,6 +3835,64 @@ void CmndEebusCsPower(void) {
     if (e && *e && EebusArgLong(e, &wh) && (wh > 0)) { eebus_cs_energy_wh = (uint32_t)wh; }   // SteuVE v030: kein negativer Zaehler
   }
   Response_P(PSTR("{\"%s\":{\"Leistung\":%d,\"Zaehler\":%u}}"), XdrvMailbox.command, (int)eebus_cs_pwr_w, eebus_cs_energy_wh);
+}
+
+// SteuVE v032: EEBusCsReady <W>|unbekannt — das Skript meldet laufend, auf welche Leistung es gerade herunter kann
+// (nicht abschaltbare Last + Leistung der Steuerkontakte in Begrenzungsstellung). Grundlage fuer ACK/NACK, s. Kopf.
+void CmndEebusCsReady(void) {
+  if (XdrvMailbox.data_len > 0) {
+    if (!strncasecmp_P(XdrvMailbox.data, PSTR("unbekannt"), 9) || !strncasecmp_P(XdrvMailbox.data, PSTR("unknown"), 7)) {
+      eebus_cs_ready_w = -1;
+    } else {
+      long w = 0;
+      if (!EebusArgLong(XdrvMailbox.data, &w) || (w < -1) || (w > 10000000L)) {
+        ResponseCmndChar_P(PSTR("Nutzung: EEBusCsReady <W> | unbekannt"));
+        return;
+      }
+      eebus_cs_ready_w = (int32_t)w;
+    }
+    eebus_cs_ready_at = millis();
+    if (0 == eebus_cs_ready_at) { eebus_cs_ready_at = 1; }   // 0 heisst "nie gemeldet"
+  }
+  long alter = eebus_cs_ready_at ? (long)((millis() - eebus_cs_ready_at) / 1000UL) : -1;
+  Response_P(PSTR("{\"%s\":{\"ZusageW\":%ld,\"AlterS\":%ld}}"), XdrvMailbox.command, (long)eebus_cs_ready_w, alter);
+}
+
+// SteuVE v032: EEBusCsFail [Text] — das Skript kann eine angenommene Grenze nicht (mehr) einhalten (Relais antwortet
+// nicht, Zuruecklesen zeigt nicht die Begrenzungsstellung, nichts mehr abschaltbar). [LPC-923]: Grenze deaktivieren und
+// den Energy Guard informieren - geht im naechsten Sekundentakt per Notify (isLimitActive false, [LPC-009]).
+void CmndEebusCsFail(void) {
+  if ((3 == eebus_role) && eebus_cs_lim_active) {
+    uint32_t w = eebus_cs_lim_w;
+    eebus_cs_lim_active = false;
+    if (eebus_cs_sim) {   // wie EEBusCsSim 0: Simulation endet, Zustand nach Herzschlag
+      eebus_cs_sim = false;
+      bool lebt = eebus_cs_last_hb && ((millis() - eebus_cs_last_hb) < EEBUS_CS_HB_TMO_MS);
+      EebusCsSetState(lebt ? CS_CTRL : CS_AUTO);
+    }
+    eebus_cs_changed = true;
+    AddLog(LOG_LEVEL_INFO, PSTR("EBG: SteuVE: Grenze %u W NICHT einhaltbar (%s) -> deaktiviert, Energy Guard wird informiert"),
+           w, (XdrvMailbox.data_len > 0) ? XdrvMailbox.data : "Skript");
+    EebusMsgSetLast("Grenze nicht einhaltbar - deaktiviert", 2);
+  }
+  Response_P(PSTR("{\"%s\":{\"Begrenzt\":%s}}"), XdrvMailbox.command, eebus_cs_lim_active ? "true" : "false");
+}
+
+// SteuVE v032: EEBusCsQuelle m|c|e — valueSource der gemeldeten Leistung (gemessen / berechnet / geschaetzt).
+void CmndEebusCsQuelle(void) {
+  if (XdrvMailbox.data_len > 0) {
+    char q = tolower((unsigned char)XdrvMailbox.data[0]);
+    uint8_t neu = eebus_cs_pwr_src;
+    if ('m' == q) { neu = 0; }
+    else if ('c' == q) { neu = 1; }
+    else if ('e' == q) { neu = 2; }
+    else { ResponseCmndChar_P(PSTR("Nutzung: EEBusCsQuelle m|c|e")); return; }
+    if (neu != eebus_cs_pwr_src) {
+      eebus_cs_pwr_src = neu;
+      eebus_cs_pwr_sent_at = 0;   // Abonnenten bekommen die neue Kennzeichnung mit dem naechsten Notify
+    }
+  }
+  Response_P(PSTR("{\"%s\":\"%s\"}"), XdrvMailbox.command, EebusCsPwrSrcName());
 }
 
 // EEBusCsMax <W> — Nennleistung (hoechste Bezugsleistung) der Einrichtung, z. B. Summe der Verbraucher.
@@ -7328,6 +7442,9 @@ typedef struct {
   size_t   abuf_len = 0;
   uint8_t *sbuf = nullptr;   // SteuVE v015: beim eigenen Senden angenommene Daten (abuf ist dann im Handler in Arbeit)
   size_t   sbuf_len = 0;
+  uint8_t *frag = nullptr;   // SteuVE v031 (wie Steuerbox v231): Zusammenbau zerstueckelter WS-Nachrichten (PSRAM, erst beim ersten Fragment)
+  size_t   frag_len = 0;
+  bool     frag_on = false;  // SteuVE v031: ein Zusammenbau laeuft
    // Etappe 3: SME-Handshake als Server (Geraet = SHIP-Client)
   uint8_t  sme_state = 0;   // 0=warte Hello, 1=warte announceMax, 2=warte select-Spiegel, 3=DONE
    // Etappe 4: Verknuepfung mit einem EConn-Slot (SPINE-Datenphase)
@@ -7363,6 +7480,9 @@ void EebusSrvFree(void) {
   if (ESrv.abuf)     { free(ESrv.abuf);     ESrv.abuf = nullptr; }
   if (ESrv.sbuf)     { free(ESrv.sbuf);     ESrv.sbuf = nullptr; }
   ESrv.sbuf_len = 0;
+  if (ESrv.frag)     { free(ESrv.frag);     ESrv.frag = nullptr; }   // SteuVE v031
+  ESrv.frag_len = 0;
+  ESrv.frag_on = false;
   ESrv.cert_len = 0;
   ESrv.active = false;
   ESrv.hs_done = false;
@@ -7866,6 +7986,45 @@ void EebusSrvSmeHandle(int classifier, const char *json) {
   }
 }
 
+// SteuVE v031 (wie Steuerbox v231): eine vollstaendige WS-Nachricht (aus einem Frame oder zusammengesetzt) verarbeiten.
+// pl[len] muss beschreibbar sein (wird kurz NUL-terminiert). Rueckgabe false = Verbindung wurde beendet, Puffer nicht
+// mehr anfassen. Inhalt unveraendert aus EebusSrvAppData herausgeloest.
+bool EebusSrvMsgHandle(uint8_t *pl, size_t len) {
+  if (!ESrv.cmi_done && (2 == len) && (0x00 == pl[0])) {
+   // SHIP 13.4.3 CMI: Geraet (WS-Client) sendet [0x00,0x00], wir antworten gleich
+    uint8_t cmi[2] = { 0x00, 0x00 };
+    if (EebusSrvWsSendOp(cmi, 2, 0x2)) {
+      ESrv.cmi_done = true;
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: *** SRV CMI mit %s beantwortet — SHIP-Kanal steht, warte auf SME-Hello ***"),
+             ESrv.peer_ip);
+    } else {
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV CMI-Antwort an %s fehlgeschlagen"), ESrv.peer_ip);
+      EebusSrvFree();
+      return false;
+    }
+  } else if (len > 0) {
+   // SHIP-Nachricht: [0]=Klassifizierer (1=control/SME, 2=data/SPINE, 3=close), dann JSON.
+   // Payload liegt komplett im Puffer -> temporaer NUL-terminieren fuer strstr-Parsing.
+    uint8_t saved = pl[len];
+    pl[len] = '\0';
+    if (2 != pl[0]) {   // klass=2 loggt der Dispatch via EebusShipLog (voll)
+      char txt[161];
+      size_t show = (len > 1) ? len - 1 : 0;
+      if (show > sizeof(txt) - 1) { show = sizeof(txt) - 1; }
+      for (size_t i = 0; i < show; i++) {
+        txt[i] = ((pl[1 + i] >= 32) && (pl[1 + i] < 127)) ? (char)pl[1 + i] : '.';
+      }
+      txt[show] = '\0';
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV SHIP RX von %s klass=%d len=%u: %s"),
+             ESrv.peer_ip, pl[0], (uint32_t)len, txt);
+    }
+    EebusSrvSmeHandle(pl[0], (const char*)pl + 1);   // SME-Server-Zustandsmaschine
+    if (!ESrv.active) { return false; }   // Handler hat die Verbindung beendet (Puffer weg!)
+    pl[len] = saved;
+  }
+  return true;
+}
+
 // angesammelte App-Daten verarbeiten — Phase 0: HTTP-Upgrade-Request bis \r\n\r\n
 // sammeln + 101 antworten; Phase 1: WS-Frames parsen (Client-Frames sind MASKIERT),
 // CMI [0,0] beantworten, SHIP-Nachrichten an den SME-Server-Handler geben.
@@ -7930,40 +8089,35 @@ void EebusSrvAppData(void) {
       return;
     } else if (0x9 == opcode) {   // Ping -> Pong gleiche Payload
       EebusSrvWsSendOp(pl, len, 0xA);
+    } else if (0xA == opcode) {   // SteuVE v031 (wie Steuerbox v231): Pong - nichts zu tun (lief bisher als SHIP-Nachricht in den Parser)
     } else if (!fin || (0x0 == opcode)) {
-      AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV %s: fragmentierte WS-Nachricht (%u B) — Etappe 2 verworfen"),
-             ESrv.peer_ip, (uint32_t)len);
-    } else if (!ESrv.cmi_done && (2 == len) && (0x00 == pl[0])) {
-   // SHIP 13.4.3 CMI: Geraet (WS-Client) sendet [0x00,0x00], wir antworten gleich
-      uint8_t cmi[2] = { 0x00, 0x00 };
-      if (EebusSrvWsSendOp(cmi, 2, 0x2)) {
-        ESrv.cmi_done = true;
-        AddLog(LOG_LEVEL_INFO, PSTR("EBG: *** SRV CMI mit %s beantwortet — SHIP-Kanal steht, warte auf SME-Hello ***"),
-               ESrv.peer_ip);
+       // SteuVE v031 (20.11.2026, wie Steuerbox v231): zerstueckelte WS-Nachricht zusammensetzen (RFC 6455 5.4; SHIP TS 1.1.0
+       // Z. 834-836), wie im Client-Weg (EebusWsRecv). Bis v030 wurde hier jedes Fragment verworfen - eine grosse Nachricht
+       // einer anrufenden Gegenstelle ging verloren. Kontrollframes (Close/Ping/Pong) zwischen den Stuecken sind erlaubt
+       // und werden oben behandelt, ohne den Zusammenbau zu stoeren.
+      if (0x0 != opcode) { ESrv.frag_len = 0; ESrv.frag_on = true; }   // Anfang (verschachtelter Anfang: neu beginnen)
+      if (!ESrv.frag_on) {
+        AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV %s: WS-Fortsetzung ohne Anfang (%u B) verworfen"), ESrv.peer_ip, (uint32_t)len);
       } else {
-        AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV CMI-Antwort an %s fehlgeschlagen"), ESrv.peer_ip);
-        EebusSrvFree();
-        return;
-      }
-    } else if (len > 0) {
-   // SHIP-Nachricht: [0]=Klassifizierer (1=control/SME, 2=data/SPINE, 3=close), dann JSON.
-   // Payload liegt komplett im abuf -> temporaer NUL-terminieren fuer strstr-Parsing.
-      uint8_t saved = pl[len];
-      pl[len] = '\0';
-      if (2 != pl[0]) {   // klass=2 loggt der Dispatch via EebusShipLog (voll)
-        char txt[161];
-        size_t show = (len > 1) ? len - 1 : 0;
-        if (show > sizeof(txt) - 1) { show = sizeof(txt) - 1; }
-        for (size_t i = 0; i < show; i++) {
-          txt[i] = ((pl[1 + i] >= 32) && (pl[1 + i] < 127)) ? (char)pl[1 + i] : '.';
+        if (nullptr == ESrv.frag) { ESrv.frag = (uint8_t*)special_malloc(EEBUS_SRV_ABUF); }
+        if ((nullptr == ESrv.frag) || (ESrv.frag_len > EEBUS_SRV_ABUF - 1) || (len > EEBUS_SRV_ABUF - 1 - ESrv.frag_len)) {
+          AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV %s: zerstueckelte WS-Nachricht zu gross oder kein Speicher - verworfen"), ESrv.peer_ip);
+          ESrv.frag_on = false;
+          ESrv.frag_len = 0;
+        } else {
+          memcpy(ESrv.frag + ESrv.frag_len, pl, len);
+          ESrv.frag_len += len;
+          if (fin) {   // letztes Fragment: ganze Nachricht verarbeiten
+            ESrv.frag_on = false;
+            size_t fl = ESrv.frag_len;
+            ESrv.frag_len = 0;
+            AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV %s: zerstueckelte WS-Nachricht zusammengesetzt (%u B)"), ESrv.peer_ip, (uint32_t)fl);
+            if (!EebusSrvMsgHandle(ESrv.frag, fl)) { return; }   // Verbindung beendet (Puffer weg!)
+          }
         }
-        txt[show] = '\0';
-        AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV SHIP RX von %s klass=%d len=%u: %s"),
-               ESrv.peer_ip, pl[0], (uint32_t)len, txt);
       }
-      EebusSrvSmeHandle(pl[0], (const char*)pl + 1);   // SME-Server-Zustandsmaschine
-      if (!ESrv.active) { return; }   // Handler hat die Verbindung beendet (abuf weg!)
-      pl[len] = saved;
+    } else {
+      if (!EebusSrvMsgHandle(pl, len)) { return; }   // Verbindung beendet (abuf weg!)
     }
     size_t used = ho + len;   // Frame aus dem Puffer nehmen
     memmove(ESrv.abuf, ESrv.abuf + used, ESrv.abuf_len - used);

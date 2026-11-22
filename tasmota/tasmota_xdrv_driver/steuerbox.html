@@ -246,6 +246,7 @@
     <button role="tab" data-r="kennung">Eigene Steuerbox-Kennung</button>
     <button role="tab" data-r="steuern">Steuern § 9 und § 14a</button>   <!-- 06.11. (Andreas): vor den Messwerten -->
     <button role="tab" data-r="mgcp">Messwerte MGCP</button>
+    <button role="tab" data-r="lbuch">Betriebslogbuch</button>   <!-- 21.11.2026 (Andreas) -->
     <button role="tab" data-r="status" class="rechts">Status</button>   <!-- 09.11. (Andreas) -->
   </nav>
   <p class="warn hide" id="boxweg" role="alert"></p>
@@ -617,6 +618,33 @@
       (Struktur → Features → Measurement → Adresse anklicken).</p>
   </div>
 
+  <!-- 21.11.2026 (Andreas): Betriebslogbuch anzeigen. Der Treiber schreibt es seit v215 auf die SD-Karte
+       (/betriebslogbuch/JJJJ-MM.csv, 30 Monate; VDE FNN Empfehlung zu Tenorziffer 2a BK6-22-300 Kap. 4.1.2.2).
+       Die Seite liest die Monatsdatei ueber Port 82 (nur lesen). -->
+  <div data-r="lbuch" class="card">
+    <h2>Betriebslogbuch <span class="pill" id="lb_anz">—</span></h2>
+    <p class="hint">Jede Vorgabe an eine Anlage mit ihrer Bestätigung bzw. Ablehnung, übertragene Failsafe-Werte,
+      Verbindungen und Kommunikationsstörungen. Je Monat eine Datei auf der SD-Karte, 30 Monate.</p>
+    <div class="row" style="grid-template-columns:150px 1fr">
+      <label for="lb_monat">Monat</label>
+      <span><select id="lb_monat"></select>
+        &nbsp; <select id="lb_filter" title="Einträge filtern">
+          <option value="">alle Einträge</option>
+          <option value="vorgabe">nur Vorgaben</option>
+          <option value="failsafe">nur Failsafe-Werte</option>
+          <option value="verbindung">nur Verbindung / Störung</option>
+          <option value="problem">nur Ablehnungen / Störungen</option>
+        </select>
+        &nbsp; <button class="sec" id="lb_neu">Aktualisieren</button>
+        &nbsp; <a id="lb_datei" target="_blank" rel="noopener">Datei öffnen</a></span>
+    </div>
+    <div class="hint" id="lb_info"></div>
+    <div style="overflow-x:auto"><table class="vtab">
+      <thead><tr><th>Zeit</th><th>Ereignis</th><th>Anlage</th><th>Richtung</th><th>Wert</th><th>Dauer</th><th>Ergebnis</th></tr></thead>
+      <tbody id="lb_tab"><tr class="frei"><td colspan="7">—</td></tr></tbody>
+    </table></div>
+  </div>
+
   <div data-r="steuern" class="card">
     <h3>Antwort des Geräts</h3>
     <div id="log">bereit</div>
@@ -640,6 +668,79 @@
   var mwLaden = false; // Messwerte alle 5 s nachladen? (nur wenn das gewaehlte Geraet verbunden ist)
 
   function el(id){ return document.getElementById(id); }
+
+  // ===== 21.11.2026 (Andreas): Betriebslogbuch =====
+  // Datei: Zeit_UTC;Ereignis;Anlage;Adresse;Richtung;Wert;Dauer_s;Ergebnis (Kopfzeile wird uebersprungen)
+  function lbEsc(t){ return String(t == null ? '' : t).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  function lbUrl(m){ return 'http://' + location.hostname + ':82/ufs/sdfs/betriebslogbuch/' + m + '.csv'; }
+  function lbMonate(){
+    var s = el('lb_monat'); if(!s || s.options.length){ return; }
+    var d = new Date(), y = d.getFullYear(), m = d.getMonth() + 1;
+    for(var i = 0; i < 30; i++){
+      var k = y + '-' + (m < 10 ? '0' : '') + m, o = document.createElement('option');
+      o.value = k; o.textContent = (m < 10 ? '0' : '') + m + '/' + y + (i === 0 ? ' (aktuell)' : '');
+      s.appendChild(o);
+      m--; if(m < 1){ m = 12; y--; }
+    }
+  }
+  function lbZeit(t){   // "2026-11-21T14:02:19Z" -> Ortszeit "21.11. 15:02:19"
+    var d = new Date(t); if(isNaN(d)){ return lbEsc(t); }
+    var z = function(n){ return (n < 10 ? '0' : '') + n; };
+    return z(d.getDate()) + '.' + z(d.getMonth() + 1) + '. ' + z(d.getHours()) + ':' + z(d.getMinutes()) + ':' + z(d.getSeconds());
+  }
+  function lbPasst(f, z){
+    var e = (z[1] || '').toLowerCase(), r = (z[7] || '').toLowerCase();
+    if(!f){ return true; }
+    if(f === 'vorgabe'){ return e.indexOf('vorgabe') === 0; }
+    if(f === 'failsafe'){ return e.indexOf('failsafe') >= 0; }
+    if(f === 'verbindung'){ return e.indexOf('verbindung') >= 0 || e.indexOf('stoerung') >= 0 || e.indexOf('störung') >= 0 || e.indexOf('herzschlag') >= 0; }
+    if(f === 'problem'){ return /stoerung|störung|abgelehnt|abgewiesen|nicht|abbruch|fehl|aufgehoben/.test(e + ' ' + r) && r.indexOf('bestaetigt') !== 0; }
+    return true;
+  }
+  var LB_DATEN = null;
+  function lbZeigen(){
+    var tb = el('lb_tab'); if(!tb){ return; }
+    if(LB_DATEN === null){ return; }
+    var f = el('lb_filter').value;
+    var z = LB_DATEN.filter(function(x){ return lbPasst(f, x); }).reverse();   // neueste zuerst
+    el('lb_anz').textContent = z.length + (f ? ' von ' + LB_DATEN.length : '') + ' Einträge';
+    if(!z.length){ tb.innerHTML = '<tr class="frei"><td colspan="7">' + (LB_DATEN.length ? 'keine Einträge für diesen Filter' : 'keine Einträge in diesem Monat') + '</td></tr>'; return; }
+    tb.innerHTML = z.map(function(x){
+      var r = x[7] || '', schlecht = r && r.indexOf('BESTAETIGT') !== 0 && !/geschrieben/i.test(r);
+      var stoer = /stoerung|störung|abgewiesen|abgelehnt/i.test(x[1] || '');
+      var anl = (x[3] || '') + (x[2] ? ' <span class="hint">…' + lbEsc(String(x[2]).slice(-4)) + '</span>' : '');
+      return '<tr><td style="white-space:nowrap">' + lbZeit(x[0]) + '</td>' +
+             '<td' + (stoer ? ' style="color:#e05a4a"' : '') + '>' + lbEsc(x[1]) + '</td>' +
+             '<td style="white-space:nowrap">' + anl + '</td><td>' + lbEsc(x[4]) + '</td>' +
+             '<td style="white-space:nowrap">' + lbEsc(x[5]) + '</td><td>' + (x[6] && x[6] !== '0' ? lbEsc(x[6]) + ' s' : '') + '</td>' +
+             '<td' + (schlecht ? ' style="color:#e05a4a"' : '') + '>' + lbEsc(r) + '</td></tr>';
+    }).join('');
+  }
+  function lbLaden(){
+    lbMonate();
+    var m = el('lb_monat').value, u = lbUrl(m);
+    el('lb_datei').href = u;
+    el('lb_info').textContent = 'lädt ' + m + ' …';
+    fetch(u + '?_=' + Date.now()).then(function(r){
+      if(r.status === 404){ return null; }
+      if(!r.ok){ throw new Error('HTTP ' + r.status); }
+      return r.text();
+    }).then(function(t){
+      if(t === null){ LB_DATEN = []; el('lb_info').textContent = 'Für ' + m + ' gibt es keine Datei (noch keine Einträge oder ohne SD-Karte).'; lbZeigen(); return; }
+      LB_DATEN = t.split(/\r?\n/).filter(function(l){ return l && l.indexOf('Zeit_UTC') !== 0; }).map(function(l){ return l.split(';'); });
+      el('lb_info').textContent = 'Stand ' + new Date().toLocaleTimeString('de-DE') + ' · Zeiten in Ortszeit (Datei: UTC) · Datei ' + m + '.csv, ' + Math.round(t.length / 1024) + ' KB';
+      lbZeigen();
+    }).catch(function(e){
+      LB_DATEN = null; el('lb_info').textContent = 'Betriebslogbuch nicht lesbar: ' + e.message + ' (Port 82, SD-Karte?)';
+      el('lb_tab').innerHTML = '<tr class="frei"><td colspan="7">—</td></tr>';
+    });
+  }
+  window.lbLaden = lbLaden;
+  (function(){
+    var b = el('lb_neu'); if(b){ b.onclick = lbLaden; }
+    var s = el('lb_monat'); if(s){ s.onchange = lbLaden; }
+    var f = el('lb_filter'); if(f){ f.onchange = lbZeigen; }
+  })();
   // Hell / Dunkel wie HEMS und SteuVE (Wahl im Browser gemerkt, wenn erlaubt)
   try { var thm = localStorage.getItem('steuve_theme'); if (thm) { document.documentElement.dataset.theme = thm; } } catch(e){}
   el('theme').onclick = function(){
@@ -2194,6 +2295,7 @@
     document.querySelectorAll('.wrap > [data-r]').forEach(function(e){ e.style.display = (e.dataset.r === r) ? '' : 'none'; });
     try { localStorage.setItem('box_reiter', r); } catch(x) {}
     if(r === 'status'){ statusZeigen(); }   // 09.11.
+    if(r === 'lbuch' && window.lbLaden){ lbLaden(); }   // 21.11.2026: Betriebslogbuch erst beim Oeffnen lesen
   }
 
   // ===== 09.11.2026 (Andreas): Reiter Status wie SMGW-Leser/HEMS. Nur lesen (Status 1/2/4/5/11, UfsSize/UfsFree, EEBusStatus),
@@ -2253,7 +2355,7 @@
   setInterval(function(){ var b = document.querySelector('#rtabs button[data-r="status"][aria-selected="true"]'); if(b && !document.hidden){ statusZeigen(); } }, 60000);
   document.querySelectorAll('#rtabs button').forEach(function(b){ b.onclick = function(){ reiter(b.dataset.r); }; });
   (function(){ var r = 'start'; try { r = localStorage.getItem('box_reiter') || 'start'; } catch(x) {}
-    if(['start','steuern','kennung','mgcp','status'].indexOf(r) < 0){ r = 'start'; } reiter(r); })();
+    if(['start','steuern','kennung','mgcp','status','lbuch'].indexOf(r) < 0){ r = 'start'; } reiter(r); })();
 
   var SW = {fw: '', slots: []};
   function chip(cls, txt){ return '<span class="chip"><span class="dot ' + cls + '"></span>' + txt + '</span>'; }

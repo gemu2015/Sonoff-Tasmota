@@ -14,6 +14,7 @@
   .hinweis { background: #fff6dc; border-left: 4px solid #e0a800; padding: 2mm 3mm; margin: 3mm 0; }
   .warn { background: #fde7e7; border-left: 4px solid #c43c3c; padding: 2mm 3mm; margin: 3mm 0; }
   .info { background: #eaf2fb; border-left: 4px solid #3c7cc4; padding: 2mm 3mm; margin: 3mm 0; }
+  .neu { background: #e7f6ea; border-left: 4px solid #2e9a48; padding: 2mm 3mm; margin: 3mm 0; }
   figure { margin: 3mm 0 4mm; page-break-inside: avoid; }
   figure { text-align: center; }
   figure img { width: 80%; border: 1px solid #b9c2cf; border-radius: 2mm; }
@@ -29,15 +30,29 @@
 <body>
 
 <h1>SteuVE auf Tasmota</h1>
-<div class="kopf">Bedienungsanleitung · Stand 07.11.2026 · Treiber <code>xdrv_128</code> v030 + TinyC-Skript <code>steuve</code> v011 (<code>@version 20261101_0900</code>) · Persönliche Daten in den Bildern unkenntlich gemacht (Adressen auf 192.168.1.x umgeschrieben, Kennungen verdeckt)<br>Erstellt von <b>meierchen006</b> mit Hilfe von Claude</div>
+<div class="kopf">Bedienungsanleitung · Stand 21.11.2026 · Treiber <code>xdrv_128</code> v033 + TinyC-Skript <code>steuve</code> v021 (<code>@version 20261121_1900</code>) · Persönliche Daten in den Bildern unkenntlich gemacht (Adressen auf 192.168.1.x umgeschrieben, Kennungen verdeckt)<br>Erstellt von <b>meierchen006</b> mit Hilfe von Claude</div>
 
 <div class="warn"><b>Testgerät, nicht zertifiziert.</b> Die SteuVE dient dazu, die EEBUS-Steuerung nach § 14a EnWG an einem HEMS (Energiemanagementsystem im Haus) zu prüfen und auszuprobieren. Sie ist keine geprüfte steuerbare Verbrauchseinrichtung im Sinne von § 14a Abs. 1 EnWG mit BNetzA-Festlegung BK6-22-300 und nicht für den regulären Betrieb gedacht.</div>
 
-<h2>1. Was die SteuVE macht</h2>
-<p>„SteuVE“ steht für <b>steuerbare Verbrauchseinrichtung</b>. Sie stellt sich per EEBUS wie eine Wärmepumpe oder Wallbox vor und nimmt eine § 14a-Bezugsgrenze (LPC) entgegen. Dahinter hängen bis zu <b>vier Shelly- oder Tasmota-Geräte</b> (Steckdosen, Schalter, Messgeräte), die sie nach Priorität abschaltet, wenn die Summe ihrer Leistung über der Grenze liegt.</p>
+<div class="neu"><b>Neu seit der Fassung vom 07.11.2026</b> (Treiber v030 → v033, Skript v011 → v021):
 <ul>
-  <li><b>Treiber <code>xdrv_128</code></b> – spricht EEBUS mit dem Energy Guard (HEMS oder Steuerbox), empfängt Grenze und Failsafe-Werte, meldet Leistung und Nennleistung.</li>
-  <li><b>TinyC-Skript <code>steuve</code></b> – fragt die Verbraucher (Shelly oder Tasmota) ab, meldet die Summe an den Treiber und schaltet nach Priorität.</li>
+  <li><b>Steuerkontakt NC/NO</b> – ein Shelly 1 legt bei einer Begrenzung einen potentialfreien Kontakt um, z. B. am Steuereingang einer Wärmepumpe oder Wallbox (Abschnitt 5).</li>
+  <li><b>Zusage statt bloßer Empfangsbestätigung</b> – die SteuVE nimmt eine Grenze nur an (ACK), wenn sie sie einhalten kann, sonst lehnt sie ab (NACK). Kann sie eine angenommene Grenze nicht mehr halten, bricht sie ab und meldet das (Abschnitt 6).</li>
+  <li><b>Kontakt-Protokoll</b> <code>/steuve_kontakt.csv</code> als Nachweis jedes Schaltvorgangs (Abschnitt 8).</li>
+  <li>Eingehende Verbindungen setzen zerstückelte EEBUS-Nachrichten wieder zusammen (große Nachrichten gingen bisher verloren).</li>
+  <li><b>Beim Wechsel von Skript v011 oder älter ist die Verbraucherliste danach leer</b> – vorher notieren (Abschnitt 10).</li>
+</ul></div>
+
+<h2>1. Was die SteuVE macht</h2>
+<p>„SteuVE“ steht für <b>steuerbare Verbrauchseinrichtung</b>. Sie stellt sich per EEBUS wie eine Wärmepumpe oder Wallbox vor und nimmt eine § 14a-Bezugsgrenze (LPC) entgegen. Dahinter hängen bis zu <b>vier Shelly- oder Tasmota-Geräte</b>:</p>
+<ul>
+  <li><b>Verbraucher an Steckdose oder Schalter</b> – die SteuVE misst ihre Leistung und schaltet sie nach Priorität ab, wenn die Summe über der Grenze liegt.</li>
+  <li><b>Steuerkontakt</b> (Shelly 1) – die SteuVE legt bei einer Begrenzung einen Kontakt um, der an den Steuereingang eines Geräts geht. Wie stark das Gerät dann herunterregelt, legt das Gerät selbst fest.</li>
+</ul>
+<p>Die Teile:</p>
+<ul>
+  <li><b>Treiber <code>xdrv_128</code></b> – spricht EEBUS mit dem Energy Guard (HEMS oder Steuerbox), empfängt Grenze und Failsafe-Werte, meldet Leistung und Nennleistung und sagt Grenzen zu oder lehnt sie ab.</li>
+  <li><b>TinyC-Skript <code>steuve</code></b> – fragt die Verbraucher ab, meldet die Summe an den Treiber, schaltet nach Priorität und stellt die Steuerkontakte.</li>
   <li><b>Bedienseite</b> – <code>steuve.html</code> auf der SD-Karte; das Gerät liefert zuerst die gepackte <code>steuve.html.gz</code> aus (Abschnitt 10).</li>
 </ul>
 <p><b>Kette:</b> Netzbetreiber → Steuerbox → HEMS (teilt auf) → SteuVE → Verbraucher. Ohne HEMS kann die Steuerbox die SteuVE auch direkt steuern (Direktsteuerung). Nach BK6-22-300 Anlage 1 Ziff. 4.4 gilt für jede SteuVE <b>entweder</b> das eine <b>oder</b> das andere: Sie vertraut entweder dem HEMS oder der Steuerbox, nie beiden.</p>
@@ -46,12 +61,13 @@
 <h3>Einstellungen am Gerät</h3>
 <table>
   <tr><th>Was</th><th>Wo / Wert</th><th>Warum</th></tr>
-  <tr><td><b>Vorlage</b></td><td><code>Waveshare ESP32-S3-ETH SDIO</code><br>(Einstellungen → Vorlage)</td><td>Die SD-Karte hängt per <b>SDIO 1-Bit</b> am ESP32-S3: GPIO5 = D0, GPIO6 = CMD, GPIO7 = CLK. Beim Start steht im Log <code>UFS: SDCard mounted (SDIO 1-bit)</code>. Auf der SD-Karte liegen Bedienseite, Protokoll und Verbraucherliste.</td></tr>
+  <tr><td><b>Vorlage</b></td><td><code>Waveshare ESP32-S3-ETH SDIO</code><br>(Einstellungen → Vorlage)</td><td>Die SD-Karte hängt per <b>SDIO 1-Bit</b> am ESP32-S3: GPIO5 = D0, GPIO6 = CMD, GPIO7 = CLK. Beim Start steht im Log <code>UFS: SDCard mounted (SDIO 1-bit)</code>. Auf der SD-Karte liegen Bedienseite, Protokolle und Verbraucherliste.</td></tr>
   <tr><td><b>HTTP API aktivieren</b></td><td>Haken setzen<br>(Einstellungen → Weitere Einstellungen; entspricht <code>SetOption128 1</code>)</td><td>Ohne den Haken weist Tasmota Abrufe ohne Herkunftsangabe ab (im Log <code>HTP: Referer '' denied</code>): Die SteuVE-Seite bleibt beim direkten Aufruf leer, und Befehle von außen (<code>/cm?cmnd=…</code>) werden abgewiesen.</td></tr>
+  <tr><td><b>Firmware</b></td><td>gebaut mit<br><code>CONFIG_FREERTOS_IDLE_TASK_STACKSIZE=3072</code></td><td>Mit dem Vorgabewert 1024 Byte kann der ESP32-S3 mit LAN-Chip W5500 unter Last abstürzen (<code>DebugException</code> beim Taskwechsel). Gemessen auf einer Steuerbox: unter Last blieben von 1024 nur 80 Byte frei, mit 3072 sind es über 2200. Beim Bauen in der Bauvariante (<code>custom_sdkconfig</code>) eintragen.</td></tr>
 </table>
 <div class="hinweis">Mit eingeschalteter HTTP API nimmt das Gerät Befehle von jedem Rechner im Netz an. Ein <b>Passwort für die Weboberfläche</b> (gleiche Seite) schützt davor.</div>
 <h3>Seite aufrufen</h3>
-<p>Auf der Tasmota-Hauptseite auf <b>„SteuVE“</b> klicken. Darüber zeigt das Skript einen Kurzstand: Zustand, Summe und die Leistung je Verbraucher.</p>
+<p>Auf der Tasmota-Hauptseite auf <b>„SteuVE“</b> klicken. Darüber zeigt das Skript einen Kurzstand: Zustand, Summe und die Leistung je Verbraucher, bei einem Steuerkontakt seine Stellung.</p>
 <figure><img src="bilder-SteuVE/01-tasmota-hauptseite.png" style="width:45%"><figcaption>Bild 1 – Tasmota-Hauptseite mit Kurzstand des Skripts und dem Knopf „SteuVE“.</figcaption></figure>
 <p>Oben rechts auf der SteuVE-Seite:</p>
 <ul>
@@ -59,12 +75,13 @@
   <li><b>TinyC</b> – Skriptverwaltung (Slots starten/stoppen, Skript laden).</li>
   <li><b>TinyC-IDE</b> – öffnet die Entwicklungsumgebung in einem neuen Tab (Port 82 desselben Geräts).</li>
   <li><b>Hell / Dunkel</b> – Farbschema umschalten.</li>
+  <li><b>Status</b> (rechts in der Reiterzeile) – Gerätedaten und Kopplungen, nur lesend.</li>
 </ul>
 <p>Die Statuszeile darunter zeigt immer: <b>Zustand</b>, <b>HEMS</b> bzw. <b>Energy Guard</b> (verbunden/getrennt), <b>Herzschlag</b> (wann zuletzt) und <b>Verbraucher</b> (erreichbar/belegt), sobald es Protokollzeilen gibt zusätzlich <b>Protokoll</b> mit der Zeit der letzten Zeile.</p>
 
 <h2>3. Reiter „Übersicht“</h2>
 <p>Eine SteuVE wird auf <b>einem</b> von zwei Wegen gesteuert (BK6-22-300 Anlage 1 Ziff. 4.4): <b>über ein HEMS</b> (Ziff. 4.4 b – die Steuerbox gibt dem HEMS einen Gesamtwert, das HEMS teilt ihn auf) oder <b>direkt von der Steuerbox</b> (Ziff. 4.4 a). Die Übersicht zeigt, welcher Weg gerade gilt.</p>
-<figure><img src="bilder-SteuVE/02a-uebersicht-hems.png"><figcaption>Bild 2 – Steuerung über ein HEMS: Steuerbox → HEMS → SteuVE. Hier ohne Begrenzung: Die Steuerbox gibt keine Vorgabe, der Anteil der SteuVE ist unbegrenzt.</figcaption></figure>
+<figure><img src="bilder-SteuVE/02a-uebersicht-hems.png"><figcaption>Bild 2 – Steuerung über ein HEMS: Steuerbox → HEMS → SteuVE. Hier ohne Begrenzung. Auf Prio 3 hängt ein Steuerkontakt (NO): Die Kachel zeigt statt einer Leistung die Kontaktstellung „Kont. OPEN“.</figcaption></figure>
 <ul>
   <li><b>Grenze für SteuVE</b> (oben links) – die wirksame Grenze mit Restzeit, oder „keine“.</li>
   <li><b>Verbraucher gesamt</b> (oben rechts) – aktuelle Summe und Nennleistung, die an das HEMS bzw. die Steuerbox gemeldet wird.</li>
@@ -73,12 +90,12 @@
   <li><b>Linien:</b> farbig = Verbraucher läuft, grau gestrichelt = aus, <b>rot gestrichelt umrandet = von der SteuVE abgeschaltet</b>.</li>
 </ul>
 <div class="hinweis">Der Heizstab ist in seiner eigenen Farbe ohnehin rot. Ob die SteuVE ihn abgeschaltet hat, erkennt man nur an der <b>gestrichelten</b> Umrandung und am Zustand in der Liste darunter.</div>
-<figure><img src="bilder-SteuVE/03-verbraucherliste.png"><figcaption>Bild 3 – Die Verbraucherliste unter der Übersicht: Farbe wie im Bild darüber, Geräteart M/S, Gerät, Adresse, Nennleistung, Priorität, Leistung, Zustand und Erreichbarkeit.</figcaption></figure>
+<figure><img src="bilder-SteuVE/03-verbraucherliste.png"><figcaption>Bild 3 – Die Verbraucherliste unter der Übersicht: Farbe wie im Bild darüber, Geräteart M/S/K, Gerät, Adresse, Nennleistung, Priorität, Leistung bzw. Kontaktstellung, Zustand und Erreichbarkeit.</figcaption></figure>
 <table>
   <tr><th>Spalte</th><th>Bedeutung</th></tr>
-  <tr><td><b>Messgerät (M)<br>Schalter (S)</b></td><td>Was das Gerät <b>kann</b>, wie es das Skript erkannt hat:<br><b>M</b> = Messgerät ohne Relais (z. B. PM Mini, EM, 3EM, Tasmota ohne Relais) – kann nie abschalten<br><b>S</b> = Gerät mit Relais – kann abschalten<br><b>?</b> = noch nicht erkannt · ein Fake-Platz zählt als S<br>Ob ein Schalter wirklich abgeschaltet werden <b>darf</b>, legt der Haken „abschaltbar“ im Reiter Verbraucher fest.</td></tr>
-  <tr><td><b>jetzt</b></td><td>aktuelle Leistung; „?“ = Gerät antwortet nicht</td></tr>
-  <tr><td><b>Zustand</b></td><td>an / aus, oder rot „von SteuVE aus“</td></tr>
+  <tr><td><b>Messgerät (M)<br>Schalter (S)<br>Steuerkontakt (K)</b></td><td>Was das Gerät <b>kann</b> bzw. wofür es eingetragen ist:<br><b>M</b> = Messgerät ohne Relais (z. B. PM Mini, EM, 3EM, Tasmota ohne Relais) – kann nie abschalten<br><b>S</b> = Gerät mit Relais – kann abschalten<br><b>K</b> = Steuerkontakt (Shelly 1, Abschnitt 5) – darunter steht NC oder NO<br><b>?</b> = noch nicht erkannt · ein Fake-Platz zählt als S<br>Ob ein Schalter wirklich abgeschaltet werden <b>darf</b>, legt der Haken „abschaltbar“ im Reiter Verbraucher fest.</td></tr>
+  <tr><td><b>jetzt</b></td><td>aktuelle Leistung; „?“ = Gerät antwortet nicht<br>beim Steuerkontakt die zurückgelesene Stellung:<br><b>grün</b> OPEN/CLOSE = Normalstellung, <b>gelb</b> = Begrenzungsstellung</td></tr>
+  <tr><td><b>Zustand</b></td><td>an / aus, oder rot „von SteuVE aus“<br>beim Steuerkontakt „normal“ oder „begrenzt · von SteuVE“</td></tr>
   <tr><td><b>erreichbar</b></td><td>ja · „Aussetzer n“ (einzelne Antworten fehlten) · nein (3 Runden in Folge keine Antwort)</td></tr>
 </table>
 <p>Wird die Seite schmal (Handy), lässt sich die Liste seitlich schieben; die Zeilen brechen nicht um.</p>
@@ -112,7 +129,7 @@
 <div class="warn"><b>Neue Identität = neue SKI.</b> Das HEMS sieht danach ein neues Gerät. Manche HEMS begrenzen die Zahl der angelegten Geräte – vorher sichern und nur erneuern, wenn es nötig ist. Nie zwei Geräte mit derselben Identität gleichzeitig betreiben.</div>
 
 <h2 class="seite">5. Reiter „Verbraucher“ – Geräte eintragen</h2>
-<figure><img src="bilder-SteuVE/05-reiter-verbraucher.png"><figcaption>Bild 5 – Vier Verbraucherplätze, Melder und Fake-Test. Auf Prio 1 hängt ein Messgerät: Der Haken „abschaltbar“ ist gesperrt, darunter steht „Messgerät“.</figcaption></figure>
+<figure><img src="bilder-SteuVE/05-reiter-verbraucher.png"><figcaption>Bild 5 – Vier Verbraucherplätze, Melder und Fake-Test. Prio 1 ist ein Messgerät (Haken „abschaltbar“ gesperrt). Prio 3 ist ein Shelly 1 Mini als Steuerkontakt NO, darunter die zurückgelesene Stellung OPEN (Normalstellung).</figcaption></figure>
 <table>
   <tr><th>Spalte</th><th>Bedeutung</th></tr>
   <tr><td><b>Prio 1 … 4</b></td><td>Abschaltreihenfolge:<br>Prio 4 wird zuerst abgeschaltet,<br>Prio 1 zuletzt</td></tr>
@@ -120,7 +137,8 @@
   <tr><td><b>IP</b></td><td>Adresse des Shelly- oder Tasmota-Geräts.<br>Leer oder erstes Oktett 0 = Platz frei<br>(wird nicht abgefragt, nicht geschaltet, zählt nicht)</td></tr>
   <tr><td><b>Verbraucher</b></td><td>Name, erscheint in Übersicht, Kurzstand und Protokoll</td></tr>
   <tr><td><b>max. Nennleistung</b></td><td>höchste Leistung des tatsächlichen Verbrauchers (Typenschild).<br>Leer = 3.680 W (16 A).<br>Die Summe meldet die SteuVE dem HEMS als Nennleistung.</td></tr>
-  <tr><td><b>abschaltbar</b></td><td>an = darf bei einer Begrenzung abgeschaltet werden<br>aus = wird nur gemessen und mitgemeldet<br><b>gesperrt</b> mit „Messgerät“ darunter = das Gerät hat kein Relais und kann nicht abschalten</td></tr>
+  <tr><td><b>abschaltbar</b></td><td>an = darf bei einer Begrenzung abgeschaltet bzw. umgelegt werden<br>aus = wird nur gemessen und mitgemeldet<br><b>gesperrt</b> mit „Messgerät“ darunter = das Gerät hat kein Relais und kann nicht abschalten</td></tr>
+  <tr><td><b>Steuerkontakt</b></td><td><b>– kein</b> = normaler Verbraucher<br><b>NC</b> / <b>NO</b> = Steuerkontakt (siehe unten)<br>Nur beim Shelly 1 wählbar, sonst steht dort „nur Shelly 1“.<br>Wer NC oder NO wählt, bekommt den Haken „abschaltbar“ automatisch gesetzt.</td></tr>
   <tr><td><b>Gerät / Testprofil</b></td><td>erkanntes Gerät: Shelly-Modell und Generation<br>oder „Tasmota 1 Relais“, „Tasmota Messung“ usw.<br><b>prüfen</b> fragt das Gerät in der nächsten Runde neu ab.</td></tr>
 </table>
 <p>Nach dem Ändern <b>Speichern</b> klicken – es erscheint „✓ gespeichert“. Etwa eine Sekunde später meldet die SteuVE die neue Nennleistung an das HEMS.</p>
@@ -128,15 +146,37 @@
 
 <h3>Unterstützte Shelly-Arten</h3>
 <table>
-  <tr><th>Art</th><th>Beispiele</th><th>M/S</th><th>Funktion</th></tr>
+  <tr><th>Art</th><th>Beispiele</th><th>M/S/K</th><th>Funktion</th></tr>
   <tr><td>Gen2+ mit Schalter</td><td>Plus 1PM, Plus Plug S,<br>Pro 1PM, Gen3/Gen4-Schalter</td><td>S</td><td>messen<br>und schalten</td></tr>
   <tr><td>Gen1 Relais mit Messung</td><td>Shelly 1PM, Plug S (Gen1)</td><td>S</td><td>messen<br>und schalten</td></tr>
+  <tr><td>Shelly-1-Familie<br>(potentialfrei, ohne Messung)</td><td>Shelly 1 (Gen1), Plus 1, Plus 1 Mini,<br>1 Gen3, 1 Gen4, 1 Mini Gen3, 1 Mini Gen4</td><td>K</td><td>Steuerkontakt<br>umlegen und zurücklesen</td></tr>
   <tr><td>Gen2+ PM1</td><td>PM Mini Gen3</td><td>M</td><td>nur messen</td></tr>
   <tr><td>Gen2+ EM1</td><td>Pro EM, EM Gen3</td><td>M</td><td>nur messen</td></tr>
   <tr><td>Gen2+ EM (3 Phasen)</td><td>Pro 3EM</td><td>M</td><td>nur messen<br>(Summe aller Phasen)</td></tr>
   <tr><td>Gen1 EM / 3EM</td><td>Shelly EM, Shelly 3EM</td><td>M</td><td>nur messen<br>(Summe aller Kanäle)</td></tr>
 </table>
-<p>Reine Messgeräte werden nie geschaltet; beim Erkennen nimmt das Skript den Haken „abschaltbar“ selbst heraus, und die Seite sperrt ihn. Meldet ein als Schalter geführtes Gerät keinen Schaltausgang, fragt das Skript es neu ab.</p>
+<p>Reine Messgeräte werden nie geschaltet; beim Erkennen nimmt das Skript den Haken „abschaltbar“ selbst heraus, und die Seite sperrt ihn. Meldet ein als Schalter geführtes Gerät keinen Schaltausgang, fragt das Skript es neu ab. Am Gerät erprobt ist von der Shelly-1-Familie der <b>1 Mini Gen3</b>; die Kennungen der anderen stammen aus der Shelly-Dokumentation.</p>
+
+<h3>Steuerkontakt (NC / NO)</h3>
+<p>Manche Geräte haben einen eigenen <b>Steuereingang</b> für die § 14a-Steuerung (Wärmepumpe: EVU-/SG-Ready-Eingang, Wallbox: Freigabe- oder Begrenzungseingang). Dort wird ein Shelly 1 mit seinem potentialfreien Kontakt angeschlossen. Die SteuVE legt den Kontakt bei einer Begrenzung um; wie weit das Gerät dann herunterregelt, legt das <b>Gerät selbst</b> fest.</p>
+<table>
+  <tr><th>Einstellung</th><th>Normalstellung (frei)</th><th>bei Begrenzung</th></tr>
+  <tr><td><b>NC</b> – normally closed<br>(Eingang des Geräts ist normal geschlossen)</td><td>Relais <b>ein</b> = CLOSE</td><td>Relais <b>aus</b> = OPEN</td></tr>
+  <tr><td><b>NO</b> – normally open<br>(Eingang des Geräts ist normal offen)</td><td>Relais <b>aus</b> = OPEN</td><td>Relais <b>ein</b> = CLOSE</td></tr>
+</table>
+<ul>
+  <li><b>Bestätigung:</b> Nach jedem Umlegen liest die SteuVE die Relaisstellung zurück (nicht der Schaltantwort trauen). Erst wenn die Stellung stimmt, gilt der Kontakt als „bestätigt“.</li>
+  <li><b>Normalstellung:</b> Ohne Begrenzung bringt die SteuVE <b>jeden</b> Steuerkontakt in die Normalstellung, auch wenn sie ihn nicht selbst umgelegt hat – etwa nach dem Umstellen von NO auf NC oder nach einem Neustart des Shelly. Im Protokoll steht dann „Normalstellung wiederhergestellt“.</li>
+  <li><b>Leistung:</b> Für einen Steuerkontakt schätzt die SteuVE keine Leistung. Er zählt in Summe und Zusage mit 0 W; angezeigt wird nur die Kontaktstellung. Die Nennleistung des Geräts trägt man trotzdem ein – sie geht in die gemeldete Nennleistung ein.</li>
+  <li><b>Gerät nicht erreichbar oder Stellung nicht bestätigt:</b> Die SteuVE kann dann keine Grenze zusagen (Abschnitt 6) und meldet einer laufenden Begrenzung den Abbruch.</li>
+</ul>
+<div class="hinweis"><b>Einstellungen am Shelly 1 (Shelly-App oder Weboberfläche des Shelly):</b>
+<ul>
+  <li><b>Einschaltzustand nach Stromausfall:</b> „letzten Modus wiederherstellen“ (<code>restore_last</code>).</li>
+  <li><b>Relaistyp / Eingang:</b> „Getrennter Schalter“ (<code>detached</code>) – sonst legt ein Taster oder Schalter am SW-Eingang den Steuerkontakt mit um.</li>
+  <li>Keine Zeitschaltung (Auto-Ein/Auto-Aus) und keine Szenen, die das Relais schalten.</li>
+</ul></div>
+<div class="warn">Der Shelly 1 schaltet nur den Steuereingang, <b>nie die Last</b> des Geräts. Anschluss an Wärmepumpe oder Wallbox nur nach deren Anleitung und durch eine Elektrofachkraft.</div>
 
 <h3>Tasmota-Geräte</h3>
 <p>Antwortet ein Gerät nicht wie ein Shelly, fragt das Skript es als Tasmota-Gerät ab (Befehl <code>Status</code>, danach <code>Status 10</code> für die Energiemessung). So lassen sich z. B. umgeflashte Steckdosen und Steckdosenleisten mit Messung verwenden.</p>
@@ -151,6 +191,7 @@
   <li><b>Voraussetzungen:</b> Am Tasmota-<b>Verbraucher</b> muss „HTTP API aktivieren“ eingeschaltet sein (Schnittstelle <code>/cm?cmnd=…</code>), und es darf <b>kein Web-Passwort</b> gesetzt sein.</li>
   <li><b>Leisten mit mehreren Relais:</b> Geschaltet werden immer <b>alle Relais zusammen</b> (<code>Power0</code>), weil eine Leiste meist nur einen Messkreis für alle Steckplätze hat.</li>
   <li>Gemessen wird der Wert <code>ENERGY → Power</code> aus <code>Status 10</code>, alle 10 s wie bei den Shellys.</li>
+  <li>Tasmota-Geräte können kein Steuerkontakt sein.</li>
 </ul>
 
 <h3>Melder und Fake-Test</h3>
@@ -159,16 +200,30 @@
   <li><b>Simulierte Abschaltung</b> (nur für Fake-Plätze): Programm hält an und läuft danach weiter / startet von vorn / Gerät bleibt aus.</li>
 </ul>
 
-<h2>6. Wie die SteuVE schaltet</h2>
+<h2 class="seite">6. Wie die SteuVE schaltet</h2>
 <ol>
-  <li>Alle 10 s liest das Skript die Leistung aller belegten Plätze und meldet die Summe an das HEMS.</li>
+  <li>Alle 10 s liest das Skript die Leistung aller belegten Plätze (beim Steuerkontakt die Relaisstellung) und meldet die Summe an das HEMS.</li>
   <li>Antwortet ein Verbraucher <b>3 Runden in Folge</b> nicht, ist die Summe nicht bekannt. Die SteuVE meldet dann „Verbrauch unbekannt“ an das HEMS statt einer erfundenen Zahl (Kurzstand: „Summe unbekannt“), bis wieder alle antworten.</li>
-  <li>Liegt eine Grenze vor und die Summe darüber, schaltet es abschaltbare Verbraucher ab, <b>die gerade ziehen</b> – höchste Prio-Zahl zuerst, bis die Summe unter der Grenze liegt. Kann ein Gerät nicht stufenlos reduzieren, ist der nächste technisch mögliche Wert „aus“ (BK6-22-300, Anlage 1, Ziff. 4.6).</li>
-  <li>Wieder eingeschaltet wird <b>gestaffelt</b>, einer je 60 s (schrittweise Rückkehr, BK6-22-300, Anlage 1, Ziff. 4.3), und nur, was die SteuVE selbst abgeschaltet hat.</li>
+  <li>Liegt eine Grenze vor, legt die SteuVE zuerst alle <b>Steuerkontakte</b> in die Begrenzungsstellung und liest sie zurück.</li>
+  <li>Liegt die Summe über der Grenze, schaltet sie abschaltbare Verbraucher ab, <b>die gerade ziehen</b> – höchste Prio-Zahl zuerst, bis die Summe unter der Grenze liegt. Kann ein Gerät nicht stufenlos reduzieren, ist der nächste technisch mögliche Wert „aus“ (BK6-22-300, Anlage 1, Ziff. 4.6).</li>
+  <li>Nach dem Ende der Begrenzung gehen die Steuerkontakte <b>sofort</b> in die Normalstellung. Abgeschaltete Verbraucher werden <b>gestaffelt</b> wieder eingeschaltet, einer je 60 s (schrittweise Rückkehr, BK6-22-300, Anlage 1, Ziff. 4.3), und nur, was die SteuVE selbst abgeschaltet hat.</li>
   <li>Während einer laufenden Begrenzung schaltet sie einen Verbraucher frühestens nach 5 min wieder ein und nur, wenn er mit seiner <b>Nennleistung plus 200 W Reserve</b> unter die Grenze passt (nicht mit dem Momentanwert – eine Waschmaschine heizt später wieder).</li>
 </ol>
-<div class="info"><b>Zustände:</b> <b>Anlauf</b> = nach einem Neustart, noch keine Vorgabe – <b>begrenzt auf den Failsafe-Wert</b> (EEBUS-Use-Case LPC, Regel LPC-901) · <b>gesteuert</b> = Energy Guard hat nach seinem Herzschlag eine Vorgabe geschickt, die SteuVE folgt ihr · <b>Failsafe</b> = 120 s seit dem <b>letzten Herzschlag</b> nichts mehr gekommen, es gilt die Failsafe-Grenze für die Failsafe-Mindestdauer · <b>autonom</b> = ohne Energy Guard, frei (nach 120 s Anlauf ohne Vorgabe oder nach Ablauf der Failsafe-Mindestdauer). Aus „autonom“ und „Failsafe“ kommt die SteuVE erst mit der nächsten Vorgabe wieder auf „gesteuert“.</div>
-<div class="info"><b>Was die SteuVE ablehnt</b> (Use Case LPC; der Energy Guard bekommt eine Ablehnung, die alten Werte bleiben): eine negative Grenze, einen Schreibversuch auf eine andere Grenze als ihre eigene, einen Failsafe-Wert mit negativer Leistung oder mit einer Mindestdauer unter 2 Stunden. Ein Failsafe-Wert von 0 W ist gültig. In „Anlauf“, „Failsafe“ und „autonom“ meldet die SteuVE die vom Energy Guard geschriebene Grenze als <b>nicht aktiv</b>.</div>
+<h3>Zusage, Ablehnung und Abbruch</h3>
+<p>Eine Grenze anzunehmen (ACK) heißt nach dem Use Case LPC, sie <b>einhalten zu können</b> – nicht nur, sie empfangen zu haben ([LPC-002], [LPC-003]). Deshalb meldet das Skript dem Treiber in jeder Runde, auf welche Leistung die SteuVE gerade herunterkommt (<b>Zusage</b>):</p>
+<ul>
+  <li>Plätze, die abschaltbar sind und antworten, zählen mit 0 W; nicht abschaltbare mit ihrer aktuellen Leistung; Plätze, die nicht antworten, mit ihrer Nennleistung; Steuerkontakte mit 0 W.</li>
+  <li>Ist ein Steuerkontakt nicht erreichbar oder nicht bestätigt, ist die Zusage <b>unbekannt</b>.</li>
+</ul>
+<table>
+  <tr><th>Fall</th><th>Antwort an den Energy Guard</th></tr>
+  <tr><td>Grenze ≥ Zusage</td><td><b>ACK</b> – Grenze angenommen</td></tr>
+  <tr><td>Grenze &lt; Zusage, Zusage unbekannt oder älter als 60 s</td><td><b>NACK</b> (Fehlernummer 7) – Grenze abgelehnt, der bisherige Zustand bleibt</td></tr>
+  <tr><td>angenommene Grenze 2 Runden lang nicht eingehalten (Summe darüber oder Steuerkontakt nicht bestätigt)</td><td><b>Abbruch</b> – die SteuVE hebt die Grenze auf und meldet dem Energy Guard „Grenze nicht aktiv“ ([LPC-923]); im Kontakt-Protokoll „nicht eingehalten“</td></tr>
+</table>
+<p>Ein HEMS kann darauf reagieren und den Anteil neu verteilen. Die Freigabe (Grenze aufheben) wird immer angenommen.</p>
+<div class="info"><b>Zustände:</b> <b>Anlauf</b> = nach einem Neustart, noch keine Vorgabe – <b>begrenzt auf den Failsafe-Wert</b> (EEBUS-Use-Case LPC, Regel LPC-901) · <b>gesteuert</b> = Energy Guard hat nach seinem Herzschlag eine Vorgabe geschickt, die SteuVE folgt ihr · <b>Failsafe</b> = 120 s seit dem <b>letzten Herzschlag</b> nichts mehr gekommen, es gilt die Failsafe-Grenze für die Failsafe-Mindestdauer · <b>autonom</b> = ohne Energy Guard, frei (nach 120 s Anlauf ohne Vorgabe oder nach Ablauf der Failsafe-Mindestdauer). Aus „autonom“ und „Failsafe“ kommt die SteuVE erst mit der nächsten Vorgabe wieder auf „gesteuert“. Auch im Failsafe werden die Steuerkontakte umgelegt.</div>
+<div class="info"><b>Was die SteuVE außerdem ablehnt</b> (Use Case LPC; der Energy Guard bekommt eine Ablehnung, die alten Werte bleiben): eine negative Grenze, einen Schreibversuch auf eine andere Grenze als ihre eigene, einen Failsafe-Wert mit negativer Leistung oder mit einer Mindestdauer unter 2 Stunden. Ein Failsafe-Wert von 0 W ist gültig. In „Anlauf“, „Failsafe“ und „autonom“ meldet die SteuVE die vom Energy Guard geschriebene Grenze als <b>nicht aktiv</b>.</div>
 
 <h2>7. Reiter „Meldungen“</h2>
 <figure><img src="bilder-SteuVE/06-reiter-meldungen.png"><figcaption>Bild 6 – Verbindung, Herzschlag-Zähler, Vorgaben vom HEMS und die Meldungsliste (hier ohne Filter: das HEMS fragt alle paar Sekunden die Messwerte ab).</figcaption></figure>
@@ -180,9 +235,26 @@
   <li><b>Meldungsliste</b> – neueste oben, die letzten 60, nach einem Neustart leer. „nur Grenzen / Failsafe“ blendet die Messwert-Abfragen aus. Bleibt die Liste mit Filter leer, liegt die letzte Grenze schon länger zurück; für lange Zeiträume die Mitschrift (FileLog) verwenden.</li>
 </ul>
 
-<h2>8. Reiter „Protokoll“</h2>
+<h2>8. Reiter „Protokoll“ und Kontakt-Protokoll</h2>
 <figure><img src="bilder-SteuVE/07-reiter-protokoll.png"><figcaption>Bild 7 – Protokoll mit Zeit, Zustand, Grenze, Summe und abgeschalteten Verbrauchern. Zu sehen: ein Failsafe-Test am Vorabend und ein Start am Morgen (Anlauf mit Failsafe-Grenze, danach autonom, bis das HEMS wieder da war).</figcaption></figure>
 <p>Das Protokoll ist der Nachweis einer Begrenzung. Es wird <b>nur während einer Begrenzung und 10 Minuten danach</b> minütlich geschrieben (Datei <code>/steuve_log.csv</code>, bei SD-Karte dort). Ohne Begrenzung kommt nichts dazu – die letzten Zeilen können deshalb Tage alt sein.</p>
+<h3>Kontakt-Protokoll <code>/steuve_kontakt.csv</code></h3>
+<p>Für die Steuerkontakte schreibt das Skript zusätzlich <b>jedes Ereignis</b> in eine eigene Datei (nur anhängen, bei SD-Karte dort). Sie dient als Nachweis, wann welcher Kontakt wie stand (BK6-22-300 Anlage 1 Ziff. 7.2–7.4). Abrufbar z. B. über die TinyC-IDE (Port 82) oder die Dateiverwaltung von Tasmota.</p>
+<table>
+  <tr><th>Spalte</th><th>Inhalt</th></tr>
+  <tr><td>Zeit</td><td>Ortszeit, z. B. <code>2026-11-21T18:33:05</code></td></tr>
+  <tr><td>Ereignis</td><td>Begrenzung Beginn · Begrenzung Ende · umgelegt (Begrenzung) · zurück (normal) · bestätigt · NICHT bestätigt · nicht eingehalten -&gt; EEBusCsFail · Normalstellung wiederhergestellt</td></tr>
+  <tr><td>Prio, Name</td><td>Platz und Name (bei Beginn/Ende „-“)</td></tr>
+  <tr><td>Kontakt, Relais</td><td>NC/NO und die Stellung OPEN/CLOSE</td></tr>
+  <tr><td>Grenze W, Zustand</td><td>Grenze zu diesem Zeitpunkt, Zustand der SteuVE</td></tr>
+</table>
+<p>Beispiel (Begrenzung mit einem Kontakt NC, danach Ende):</p>
+<p><code>…T13:27:06;Begrenzung Beginn;-;-;-;-;14252;gesteuert</code><br>
+<code>…T13:27:06;umgelegt (Begrenzung);3;Test Steuern;NC;OPEN;14252;gesteuert</code><br>
+<code>…T13:27:06;bestaetigt;3;Test Steuern;NC;OPEN;14252;gesteuert</code><br>
+<code>…T13:27:38;Begrenzung Ende;-;-;-;-;0;gesteuert</code><br>
+<code>…T13:27:38;zurueck (normal);3;Test Steuern;NC;CLOSE;0;gesteuert</code><br>
+<code>…T13:27:38;bestaetigt;3;Test Steuern;NC;CLOSE;0;gesteuert</code></p>
 
 <h2>9. Reiter „Test &amp; Einstellungen“</h2>
 <figure><img src="bilder-SteuVE/08-reiter-test.png"><figcaption>Bild 8 – Grenze simulieren, Kenndaten und Erklärung der Zustände.</figcaption></figure>
@@ -198,14 +270,16 @@
 <ul>
   <li>Das Skript läuft in <b>Slot 0</b>. Ein neues Skript über <b>TinyC</b> oder <b>TinyC-IDE</b> laden; vorher den Slot stoppen.</li>
   <li>Die Verbraucherliste steht in einer <code>.pvs</code>-Datei, deren Name dem Skriptdateinamen folgt. Lädt man eine neue Fassung desselben Skripts (gleicher <code>@name</code>) unter <b>neuem Dateinamen</b>, übernimmt TinyC die alte Liste selbst (im Log: „persist values taken over“) – auch beim Laden über die <b>TinyC-IDE</b>.</li>
-  <li>Vor jedem Update die Liste notieren: Konsole → <code>STVCFG</code>. Mit <code>STVSET</code> lässt sie sich schnell wieder eintragen.</li>
+  <li>Vor jedem Update die Liste notieren: Konsole → <code>STVCFG</code> und <code>STVKONT</code>. Mit <code>STVSET</code> und <code>STVKONT</code> lässt sie sich schnell wieder eintragen.</li>
   <li>Lokal geladene Skripte heißen in der IDE immer <code>slot&lt;N&gt;-&lt;name&gt;</code> und haben keinen Update-Knopf. Der Update-Knopf erscheint nur bei Skripten aus dem Verzeichnis, wenn dort eine neuere <code>@version</code> liegt.</li>
 </ul>
+<div class="warn"><b>Von Skript v011 oder älter auf v021:</b> Mit dem Steuerkontakt (ab v012) sind neue gespeicherte Werte dazugekommen. TinyC verwirft dabei die alte <code>.pvs</code> – <b>die Verbraucherliste ist danach leer</b>. Vorher mit <code>STVCFG</code> notieren und nach dem Laden im Reiter Verbraucher neu eintragen. Von v012 bis v020 auf v021 bleibt die Liste erhalten.</div>
 <h3>Bedienseite</h3>
 <ul>
   <li>Die Seite liegt als <code>steuve.html</code> <b>und</b> gepackt als <code>steuve.html.gz</code> auf der SD-Karte. Das Gerät liefert zuerst die <code>.gz</code> aus (etwa 30 statt 90 KB, die Seite ist schneller da und der Webserver weniger belastet).</li>
   <li>Bei einer neuen Fassung <b>immer beide Dateien</b> ersetzen. Bleibt eine alte <code>.gz</code> liegen, zeigt der Browser weiter die alte Seite.</li>
   <li>Die <code>.gz</code> entsteht z. B. mit <code>gzip -9 -k -n steuve.html</code>.</li>
+  <li>Die Seite für den Steuerkontakt braucht Skript v012 oder neuer; mit älterem Skript steht in der Spalte „Skript ab v012“.</li>
 </ul>
 
 <h2>11. Befehle in der Tasmota-Konsole</h2>
@@ -213,13 +287,16 @@
 <h3>Treiber (<code>xdrv_128</code>)</h3>
 <table>
   <tr><th>Befehl</th><th>Bedeutung</th></tr>
-  <tr><td><code>EEBusCs</code></td><td>Zustand als JSON:<br>Zustand, Begrenzt, Grenze, Restzeit, Energy Guard,<br>Failsafe, Nennleistung, Leistung, Bekannt, Herzschlag</td></tr>
+  <tr><td><code>EEBusCs</code></td><td>Zustand als JSON:<br>Zustand, Begrenzt, Grenze, Restzeit, Energy Guard,<br>Failsafe, Nennleistung, Leistung, Bekannt, Herzschlag,<br><code>ZusageW</code>, <code>ZusageAlterS</code>, <code>Quelle</code> (neu)</td></tr>
   <tr><td><code>EEBusCsTrust</code><br><code>EEBusCsTrust &lt;ski&gt;</code><br><code>EEBusCsTrust hm</code><br><code>EEBusCsTrust 0</code></td><td>aktuellen Stand anzeigen<br>diesem Energy Guard vertrauen (SKI oder eindeutiger Anfang)<br>dem Energiemanager aus der Fundliste vertrauen<br>Vertrauen entziehen (trennt sofort)</td></tr>
   <tr><td><code>EEBusCsTyp wp</code><br><code>EEBusCsTyp wallbox</code><br><code>EEBusCsTyp steuerbox</code></td><td>stellt sich als Wärmepumpen-Gateway vor (Vorgabe; im Netz „Gateway“, Kategorie 4)<br>stellt sich als Ladestation vor (im Netz „ChargingStation“, Kategorie 3)<br>alte Kennung (bis Treiber v006)<br><i>Umstellen kündigt neu an und trennt eine eingehende Verbindung.</i></td></tr>
   <tr><td><code>EEBusCsFs &lt;W&gt; [s]</code></td><td>eigene Failsafe-Vorgabe,<br>gilt bis der Energy Guard eigene Werte schreibt</td></tr>
   <tr><td><code>EEBusCsSim &lt;W&gt; [s]</code><br><code>EEBusCsSim 0</code></td><td>Grenze lokal simulieren (nur zum Testen)<br>Simulation aufheben</td></tr>
   <tr><td><code>EEBusCsMsg</code></td><td>Meldungen vom/an den Energy Guard<br>(letzte 60, ohne Herzschläge)</td></tr>
   <tr><td><code>EEBusCsPower &lt;W&gt; [Wh]</code><br><code>EEBusCsPower unbekannt</code><br><code>EEBusCsMax &lt;W&gt;</code></td><td>Leistung melden<br>Verbrauch nicht bekannt melden<br>Nennleistung melden<br><i>macht das Skript selbst, nicht von Hand nötig</i></td></tr>
+  <tr><td><code>EEBusCsReady &lt;W&gt;</code><br><code>EEBusCsReady unbekannt</code></td><td>Zusage: so weit kommt die SteuVE gerade herunter<br>(darunter: NACK); unbekannt = jede aktive Grenze NACK<br><i>macht das Skript selbst; ohne diesen Befehl (altes Skript) wird wie bisher immer angenommen</i></td></tr>
+  <tr><td><code>EEBusCsFail [Text]</code></td><td>angenommene Grenze kann nicht eingehalten werden:<br>Grenze aufheben, Energy Guard benachrichtigen<br><i>macht das Skript selbst</i></td></tr>
+  <tr><td><code>EEBusCsQuelle m|c|e</code></td><td>Herkunft der gemeldeten Leistung:<br>gemessen / berechnet / geschätzt (Vorgabe: gemessen)</td></tr>
   <tr><td><code>EEBusScan</code><br><code>EEBusPeers</code></td><td>EEBUS-Geräte im Netz suchen<br>gefundene Geräte anzeigen</td></tr>
 </table>
 <p>Die Befehle prüfen ihre Zahlen: Buchstaben oder negative Werte werden abgelehnt und ändern nichts.</p>
@@ -227,9 +304,10 @@
 <table>
   <tr><th>Befehl</th><th>Bedeutung</th></tr>
   <tr><td><code>STVSTAT</code></td><td>Kurzstand (Zustand, Begrenzt, Grenze, Summe, Bekannt)</td></tr>
-  <tr><td><code>STVLIST</code></td><td>Messwerte je Platz:<br>Leistung, an/aus, von SteuVE abgeschaltet, Fehler;<br>dazu Melder und Modus</td></tr>
+  <tr><td><code>STVLIST</code></td><td>Messwerte je Platz:<br>Leistung, an/aus, von SteuVE abgeschaltet, Fehler, Kontakt-Bestätigung;<br>dazu Melder, Modus und Zusage</td></tr>
   <tr><td><code>STVCFG</code></td><td>eingetragene Liste je Platz:<br>Name, Adresse, Nennleistung, Fake, abschaltbar, Profil, Typ, Modell</td></tr>
-  <tr><td><code>STVSET p,fake,abs,ip,nenn,profil,name</code></td><td>Platz p (1 … 5) setzen und speichern<br>(das macht der Knopf „Speichern“)</td></tr>
+  <tr><td><code>STVSET p,fake,abs,ip,nenn,profil,name</code></td><td>Platz p (1 … 5) setzen und speichern<br>(das macht der Knopf „Speichern“)<br>Eine neue Adresse setzt den Steuerkontakt des Platzes zurück.</td></tr>
+  <tr><td><code>STVKONT</code><br><code>STVKONT p,NC</code><br><code>STVKONT p,NO</code><br><code>STVKONT p,-</code></td><td>Steuerkontakte aller Plätze anzeigen:<br>[Platz, NC/NO/-, –, –, Bestätigung, Relais, aktiv]<br>Platz p als Steuerkontakt NC bzw. NO<br>Platz p kein Steuerkontakt<br><i>Während einer Begrenzung nicht änderbar, wenn die SteuVE den Kontakt umgelegt hat.</i></td></tr>
   <tr><td><code>STVPROBE p</code></td><td>Gerät auf Platz p neu erkennen<br>(Shelly-Modell/Generation bzw. Tasmota)</td></tr>
   <tr><td><code>STVMODE 0</code><br><code>STVMODE 1</code><br><code>STVMODE 2</code></td><td>Fake: Programm hält an und läuft weiter<br>Fake: Programm startet von vorn<br>Fake: Gerät bleibt aus</td></tr>
   <tr><td><code>STVSIM &lt;W&gt; [s]</code><br><code>STVSIM 0</code></td><td>Grenze simulieren (ruft <code>EEBusCsSim</code>)<br>Simulation aufheben</td></tr>
@@ -242,8 +320,14 @@
 <p>Das Gerät antwortet, aber nicht verwertbar. Im Browser <code>http://&lt;Adresse&gt;/cm?cmnd=Status</code> aufrufen: Kommt eine Warnung, ist ein Web-Passwort gesetzt; kommt nichts, ist die HTTP-Schnittstelle ausgeschaltet. Danach „prüfen“ klicken.</p>
 <h3>Der Haken „abschaltbar“ lässt sich nicht setzen</h3>
 <p>Das Gerät ist ein Messgerät ohne Relais (Spalte M/S zeigt „M“). Es kann nichts abschalten. Wer schalten will, braucht ein Gerät mit Relais (S).</p>
+<h3>Bei „Steuerkontakt“ steht „nur Shelly 1“</h3>
+<p>Steuerkontakt kann nur ein Gerät der Shelly-1-Familie sein (potentialfreier Kontakt, Tabelle in Abschnitt 5). Steckdosen und Schalter mit Messung schalten die Last selbst und sind normale Verbraucher.</p>
+<h3>Ein Steuerkontakt steht auf „NICHT bestätigt“</h3>
+<p>Die zurückgelesene Relaisstellung passt nicht zur verlangten. Häufige Gründe: Der Shelly war kurz ohne Strom, ein Schalter am SW-Eingang hat das Relais umgelegt (Eingang auf „getrennt“ stellen, Abschnitt 5), oder in der Shelly-App läuft eine Zeitschaltung. Während einer Begrenzung führt das nach 2 Runden zum Abbruch der Grenze.</p>
+<h3>Das HEMS meldet „abgelehnt“ (NACK)</h3>
+<p>Die Grenze lag unter der Zusage der SteuVE: Nicht abschaltbare Verbraucher ziehen gerade mehr, ein Verbraucher antwortet nicht (zählt mit Nennleistung), oder ein Steuerkontakt ist nicht bestätigt (Zusage unbekannt). Mit <code>EEBusCs</code> den Wert <code>ZusageW</code> ansehen.</p>
 <h3>Die Verbraucherliste ist nach einem Update leer</h3>
-<p>Das Skript wurde mit einem anderen <code>@name</code> geladen (dann gibt es nichts zu übernehmen) und hat eine neue, leere <code>.pvs</code> angelegt (Abschnitt 10). Ebenso kann es direkt nach einem Neustart passieren, wenn die SD-Karte beim Start noch nicht bereit war und das Skript die Kopie im Flash gelesen hat.</p>
+<p>Entweder kam das alte Skript von v011 oder älter (Abschnitt 10, das ist dann so gewollt), oder das Skript wurde mit einem anderen <code>@name</code> geladen (dann gibt es nichts zu übernehmen) und hat eine neue, leere <code>.pvs</code> angelegt. Ebenso kann es direkt nach einem Neustart passieren, wenn die SD-Karte beim Start noch nicht bereit war und das Skript die Kopie im Flash gelesen hat.</p>
 <h3>Die Seite zeigt nach einem Update noch die alte Fassung</h3>
 <p>Auf der SD-Karte liegt noch eine alte <code>steuve.html.gz</code>. Beide Dateien ersetzen (Abschnitt 10) und die Seite neu laden.</p>
 <h3>Die Seite bleibt leer, wenn ich die Adresse direkt eintippe</h3>

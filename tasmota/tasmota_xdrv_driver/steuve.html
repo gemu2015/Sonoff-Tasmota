@@ -7,6 +7,7 @@
     EEBusStatus    Verbindungen          EEBusPeers / EEBusScan   Fundliste (mDNS)
     EEBusCsTrust   Vertrauen setzen/entziehen (genau ein Energy Guard)
     STVLIST        Messwerte je Platz (Skript steuve_verbraucher v003)
+    STVKONT        (Skript ab v012) Steuerkontakt je Platz: NO/NC, Leistung bei Begrenzung, Rueckmeldeeingang, Bestaetigung
     STVCFG/STVSET  Liste der Verbraucher (Shelly/Tasmota) lesen/speichern, STVPROBE Modell erfragen, STVMODE simulierte Abschaltung
     EEBusCsMsg     Meldungen vom/an den Energy Guard (Ringspeicher im Treiber, SteuVE v009) — Reiter Meldungen
     EEBusCsSim     Grenze lokal simulieren — nur Inbetriebnahme
@@ -112,7 +113,7 @@ section{margin-top:18px} section>h3{font-size:15px;margin:0 0 8px;font-weight:60
 .tr.ja{background:#37c871;color:#0e1013} .tr.nein{background:#e05a4a;color:#fff} .tr.neu{background:#fab219;color:#0e1013}
 .cfg td{vertical-align:middle}
 .cfg input[type=text]{background:var(--surface-2);color:var(--ink);border:1px solid var(--ring);border-radius:6px;padding:6px 8px;font:inherit;font-size:13px;width:100%;min-width:90px}
-.cfg input.ip{max-width:150px;font-family:ui-monospace,Consolas,monospace}
+.cfg input.ip{max-width:150px;min-width:142px;font-family:ui-monospace,Consolas,monospace}   /* 21.11.2026: volle IP xxx.xxx.xxx.xxx sichtbar */
 .cfg input.nw{max-width:90px;text-align:right}
 .cfg input[type=checkbox]{width:18px;height:18px;accent-color:#fab219;cursor:pointer}
 .cfg select{background:var(--surface-2);color:var(--ink);border:1px solid var(--ring);border-radius:6px;padding:5px 6px;font:inherit;font-size:12px}
@@ -289,7 +290,7 @@ dialog.frage::backdrop { background:rgba(0,0,0,.65); }
 <section>
   <h3>Verbraucher <span class="note">— Abschaltreihenfolge: höchste Priorität zuerst</span></h3>
   <div class="card tblwrap"><table>
-    <thead><tr><th>Verbraucher</th><th style="text-align:center">Messgerät (M)<br>Schalter (S)</th><th>Gerät</th><th>Adresse</th><th>Nennleistung</th><th>Priorität</th><th>jetzt</th><th>Zustand</th><th>erreichbar</th></tr></thead>
+    <thead><tr><th>Verbraucher</th><th style="text-align:center">Messgerät (M)<br>Schalter (S)<br>Steuerkontakt (K)</th><th>Gerät</th><th>Adresse</th><th>Nennleistung</th><th>Priorität</th><th>jetzt</th><th>Zustand</th><th>erreichbar</th></tr></thead>
     <tbody id="vtab"><tr><td colspan="9">—</td></tr></tbody>
   </table>
   <p class="note">Geschaltet werden nur Verbraucher, die gerade ziehen. Wieder eingeschaltet wird gestaffelt, einer je 60 s
@@ -303,8 +304,8 @@ dialog.frage::backdrop { background:rgba(0,0,0,.65); }
 <section style="margin-top:0">
   <h3>Verbraucher <span class="note">— Shelly oder Tasmota · Prio 1 wird zuletzt abgeschaltet, Prio 4 zuerst</span></h3>
   <div class="card tblwrap"><table class="cfg">
-    <thead><tr><th>Prio</th><th>Fake</th><th>IP</th><th>Verbraucher</th><th>max. Nennleistung</th><th>abschaltbar</th><th>Gerät / Testprofil</th><th></th></tr></thead>
-    <tbody id="shtab"><tr><td colspan="8">—</td></tr></tbody>
+    <thead><tr><th>Prio</th><th>Fake</th><th>IP</th><th>Verbraucher</th><th>max. Nennleistung</th><th>abschaltbar</th><th>Steuer&shy;kontakt<br><span class="note">nur Shelly 1</span></th><th>Gerät / Testprofil</th><th></th></tr></thead>
+    <tbody id="shtab"><tr><td colspan="9">—</td></tr></tbody>
   </table>
   <p class="note">Nennleistung = höchste Leistung des tatsächlichen Verbrauchers (Typenschild), leer = 3.680 W (16 A); die Summe
     meldet die SteuVE dem HEMS. IP leer oder 1. Oktett 0 (z. B. 0.0.0.0) = Platz frei: wird nicht abgefragt, nicht
@@ -436,6 +437,7 @@ function cmd(c){
 function say(j){ $('out').textContent = JSON.stringify(j); }
 
 // ---- Zustand der Seite
+let KONT = null;   // 21.11.2026: STVKONT [Platz,'NO'|'NC'|'-',W,'NO'|'NC'|'-',Bestaetigung] (null = Skript ohne Steuerkontakt)
 let CS = null, VL = null, CFG = null, MELD = -1, ST = [], PEERS = [], LOGLAST = '', VLFEHL = 0, SHDIRTY = false;
 const FARBE = [['#42a5f5','#0a1a2a'],['#26c6da','#08222a'],['#4caf50','#0c1f10'],['#d05a5a','#2a1414'],
                ['#ab47bc','#1f0f24'],['#ffa726','#2a1c08'],['#8d6e63','#1f1714'],['#78909c','#151b1e']];
@@ -455,6 +457,38 @@ function icon(n){
   if (/heiz/.test(n)) { return '&#128293;'; }
   return '&#128268;';
 }
+// 21.11.2026 (Andreas): STEUERKONTAKT = Shelly 1 (Gen1, Plus 1, Plus 1 Mini, 1 Gen3/Gen4, 1 Mini Gen3/Gen4) mit
+// potentialfreiem Kontakt, ohne Messung. Er legt bei einer Begrenzung den Steuereingang eines Geraets um (z. B. Wallbox).
+// NC = Kontakt am Geraet normal geschlossen, oeffnet bei Begrenzung (Relais aus); NO = normal offen, schliesst bei
+// Begrenzung (Relais ein). Skript v012 meldet Zahlen (Kontakt 1 = NC, 2 = NO; Eingang 1 = NO, 2 = NC), ab v013 Text.
+const SHELLY1 = ['SHSW-1 ', 'Plus1 ', 'Plus1Mini ', 'S1G3 ', 'S1G4 ', 'Mini1G3 ', 'Mini1G4 '];   // wie kontaktErlaubt() im Skript
+function istShelly1(model){ return !!model && SHELLY1.some(p => model.indexOf(p) === 0); }
+function kontNorm(v, eingang){
+  if (v === 'NO' || v === 'NC') { return v; }
+  if (v === 1) { return eingang ? 'NO' : 'NC'; }
+  if (v === 2) { return eingang ? 'NC' : 'NO'; }
+  return '-';
+}
+function kontVon(pl){
+  if (!Array.isArray(KONT)) { return null; }
+  const k = KONT.find(x => x[0] === pl);
+  if (!k) { return null; }
+  return {k:kontNorm(k[1], false), w:k[2] || 0, e:kontNorm(k[3], true), st:k[4] || 0};
+}
+// 21.11.2026 (Andreas): beim Steuerkontakt keine Leistung, nur der Kontaktzustand. Shelly 1: Relais ein = Kontakt geschlossen.
+function kontZust(an){ return an === 1 ? 'CLOSE' : (an === 0 ? 'OPEN' : '?'); }
+// Begrenzungsstellung: NC -> OPEN (Relais aus), NO -> CLOSE (Relais ein)
+function kontBegr(k, an){ return (k === 'NC' && an === 0) || (k === 'NO' && an === 1); }
+function kontKachel(k, an){
+  const col = an !== 0 && an !== 1 ? '#898781' : (kontBegr(k, an) ? '#fab219' : '#37c871');
+  return `<span title="zurückgelesener Kontakt (Shelly 1: Relais ein = CLOSE)${kontBegr(k, an) ? ' · Begrenzungsstellung' : ''}" style="display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;width:72px;height:28px;margin-top:4px;padding:0 4px;border:2px solid ${col};border-radius:6px;font-weight:bold;font-size:12px;color:${col};white-space:nowrap">${kontZust(an)}</span>`;
+}
+function istKont(x){ return !!(x && x.kont && x.kont.k !== '-'); }
+function kontText(x){
+  if (!x || x.k === '-') { return ''; }
+  const st = x.st === 1 ? ' · bestätigt (Relais)' : (x.st === 2 ? ' · bestätigt (Eingang)' : (x.st === -1 ? ' · NICHT bestätigt' : ''));
+  return 'Steuerkontakt ' + x.k + (x.k === 'NO' ? ' (schließt bei Begrenzung)' : ' (öffnet bei Begrenzung)') + st;
+}
 // Verbraucher = belegte Plaetze 1..4 aus STVCFG [Platz,"Name","IP",Nenn,Fake,abschaltbar,Profil,Typ,"Modell"]
 // plus Messwerte aus STVLIST [Platz,W,an,vonSteuVE,Fehler]
 function verbraucher(){
@@ -463,7 +497,7 @@ function verbraucher(){
   return CFG.P.filter(c => c[0] < 4 && belegt(c[2])).map(c => {
     const l = live[c[0]] || [c[0], 0, -1, 0, 0];
     return {pl:c[0], nm:c[1] || ('Prio ' + (c[0] + 1)), ip:c[2], nenn:c[3] > 0 ? c[3] : NENN0, prio:c[0] + 1, fake:c[4], abs:c[5],
-            prof:c[6], typ:c[7], model:c[8], w:l[1], an:l[2], stv:l[3], err:l[4]};
+            prof:c[6], typ:c[7], model:c[8], w:l[1], an:l[2], stv:l[3], err:l[4], kont:kontVon(c[0])};
   });
 }
 function peerBySki(s){ return PEERS.find(p => s && p.Ski && p.Ski.toLowerCase() === s.toLowerCase()); }
@@ -895,8 +929,8 @@ function drawFlow(){
     const fz = b < 120 ? 11 : 13;
     tiles += `<rect x="${bx}" y="350" width="${b}" height="78" rx="10" fill="${fill}" stroke="${x.stv ? '#d05a5a' : col}" stroke-width="2"${aus || err ? ' stroke-dasharray="6,4" opacity="0.75"' : ''}/>` +
              `<text x="${cx}" y="374" text-anchor="middle" fill="${col}" font-size="${fz}" font-weight="bold">${icon(x.nm)} ${esc(x.nm)}</text>` +
-             `<text x="${cx}" y="396" text-anchor="middle" fill="#fff" font-size="15" font-weight="bold">${err ? '?' : de(x.w)} W</text>` +
-             `<text x="${cx}" y="416" text-anchor="middle" fill="${x.stv ? '#ff8a80' : '#999'}" font-size="11">${x.fake ? 'Fake · ' : ''}${err ? 'antwortet nicht' : (x.stv ? 'aus · von SteuVE' : (aus ? 'aus' : 'an · Prio ' + x.prio))}</text>`;
+             `<text x="${cx}" y="396" text-anchor="middle" fill="#fff" font-size="15" font-weight="bold">${err ? '?' : (istKont(x) ? 'Kont. ' + kontZust(x.an) : de(x.w) + ' W')}</text>` +
+             `<text x="${cx}" y="416" text-anchor="middle" fill="${x.stv ? '#ff8a80' : '#999'}" font-size="11">${x.fake ? 'Fake · ' : ''}${x.kont && x.kont.k !== '-' ? 'Kontakt ' + x.kont.k + ' · ' : ''}${err ? 'antwortet nicht' : (x.stv ? (x.kont && x.kont.k !== '-' ? 'begrenzt · SteuVE' : 'aus · von SteuVE') : (aus ? 'aus' : 'an · Prio ' + x.prio))}</text>`;
   });
   if (!v.length) {
     tiles = `<text x="360" y="395" text-anchor="middle" fill="#999" font-size="13">${VL === null ? 'Skript steuve_verbraucher nicht geladen' : 'keine Verbraucher eingetragen — Reiter Verbraucher'}</text>`;
@@ -921,12 +955,19 @@ function drawFlow(){
    // 23.10.: "verbunden" nur bei stehender Verbindung (Slot), nicht schon wegen eines juengeren Herzschlags - sonst
    // stand hier "verbunden", waehrend die Pille oben richtig "nicht verbunden" zeigte (HEMS gerade neu gestartet).
   const sl = slotBySki(tr), steht = !!(sl && sl.Sme === 'done');
+   // 19.11.2026 (Andreas): empfangenen Herzschlag des HEMS bzw. der Steuerbox in der Kachel zeigen (LPC 3.4.3)
+  const hbS = c.HerzschlagS, hbZ = (sl && sl.ZusageS) ? ' (alle ' + sl.ZusageS + ' s)' : '';
+  const hbLine = (!tr || !steht || fs) ? null : ((hbS === undefined || hbS < 0) ? ['kein Herzschlag', '#e05a4a']
+               : ['Herzschlag vor ' + hbS + ' s' + hbZ, hbS <= 30 ? '#37c871' : (hbS < 90 ? '#fab219' : '#e05a4a')]);
   const hmTxt = !tr ? 'weder HEMS noch Energy Guard vertraut' : (direkt ? 'nicht beteiligt (Direktsteuerung)' :
                 ((fs || !steht) ? 'keine Verbindung' : (lim && !sim ? 'teilt zu: ' + W(c.Grenze) : (hbOk ? 'verbunden' : 'wartet auf Herzschlag'))));
   const hmAktiv = !!tr && !direkt;
   if (hm) o.push(`<rect x="270" y="150" width="180" height="58" rx="10" fill="${hmAktiv ? '#4a3015' : '#262626'}" stroke="${hmAktiv ? '#cc6600' : '#666'}" stroke-width="2"/>` +
          `<text x="360" y="174" text-anchor="middle" fill="#fff" font-size="14" font-weight="bold">&#127968; HEMS</text>` +
-         `<text x="360" y="194" text-anchor="middle" fill="#ffcc80" font-size="11">${hmTxt}</text>`);
+         `<text x="360" y="${hbLine && hmAktiv ? 190 : 194}" text-anchor="middle" fill="#ffcc80" font-size="11">${hmTxt}</text>` +
+         (hbLine && hmAktiv ? `<text x="360" y="203" text-anchor="middle" fill="${hbLine[1]}" font-size="9.5">${hbLine[0]}</text>` : ''));
+  // 19.11.2026: bei Direktsteuerung kommt der Herzschlag von der Steuerbox -> dort anzeigen
+  if (direkt && hbLine) o.push(`<text x="360" y="92" text-anchor="middle" fill="${hbLine[1]}" font-size="9.5">${hbLine[0]}</text>`);
   $('flow').innerHTML = o.join('') + tiles;
 }
 function renderUeb(){
@@ -942,8 +983,9 @@ function renderUeb(){
   $('vtab').innerHTML = v.length ? v.map((x, i) => {
     const err = x.err >= 3, col = FARBE[i % FARBE.length][0];
     const ger = x.fake ? '<span class="tag fake">Fake</span> ' + esc(PROF[x.prof] || '?') : esc(x.model || (x.typ === 2 ? 'Gen1' : (x.typ === 1 ? 'Gen2+' : 'unbekannt')));
-    return `<tr><td><span class="sw" style="background:${col};display:inline-block;margin-right:6px"></span>${esc(x.nm)}</td><td style="text-align:center">${artMS(x.typ, x.fake)}</td><td>${ger}</td><td>${esc(x.ip)}</td><td>${W(x.nenn)}</td><td>${esc(x.prio)}</td>` +
-           `<td>${err ? '?' : W(x.w)}</td><td>${x.stv ? '<span class="tag stv">von SteuVE aus</span>' : (x.an === 0 ? 'aus' : (x.an === 1 ? 'an' : '—'))}</td>` +
+    const kt = kontText(x.kont), kcol = x.kont && x.kont.st === -1 ? '#e05a4a' : '#37c871', isK = !!kt;
+    return `<tr><td><span class="sw" style="background:${col};display:inline-block;margin-right:6px"></span>${esc(x.nm)}</td><td style="text-align:center">${isK ? '<span title="Steuerkontakt (Shelly 1, potentialfrei)">K</span>' : artMS(x.typ, x.fake)}</td><td>${ger}${kt ? '<br><span class="note" style="color:' + kcol + '">' + esc(kt) + '</span>' : ''}</td><td>${esc(x.ip)}</td><td>${W(x.nenn)}</td><td>${esc(x.prio)}</td>` +
+           `<td>${err ? '?' : (istKont(x) ? kontKachel(x.kont.k, x.an) : W(x.w))}</td><td>${istKont(x) ? (x.stv ? '<span class="tag stv">begrenzt · von SteuVE</span>' : 'normal') : (x.stv ? '<span class="tag stv">von SteuVE aus</span>' : (x.an === 0 ? 'aus' : (x.an === 1 ? 'an' : '—')))}</td>` +
            `<td>${x.err ? (err ? 'nein' : 'Aussetzer ' + x.err) : 'ja'}</td></tr>`;
   }).join('') : '<tr><td colspan="9">' + (VL === null ? 'Skript steuve_verbraucher nicht geladen' : 'keine Verbraucher eingetragen — Reiter Verbraucher') + '</td></tr>';
 }
@@ -970,8 +1012,22 @@ function zeileStatus(tr){
   const fr = st.querySelector('.fr');
   if (fr) { fr.style.display = an ? 'none' : ''; fr.textContent = fk ? 'frei – IP eintragen' : 'nicht belegt'; }
 }
+// 21.11.2026: Zelle Steuerkontakt im Formular - nur fuer Shelly 1 (potentialfrei): Kontakt am Geraet NO/NC,
+// Leistung bei Begrenzung, Rueckmeldeeingang. Andere Geraete: Hinweis; ist dort (alt) einer gesetzt, bleibt er sichtbar.
+function kontAn(pl){ const l = Array.isArray(VL) ? VL.find(v => v[0] === pl) : null; return l ? l[2] : -1; }
+function kontZelle(c){
+  if (!Array.isArray(KONT)) { return '<td><span class="note">Skript ab v012</span></td>'; }
+  const k = kontVon(c[0]) || {k:'-', w:0, e:'-'};
+  if (!c[4] && !istShelly1(c[8]) && k.k === '-') { return '<td><span class="note">nur Shelly 1</span></td>'; }
+  const sel = (cls, v, opts, tip) => `<select class="${cls}" title="${tip}">` + opts.map(o => `<option value="${o[0]}"${o[0] === v ? ' selected' : ''}>${o[1]}</option>`).join('') + '</select>';
+  // 21.11.2026 (Andreas): Auswahl NC/NO und Kachel Kont. gleich gross
+  return '<td style="text-align:center">' + sel('kk', k.k, [['-', '– kein'], ['NC', 'NC'], ['NO', 'NO']],
+           'Steuereingang des Geräts: NC = normal geschlossen, öffnet bei Begrenzung (Relais aus); NO = normal offen, schließt bei Begrenzung (Relais ein)')
+           .replace('<select ', '<select style="box-sizing:border-box;width:72px;height:28px" ') +
+         (k.k !== '-' ? '<br>' + kontKachel(k.k, kontAn(c[0])) : '') + '</td>';   // 21.11.2026: Kachel nur bei NC/NO   // 21.11.2026 (Andreas): kein Rueckmeldeeingang am Shelly 1 - Bestaetigung nur ueber das Zuruecklesen des Relais
+}
 function renderShForm(){
-  if (!CFG) { $('shtab').innerHTML = '<tr><td colspan="8">' + (VL === null ? 'Skript steuve_verbraucher nicht geladen' : 'lädt …') + '</td></tr>'; return; }
+  if (!CFG) { $('shtab').innerHTML = '<tr><td colspan="9">' + (VL === null ? 'Skript steuve_verbraucher nicht geladen' : 'lädt …') + '</td></tr>'; return; }
   $('simmode').value = String(CFG.Mode || 0);
   const z = c => {
     const m = c[0] === 4;
@@ -984,7 +1040,7 @@ function renderShForm(){
          : `<td><input type="text" class="nw" value="${c[3] > 0 ? c[3] : ''}" placeholder="${NENN0}" inputmode="numeric"> W</td>` +
            (nurMessTyp(c[7]) && !c[4]
              ? `<td class="c"><input type="checkbox" class="ab" disabled title="Messgerät ohne Relais – kann nicht abschalten"><br><span class="note">Messgerät</span></td>`
-             : `<td class="c"><input type="checkbox" class="ab"${c[5] ? ' checked' : ''}></td>`)) +
+             : `<td class="c"><input type="checkbox" class="ab"${c[5] ? ' checked' : ''}></td>`) + kontZelle(c)) +
       `<td class="st"><span class="md">${md}</span><span class="fr">nicht belegt</span>${m ? '' : profSel(c[6] || 4)}</td>` +
       `<td><button class="btn pr" data-pl="${c[0]}">prüfen</button></td></tr>`;
   };
@@ -992,6 +1048,8 @@ function renderShForm(){
   $('meldtab').innerHTML = CFG.P.filter(c => c[0] === 4).map(z).join('');
   document.querySelectorAll('#shtab tr, #meldtab tr').forEach(tr => {
     tr.querySelectorAll('input,select').forEach(e => e.addEventListener('input', () => { SHDIRTY = true; zeileStatus(tr); shSum(); }));
+    const kk = tr.querySelector('.kk'), abx = tr.querySelector('.ab');   // Steuerkontakt wirkt nur, wenn abschaltbar
+    if (kk && abx) { kk.addEventListener('change', () => { if (kk.value !== '-') { abx.checked = true; } }); }
     tr.querySelector('.fk').addEventListener('change', () => {
       const fk = tr.querySelector('.fk').checked, ipe = tr.querySelector('.ip'), pl = +tr.dataset.pl;
       const pf = tr.querySelector('.pf'); if (pf && fk) { pf.value = profAusName(tr.querySelector('.nm').value); }   // Profil nach dem Namen vorschlagen
@@ -1069,6 +1127,25 @@ async function shSpeichern(){
     }
     if (!ok) { fehl.push((pl < 4 ? 'Prio ' + (pl + 1) : 'Melder') + ': ' + (j ? JSON.stringify(j) : 'keine Antwort')); }
   }
+  // 21.11.2026: Steuerkontakt je Platz (STVKONT p,NO|NC|-,W,NO|NC|-) - nur wenn geaendert
+  for (const tr of zeilen) {
+    const pl = +tr.dataset.pl, kk = tr.querySelector('.kk');
+    if (pl >= 4 || !kk) { continue; }
+    const kw = 0, ke = '-';   // 21.11.2026: keine Leistung, kein Rueckmeldeeingang beim Steuerkontakt
+    const alt = kontVon(pl) || {k:'-', w:0, e:'-'};
+    if (alt.k === kk.value && alt.e === ke) { continue; }
+    gesendet++;
+    b.textContent = 'speichert Steuerkontakt Prio ' + (pl + 1) + ' …';
+    let j = null;
+    for (let v = 0; v < 4; v++) {
+      j = await cmd('STVKONT ' + [pl + 1, kk.value, kw, ke].join(','));
+      if (j && j.STVKONT) { break; }
+      await new Promise(r => setTimeout(r, 1500));
+    }
+    const neu = j && Array.isArray(j.STVKONT) ? j.STVKONT.find(x => x[0] === pl) : null;
+    if (!neu || kontNorm(neu[1], false) !== kk.value) { fehl.push('Prio ' + (pl + 1) + ' Steuerkontakt: ' + (j ? JSON.stringify(j) : 'keine Antwort')); }
+    else { KONT = j.STVKONT; }
+  }
   if (fehl.length) { knopfMeldung(b, '✗ nicht alles gespeichert', '#e05a4a'); }
   else if (!gesendet) { knopfMeldung(b, 'nichts geändert', '#898781'); }
   else { knopfMeldung(b, '✓ ' + gesendet + ' gespeichert', ''); }
@@ -1089,8 +1166,9 @@ $('simmode').onchange = () => {
   });
 };
 function ladeCfg(form){
-  return cmd('STVCFG').then(j => {
+  return Promise.all([cmd('STVCFG'), cmd('STVKONT')]).then(([j, k]) => {
     if (j && j.STVCFG && Array.isArray(j.STVCFG.P)) { CFG = j.STVCFG; }
+    KONT = (k && Array.isArray(k.STVKONT)) ? k.STVKONT : null;   // altes Skript: keine Steuerkontakte
     if (form || !SHDIRTY) { renderShForm(); }
     render();
   });

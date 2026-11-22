@@ -14,6 +14,7 @@
   .hinweis { background: #fff6dc; border-left: 4px solid #e0a800; padding: 2mm 3mm; margin: 3mm 0; }
   .warn { background: #fde7e7; border-left: 4px solid #c43c3c; padding: 2mm 3mm; margin: 3mm 0; }
   .info { background: #eaf2fb; border-left: 4px solid #3c7cc4; padding: 2mm 3mm; margin: 3mm 0; }
+  .neu { background: #e7f6ea; border-left: 4px solid #2e9a48; padding: 2mm 3mm; margin: 3mm 0; }
   figure { margin: 3mm 0 4mm; page-break-inside: avoid; text-align: center; }
   figure img { width: 100%; border: 1px solid #b9c2cf; border-radius: 2mm; }
   figcaption { font-size: 9pt; color: #555; margin-top: 1mm; text-align: left; }
@@ -28,9 +29,16 @@
 <body>
 
 <h1>EEBUS-Steuerbox auf Tasmota</h1>
-<div class="kopf">Bedienungsanleitung · Stand 08.11.2026 · Treiber <code>xdrv_126</code> v233 · Persönliche Daten in den Bildern unkenntlich gemacht (Adressen auf 192.168.1.x umgeschrieben, Kennungen verdeckt)<br>Erstellt von <b>meierchen006</b> mit Hilfe von Claude</div>
+<div class="kopf">Bedienungsanleitung · Stand 21.11.2026 · Treiber <code>xdrv_126</code> (Stand Repository 21.11.2026) · Firmware v235 · Persönliche Daten in den Bildern unkenntlich gemacht (Adressen auf 192.168.1.x umgeschrieben, Kennungen verdeckt)<br>Erstellt von <b>meierchen006</b> mit Hilfe von Claude</div>
 
 <div class="warn"><b>Testgerät, nicht zertifiziert.</b> Die Steuerbox dient dazu, die EEBUS-Kommunikation mit einem HEMS (Energiemanagementsystem im Haus) oder mit steuerbaren Verbrauchseinrichtungen zu prüfen. Sie ersetzt weder die Steuerbox des Messstellenbetreibers noch ein geprüftes Gerät nach § 14a EnWG und ist nicht für den regulären Betrieb gedacht.</div>
+
+<div class="neu"><b>Neu seit der Fassung vom 08.11.2026:</b>
+<ul>
+  <li><b>Firmware mit größerem IDLE-Stapel</b> (<code>CONFIG_FREERTOS_IDLE_TASK_STACKSIZE=3072</code>) – behebt seltene Abstürze der Box unter Last (Abschnitt 2 und 10). Am Treiber selbst hat sich nichts geändert.</li>
+  <li>Reiter <b>„Betriebslogbuch“</b> – das Betriebslogbuch direkt auf der Seite lesen, nach Monat und Art gefiltert (Abschnitt 9).</li>
+  <li>Reiter <b>„Status“</b> – Gerätedaten und Kopplungen auf einen Blick, nur lesend (Abschnitt 9).</li>
+</ul></div>
 
 <h2>1. Was die Steuerbox macht</h2>
 <p>Die Steuerbox spielt die Rolle, die sonst die Steuerbox des Netzbetreibers am Smart-Meter-Gateway übernimmt. Sie schickt per EEBUS zwei Arten von Vorgaben:</p>
@@ -52,6 +60,7 @@
   <tr><th>Was</th><th>Wo / Wert</th><th>Warum</th></tr>
   <tr><td><b>Vorlage</b></td><td><code>Waveshare ESP32-S3-ETH SDIO</code><br>(Einstellungen → Vorlage)</td><td>Die SD-Karte hängt per <b>SDIO 1-Bit</b> am ESP32-S3: GPIO5 = D0, GPIO6 = CMD, GPIO7 = CLK. Beim Start steht im Log <code>UFS: SDCard mounted (SDIO 1-bit)</code>. Auf der SD-Karte liegen Bedienseite und Betriebslogbuch.</td></tr>
   <tr><td><b>HTTP API aktivieren</b></td><td>Haken setzen<br>(Einstellungen → Weitere Einstellungen; entspricht <code>SetOption128 1</code>)</td><td>Ohne den Haken weist Tasmota Abrufe ohne Herkunftsangabe ab (im Log <code>HTP: Referer '' denied</code>): Befehle von außen (<code>/cm?cmnd=…</code>) werden abgewiesen.</td></tr>
+  <tr><td><b>Firmware</b></td><td>gebaut mit<br><code>CONFIG_FREERTOS_IDLE_TASK_STACKSIZE=3072</code></td><td>Mit dem Vorgabewert 1024 Byte stürzte die Box (ESP32-S3 mit LAN-Chip W5500) gelegentlich ab: <code>DebugException</code> beim Taskwechsel, im Testnetz und an der echten Box am selben Tag. Gemessen mit <code>TinyCStack</code>: unter Last blieben von 1024 Byte nur <b>80 Byte</b> frei, mit 3072 sind es über <b>2.200 Byte</b>. Beim Bauen in der Bauvariante (<code>custom_sdkconfig</code>) eintragen.</td></tr>
 </table>
 <div class="hinweis">Mit eingeschalteter HTTP API nimmt die Box Befehle von jedem Rechner im Netz an. Ein <b>Passwort für die Weboberfläche</b> (gleiche Seite) schützt davor.</div>
 <h3>Seite aufrufen</h3>
@@ -64,7 +73,7 @@
   <li><b>Herzschlag</b> – <b>gesendet</b> vor … s (der letzte eigene Herzschlag an die Gegenstelle) · <b>empfangen</b> vor … s (der letzte Herzschlag der Gegenstelle). Beide sollten nur wenige Sekunden alt sein.</li>
   <li><b>Software</b> – Tasmota-Version.</li>
 </ul>
-<p>Die Seite hat vier Reiter: <b>Übersicht</b>, <b>Eigene Steuerbox-Kennung</b>, <b>Steuern § 9 und § 14a</b> und <b>Messwerte MGCP</b>.</p>
+<p>Die Seite hat fünf Reiter: <b>Übersicht</b>, <b>Eigene Steuerbox-Kennung</b>, <b>Steuern § 9 und § 14a</b>, <b>Messwerte MGCP</b> und <b>Betriebslogbuch</b>; rechts daneben <b>Status</b>.</p>
 <div class="hinweis">Zeigt die Seite „steuerbox.html liegt nicht im Dateisystem – bitte hochladen“, fehlt die Datei. Sie gehört auf die SD-Karte der Box (Abschnitt 9).</div>
 
 <h2 class="seite">3. Reiter „Übersicht“ – Anlagen verbinden</h2>
@@ -180,12 +189,26 @@
   <li>Spalten: <code>Zeit_UTC;Ereignis;Anlage;Adresse;Richtung;Wert;Dauer_s;Ergebnis</code> – Zeit in UTC mit „Z“, Anlage = SKI.</li>
   <li>Ereignisse: <b>Vorgabe</b> (mit Ergebnis, z. B. „BESTAETIGT aktiv 4200 W“ oder „Write abgelehnt“), <b>Failsafe-Werte</b> (Wert und Dauer), <b>Verbindung hergestellt</b>, <b>Kommunikationsstoerung – Verbindung getrennt</b>, <b>Kommunikationsstoerung – Herzschlag aus</b> und <b>… beendet – Herzschlag wieder da</b> (bei stehender Verbindung), <b>Befehl abgewiesen</b>. Gleiche Wiederholungen werden nicht doppelt eingetragen.</li>
   <li>Aufbewahrung: <b>30 Monate</b>; ältere Monatsdateien löscht die Box selbst.</li>
-  <li>Abholen: über den FTP-Server der Box oder die Dateiverwaltung von Tasmota.</li>
+  <li>Lesen: im Reiter <b>Betriebslogbuch</b> (unten); abholen über „Datei öffnen“ dort, den FTP-Server der Box oder die Dateiverwaltung von Tasmota.</li>
   <li><b>Ohne SD-Karte</b> gibt es kein Betriebslogbuch. Das bleibt nicht still: Beim Start steht im Log „Betriebslogbuch aus – keine SD-Karte“, und <code>EEBusStatus</code> zeigt es im Feld „Betriebslogbuch“.</li>
 </ul>
 <div class="hinweis">Ordnername, Dateiformat und Aufbewahrungsdauer schreibt die FNN-Empfehlung nicht vor – das ist unsere Festlegung.</div>
 <p>Ein Eintrag sieht so aus:</p>
 <pre style="white-space:pre-wrap;word-break:break-all;font-size:9pt;background:#f4f4f4;padding:6px">2026-10-26T19:14:13Z;Befehl abgewiesen;…••••;;;EEBusLpc alle 4200 120;0;nicht ausfuehrbar - Kommunikationsstoerung</pre>
+
+<h3>Reiter „Betriebslogbuch“</h3>
+<figure><img src="bilder-Steuerbox/08-betriebslogbuch.png"><figcaption>Bild 8 – Reiter „Betriebslogbuch“: Monat und Filter wählen, die Einträge stehen neueste zuerst in Ortszeit. Hier: Verbindung mit einem HEMS, Freigaben § 14a und § 9 mit Bestätigung, Failsafe-Werte und einige Begrenzungen auf 15.000 W. Adressen umgeschrieben, von der SKI nur die letzten 4 Stellen.</figcaption></figure>
+<ul>
+  <li><b>Monat</b> – die letzten 30 Monate; „(aktuell)“ ist der laufende Monat.</li>
+  <li><b>Filter</b> – alle Einträge · nur Vorgaben · nur Failsafe-Werte · nur Verbindung / Störung · nur Ablehnungen / Störungen.</li>
+  <li><b>Aktualisieren</b> liest die Datei neu; <b>Datei öffnen</b> zeigt die Monatsdatei selbst (CSV, Zeiten in UTC).</li>
+  <li>Die Seite rechnet die Zeiten in <b>Ortszeit</b> um; in der Datei bleiben sie in UTC. Die Anlage steht mit Adresse und den letzten 4 Stellen der SKI.</li>
+  <li>Gelesen wird über Port 82 der Box. Fragen mehrere Browser gleichzeitig, kann eine Anfrage kurz abgewiesen werden – dann „Aktualisieren“.</li>
+</ul>
+
+<h3>Reiter „Status“</h3>
+<figure><img src="bilder-Steuerbox/09-status.png"><figcaption>Bild 9 – Reiter „Status“: Firmware mit Bauzeit, Speicher, SD-Karte, LAN, Laufzeit, letzter Neustart mit Grund und die Kopplungen mit Zustand des Betriebslogbuchs.</figcaption></figure>
+<p>Der Reiter liest nur (jede Minute neu) und ändert nichts. Wichtig für die Fehlersuche: <b>Letzter Neustart</b> mit Grund. Steht dort ein Absturz (<code>Exception</code>) statt „Software reset“ oder „Power on“, bitte melden. Bewusst nicht angezeigt werden WLAN-Name, MAC, Hostname und SKI.</p>
 
 <h3>Bedienseite</h3>
 <ul>
@@ -219,6 +242,8 @@
 <p>Vorlage prüfen: Es muss <code>Waveshare ESP32-S3-ETH SDIO</code> sein (Abschnitt 2). Im Log beim Start muss <code>UFS: SDCard mounted (SDIO 1-bit)</code> stehen, sonst steht dort „Betriebslogbuch aus – keine SD-Karte“.</p>
 <h3>Befehle von außen werden abgewiesen</h3>
 <p>Der Haken <b>„HTTP API aktivieren“</b> fehlt (Abschnitt 2). Haken setzen und speichern – die Box startet dabei neu.</p>
+<h3>Die Box startet ab und zu von selbst neu</h3>
+<p>Im Reiter Status unter „Letzter Neustart“ nachsehen. Steht dort eine <code>Exception</code> und war die Firmware mit dem Vorgabewert <code>CONFIG_FREERTOS_IDLE_TASK_STACKSIZE=1024</code> gebaut, ist das sehr wahrscheinlich der zu kleine IDLE-Stapel (Abschnitt 2). Firmware mit 3072 nehmen. Prüfen lässt es sich mit dem Konsolenbefehl <code>TinyCStack</code>: Bei <code>IDLE0</code> und <code>IDLE1</code> sollten unter Last deutlich mehr als 200 Byte frei bleiben (<code>StackFreeMin</code>).</p>
 <h3>Zwei Geräte mit derselben Identität</h3>
 <p>Nie zwei Boxen mit demselben Zertifikat gleichzeitig betreiben – die Gegenstelle kann sie nicht unterscheiden. Für einen Umzug auf ein anderes Board: alte Box <b>Sichern</b>, neue Box <b>Zurückspielen</b>, alte Box danach nicht mehr einschalten.</p>
 

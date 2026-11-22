@@ -1,5 +1,5 @@
 // @name: SteuVE Verbraucher
-// @version: 20261101_0900
+// @version: 20261121_1900
 // ─────────────────────────────────────────────────────────────────────
 // steuve_verbraucher.tc — schaltet Verbraucher (Shelly oder Tasmota im WLAN/LAN) nach der §14a-Grenze, die der
 // Treiber xdrv_128 (steuerbare Verbrauchseinrichtung, Rolle 3) vom Energy Guard empfaengt.
@@ -43,7 +43,65 @@
 //   STVPROBE p                   Shelly auf Platz p nach Modell/Generation fragen (naechste Runde)
 //   STVMODE 0|1|2                simulierte Abschaltung (s.o.)
 //   STVSIM <W> [s] | STVSIM 0    Grenze simulieren (ruft EEBusCsSim) — Test ohne Energy Guard
+//   STVKONT p,kontakt,W,eingang  v012/v013: Platz p als Steuerkontakt. kontakt = Steuereingang des Geraets:
+//                                NC (normal geschlossen, oeffnet bei Begrenzung -> Relais AUS) | NO (normal offen,
+//                                schliesst bei Begrenzung -> Relais EIN) | - (kein Steuerkontakt); W = Leistung des
+//                                Geraets bei Begrenzung; eingang = Hilfskontakt als Rueckmeldung: NO (schliesst bei
+//                                Begrenzung) | NC (oeffnet bei Begrenzung) | - (keiner). Beispiel: STVKONT 3,NC,0,-
+//   STVKONT                      v012: Steuerkontakt-Einstellungen aller Plaetze
 //
+// v021 (21.11.2026, Befund .188.24 18:18): ohne Begrenzung stellt das Skript JEDEN Steuerkontakt in die Normalstellung
+//   (NC -> CLOSE, NO -> OPEN), nicht nur einen, den es selbst umgelegt hat. Bisher blieb ein Kontakt in Begrenzungs-
+//   stellung stehen, wenn er schon vor der Begrenzung so stand (kein Umlegen -> vonUns 0 -> nach dem Ende "nicht
+//   anfassen"): Protokoll 15:02 nach Umstellen NO -> NC stand das Relais OPEN, Begrenzung 15:02-15:04 und 16:29 ohne
+//   Umlegen, danach blieb es OPEN = Geraet gedimmt ohne Grenze. Dasselbe nach einem Neustart des Shelly (Stromausfall,
+//   initial_state match_input/restore_last). Neu im Protokoll: "Normalstellung wiederhergestellt" (Ereignis 8).
+//   Steht der Kontakt bei Begrenzung schon richtig und ist bestaetigt, gilt er jetzt auch als "von SteuVE" (vonUns 1).
+// v020 (21.11.2026, Abbruch-Test 13:21): (1) antwortet ein Steuerkontakt nicht oder ist er nicht bestaetigt, ist die
+//   Zusage UNBEKANNT (EEBusCsReady -1) -> der Treiber lehnt jede neue aktive Grenze ab (NACK). Bisher zaehlte der
+//   Kontakt weiter mit 0 W: nach dem Abbruch schickte das HEMS die Grenze nach 8 s neu, die SteuVE sagte wieder zu.
+//   (2) "Abbruch gemeldet" wird auch bei einer NEUEN Grenze (anderer Wert) zurueckgesetzt - die Luecke zwischen
+//   Abbruch und neuer Grenze war kuerzer als eine Runde, das Skript sah sie nicht und meldete nie wieder.
+// v019 (21.11.2026, Andreas): Steuerkontakt nur, wenn er es wirklich ist - NC/NO UND abschaltbar UND Shelly 1
+//   (kontaktAktiv). Bis v018 galt jeder Platz mit NC/NO als Steuerkontakt: ein Messgeraet (Mini PM) oder eine Plus
+//   Plug S mit altem NC wurde nicht mehr gemessen und mit 0 W gerechnet -> Summe und Zusage zu klein (Test 13:12:
+//   Zusage 0 W), ACK auf zu niedrige Grenze moeglich. Jetzt wird so ein Platz normal gemessen und mitgerechnet.
+//   STVSET mit neuer Adresse setzt den Steuerkontakt des Platzes zurueck ("-"). STVKONT: 7. Feld aktiv 1/0.
+// v018 (21.11.2026): STVKONT liefert je Platz zusaetzlich den Relaiszustand (6. Feld: 1 = CLOSE, 0 = OPEN, -1 unbekannt),
+//   damit das HEMS waehrend einer Dimmung mit EINER Abfrage je SteuVE den Kontakt zeigen kann (HEMS Slot 4 BILK).
+// v017 (21.11.2026): nach JEDEM Umlegen steht das Ergebnis des Zuruecklesens im Protokoll (bisher nur bei Aenderung des
+//   Bestaetigungsstands - nach der Rueckkehr in die Normalstellung fehlte "bestaetigt", Test 11:40:20).
+// v016 (21.11.2026, Andreas): PROTOKOLL der Steuerkontakte fuer den Nachweis (BNetzA BK6-22-300 Anl. 1 Ziff. 7.2-7.4;
+//   LPC IG 4.1.5: wer sein ACK auf eigene Informationen stuetzt, protokolliert sie). Datei /steuve_kontakt.csv
+//   (Dateisystem des Skripts, bei SD-Karte dort), nur ANHAENGEN, Kopfzeile bei leerer Datei. Je EREIGNIS eine Zeile:
+//   Zeit;Ereignis;Prio;Name;Kontakt;Relais;Grenze W;Zustand
+//   Ereignisse: Begrenzung Beginn / Ende, umgelegt (Begrenzung) / zurueck (normal), bestaetigt, NICHT bestaetigt,
+//   nicht eingehalten -> EEBusCsFail. Kontakt NO/NC, Relais OPEN/CLOSE (Shelly 1: Relais ein = CLOSE).
+// v015 (21.11.2026, Andreas): Rueckmeldeeingang entfernt - der SW-Eingang des Shelly 1 schaltet dessen eigenes Relais
+//   (in_mode follow) und ist kein Rueckmeldeeingang. Bestaetigt wird nur ueber das Zuruecklesen des Relais.
+//   cEing bleibt als persist-Variable stehen (Layout der gespeicherten Werte), wird aber nicht mehr benutzt.
+//   STVKONT p,NO|NC|-[,W[,eingang]]: W und eingang werden angenommen und ignoriert (alte Seiten).
+// v014 (21.11.2026, Andreas): "Wir steuern nur einen Kontakt" - die SteuVE schaetzt fuer einen Steuerkontakt KEINE
+//   Leistung mehr (zaehlt mit 0 W in Summe und Zusage, Wertquelle bleibt gemessen); welche Leistung das Geraet bezieht,
+//   klaert das Geraet selbst. Angezeigt wird nur der Kontaktzustand (Shelly 1: Relais ein = Kontakt geschlossen).
+//   STVKONT nimmt das Feld W weiter an (wird ignoriert), damit alte Seiten nicht scheitern.
+// v013 (21.11.2026, Andreas): Steuerkontakt als NO/NC bezeichnen (Kontakt am Geraet: normally open / normally closed),
+//   damit klar ist, wie er stehen soll. STVKONT nimmt NO/NC/- an (alte Zahlen 1 = NC, 2 = NO gehen weiter), Ausgabe NO/NC.
+//   Keine neuen persist-Variablen (Einstellungen bleiben).
+// v012 (21.11.2026, Andreas): STEUERKONTAKT mit Rueckmeldung. Ein Shelly 1 (Gen1, Plus 1, 1 Gen3/Gen4, 1 Mini Gen3/Gen4,
+//   alle mit potentialfreiem Kontakt, keine Messung) legt bei einer Begrenzung einen Kontakt um, der an den Steuereingang
+//   eines Geraets geht (z. B. Wallbox: weniger Ladeleistung oder aus). Geschaltet wird, sobald die Grenze aktiv ist - egal
+//   welche Leistung fliesst; nach dem Aufheben geht der Kontakt sofort zurueck. Nach jedem Schalten wird zurueckgelesen
+//   (Gen1 /relay/0 ison, Gen2+ Switch.GetStatus output), auf Wunsch zusaetzlich der Eingang (Hilfskontakt/Statusausgang,
+//   Gen1 /status inputs, Gen2+ Input.GetStatus state). Leistung eines Steuerkontakts = geschaetzt: Begrenzungsstellung ->
+//   eingetragene "Leistung bei Begrenzung", sonst Nennleistung. Neu an den Treiber (SteuVE-Treiber v032):
+//     EEBusCsReady <W>   jede Runde: so weit kann die Einrichtung gerade herunter -> der Treiber sagt eine aktive Grenze
+//                        darunter nicht zu (NACK statt ACK, LPC [LPC-002]/[LPC-003])
+//     EEBusCsFail <Text> Grenze 2 Runden lang nicht erreicht oder Kontakt nicht bestaetigt -> Treiber hebt sie auf und
+//                        meldet es dem Energy Guard ([LPC-923])
+//     EEBusCsQuelle e|m  mit Steuerkontakt wird die Summe als geschaetzt (empiricalValue) gemeldet
+//   Neue persist-Variablen: beim ersten Laden ist die ganze Liste leer (TinyC verwirft die .pvs bei geaendertem Layout)
+//   -> Plaetze danach per STVSET / Seite neu eintragen.
 // v010 (21.10.2026): keine Funktionsaenderung — neue Fassung zum Test der .pvs-Uebernahme beim Laden ueber die IDE.
 // v009 (21.10.2026): Tasmota-Felder mit #-Pfad lesen (Status#Power, StatusSNS#ENERGY#Power) — v008 las "Power" ohne
 //   Pfad, fand nichts in der verschachtelten Antwort: Relais nicht erkannt (Typ 8 statt 7), Leistung 0.
@@ -83,6 +141,9 @@ persist int cTyp[5];         // 0 unbekannt (wird erfragt), 1 Gen2+ Switch, 2 Ge
                              // v008: 7 Tasmota Relais+Messung, 8 Tasmota nur Messung, 9 Tasmota ohne Messung
 persist int cSimMode;        // simulierte Abschaltung 0/1/2
 persist char cName[90];      // Namen der Plaetze, mit | getrennt
+persist int cKont[5];        // v012: 0 normaler Verbraucher, 1 Steuerkontakt NC (Relais bei Begrenzung AUS), 2 NO (Relais bei Begrenzung EIN)
+persist int cPbeg[5];        // v012: Leistung des Geraets bei Begrenzung in W (0 = ganz aus; z. B. Wallbox 6 A dreiphasig ~4140, 16 A einphasig ~3680)
+persist int cEing[5];        // v012-v014 Rueckmeldeeingang; seit v015 UNBENUTZT (bleibt nur wegen des persist-Layouts)
 
 // ===== EINSTELLUNGEN ====================================================================
 #define ANZ 5                // Plaetze gesamt
@@ -94,6 +155,9 @@ persist char cName[90];      // Namen der Plaetze, mit | getrennt
 #define RESERVE_W 200        // Wiedereinschalten nur mit so viel Luft unter der Grenze
 #define NACHLAUF_S 600       // Protokoll so lange nach dem Ende einer Begrenzung weiterfuehren
 #define NENN_VORGABE 3680    // 16 A x 230 V, wenn keine Nennleistung eingetragen ist
+#define FAIL_RUNDEN 2        // v012: so viele Runden in Folge nicht erreicht -> EEBusCsFail
+#define KONTAKT_TEST 0       // v012: 1 = jeder Shelly mit Relais darf Steuerkontakt sein (Testnetz), 0 = nur Shelly-1-Familie
+                             // v013: 0 (Andreas: Steuerkontakt nur Shelly 1, potentialfrei)
 // =======================================================================================
 
 int p[ANZ];          // zuletzt gemessene Leistung W
@@ -107,6 +171,14 @@ int simOn[ANZ];      // Simulation: 1 = eingeschaltet
 int simTot[ANZ];     // Simulation: 1 = bleibt aus (STVMODE 2)
 char name[ANZ][16];  // Anzeigename (hoechstens 15 Byte — ein Umlaut zaehlt 2)
 char model[ANZ][24]; // erkanntes Modell (nur im Speicher; wird nach dem Start neu erfragt)
+int kStat[ANZ];      // v012 Steuerkontakt: 0 -, 1 bestaetigt (Relais), 2 bestaetigt (Eingang), -1 NICHT bestaetigt
+int kWarn[ANZ];      // v012: Modell-Hinweis schon geloggt
+int nichtErreicht = 0;   // v012: Runden in Folge, in denen die Grenze nicht eingehalten wird
+int failGemeldet = 0;    // v012: EEBusCsFail fuer diese Begrenzung schon gesendet
+int quelleGemeldet = -1; // v012: zuletzt gemeldete Wertquelle (0 m, 2 e)
+int zusage = -1;         // v012: zuletzt gemeldete erreichbare Leistung
+int grenzeAlt = -1;      // v020: Grenze der letzten Runde
+char klz[200];           // v016: Zeile fuer /steuve_kontakt.csv
 
 int summe = 0;
 int unbek = 0;       // 1 = mindestens ein Verbraucher antwortet nicht (3 Fehlversuche in Folge): Summe unbekannt
@@ -268,10 +340,88 @@ void probe(int k) {
     if (cTyp[k] != alt) { saveVars(); nennNeu = 1; }   // Flash nur bei Aenderung beschreiben
 }
 
+// ===== v012: Steuerkontakt =====
+int istKontakt(int k) {
+    if (cKont[k] == 1 || cKont[k] == 2) { return 1; }
+    return 0;
+}
+
+// Relaisstellung bei Begrenzung: NC (1) -> Relais aus (0), NO (2) -> Relais ein (1)
+int begrStellung(int k) {
+    if (cKont[k] == 2) { return 1; }
+    return 0;
+}
+
+// Darf dieser Platz Steuerkontakt sein? Nur Shelly mit Relais (Typ 1 Gen2+ Switch, Typ 2 Gen1 Relais) und - ausser im
+// Test (KONTAKT_TEST 1) - nur die Shelly-1-Familie mit potentialfreiem Kontakt. Kennungen aus /shelly (Gen1 "type",
+// Gen2+ "app"); die Gen2+-Namen stammen aus der Shelly-Doku und sind am Geraet noch nicht alle geprueft.
+int kontaktErlaubt(int k) {
+    if (cFake[k] == 1) { return 1; }
+    if (cTyp[k] != 1 && cTyp[k] != 2) { return 0; }
+    int fam = 0;
+    if (strFind(model[k], "SHSW-1 ") == 0) { fam = 1; }      // Shelly 1 (Gen1)
+    if (strFind(model[k], "Plus1 ") == 0) { fam = 1; }       // Shelly Plus 1
+    if (strFind(model[k], "Plus1Mini ") == 0) { fam = 1; }   // Shelly Plus 1 Mini
+    if (strFind(model[k], "S1G3 ") == 0) { fam = 1; }        // Shelly 1 Gen3
+    if (strFind(model[k], "S1G4 ") == 0) { fam = 1; }        // Shelly 1 Gen4
+    if (strFind(model[k], "Mini1G3 ") == 0) { fam = 1; }     // Shelly 1 Mini Gen3
+    if (strFind(model[k], "Mini1G4 ") == 0) { fam = 1; }     // Shelly 1 Mini Gen4
+    if (fam == 1) { return 1; }
+    if (kWarn[k] == 0 && strlen(model[k]) > 0) {
+        kWarn[k] = 1;
+        char c[80];
+        if (KONTAKT_TEST == 1) { sprintf(c, "Prio %d %s ist kein Shelly 1 - als Steuerkontakt NUR TEST", k + 1, model[k]); }
+        else { sprintf(c, "Prio %d %s ist kein Shelly 1 - nicht als Steuerkontakt zugelassen", k + 1, model[k]); }
+        addLog("STV %s", c);
+    }
+    if (KONTAKT_TEST == 1) { return 1; }
+    return 0;
+}
+
+// v019: wirklich Steuerkontakt? NC/NO + abschaltbar + Shelly 1 (bzw. Fake). Sonst normaler Platz (messen, mitrechnen).
+int kontaktAktiv(int k) {
+    if (!istKontakt(k) || cAbs[k] != 1) { return 0; }
+    return kontaktErlaubt(k);
+}
+
+// Relais zuruecklesen. Setzt an[k]. Liefert 1, wenn das Relais geantwortet hat.
+int liesRelais(int k) {
+    int n;
+    if (cFake[k] == 1) {
+        an[k] = simOn[k];
+        return 1;
+    }
+    ipStr(k);
+    if (cTyp[k] == 1) {
+        sprintf(url, "http://%s/rpc/Switch.GetStatus?id=0", gip);
+        n = httpGet(url, resp);
+        if (n <= 0 || strFind(resp, "\"output\"") < 0) { return 0; }
+        if (strFind(resp, "\"output\":true") >= 0) { an[k] = 1; } else { an[k] = 0; }
+        return 1;
+    }
+    if (cTyp[k] == 2) {
+        sprintf(url, "http://%s/relay/0", gip);
+        n = httpGet(url, resp);
+        if (n <= 0 || strFind(resp, "\"ison\"") < 0) { return 0; }
+        if (strFind(resp, "\"ison\":true") >= 0) { an[k] = 1; } else { an[k] = 0; }
+        return 1;
+    }
+    return 0;
+}
+
+// geschaetzte Leistung eines Steuerkontakts aus der Relaisstellung
+int kontaktLeistung(int k) {
+    return 0;   // v014: keine Schaetzung - die Leistung klaert das Geraet hinter dem Kontakt selbst
+}
+
 // Leistung eines Platzes lesen. Liefert W oder -1.
 int lies(int i) {
     float f;
     int n;
+    if (kontaktAktiv(i)) {   // v012: kein Messwert - Relais lesen (v019: nur echter Steuerkontakt)
+        if (liesRelais(i) == 0) { return -1; }
+        return kontaktLeistung(i);
+    }
     if (cFake[i] == 1) {
         an[i] = simOn[i];
         return simLeistung(i);
@@ -382,6 +532,110 @@ int schalte(int i, int ein) {
     return 0;
 }
 
+// v016: eine Zeile ins Kontakt-Protokoll. k = Platz (-1 = ohne Platz), art: 1 umgelegt (Begrenzung), 2 zurueck (normal),
+// 3 bestaetigt, 4 NICHT bestaetigt, 5 nicht eingehalten -> EEBusCsFail, 6 Begrenzung Beginn, 7 Begrenzung Ende,
+// 8 Normalstellung wiederhergestellt (v021: stand ohne Begrenzung in Begrenzungsstellung, nicht von uns umgelegt).
+// Nur ints als Parameter (TinyC: keine char[]-Parameter); geschrieben wird aus dem globalen Puffer klz (nie ein Literal).
+void kontaktLog(int k, int art) {
+    char ts[24];
+    char ev[40];
+    char kn[4];
+    char rl[8];
+    timeStamp(ts);
+    strcpy(ev, "?");
+    if (art == 1) { strcpy(ev, "umgelegt (Begrenzung)"); }
+    if (art == 2) { strcpy(ev, "zurueck (normal)"); }
+    if (art == 3) { strcpy(ev, "bestaetigt"); }
+    if (art == 4) { strcpy(ev, "NICHT bestaetigt"); }
+    if (art == 5) { strcpy(ev, "nicht eingehalten -> EEBusCsFail"); }
+    if (art == 6) { strcpy(ev, "Begrenzung Beginn"); }
+    if (art == 7) { strcpy(ev, "Begrenzung Ende"); }
+    if (art == 8) { strcpy(ev, "Normalstellung wiederhergestellt"); }   // v021
+    strcpy(kn, "-");
+    strcpy(rl, "-");
+    if (k >= 0) {
+        if (cKont[k] == 1) { strcpy(kn, "NC"); }
+        if (cKont[k] == 2) { strcpy(kn, "NO"); }
+        if (an[k] == 1) { strcpy(rl, "CLOSE"); }
+        if (an[k] == 0) { strcpy(rl, "OPEN"); }
+        sprintf(klz, "%s;%s;%d;%s;%s;%s;%d;%s\n", ts, ev, k + 1, name[k], kn, rl, grenze, zustand);
+    } else {
+        sprintf(klz, "%s;%s;-;-;-;-;%d;%s\n", ts, ev, grenze, zustand);
+    }
+    // nur ANHAENGEN (Modus 2); Kopfzeile nur, wenn die Datei leer ist (Seek/Tell statt fileSize mit Variable)
+    int h = fileOpen("/steuve_kontakt.csv", 2);
+    if (h < 0) { return; }
+    fileSeek(h, 0, 2);
+    if (fileTell(h) <= 0) {
+        char kopf[80];
+        strcpy(kopf, "Zeit;Ereignis;Prio;Name;Kontakt;Relais;Grenze W;Zustand\n");
+        fileWrite(h, kopf, strlen(kopf));
+    }
+    fileWrite(h, klz, strlen(klz));
+    fileClose(h);
+}
+
+// v012: Steuerkontakte stellen und bestaetigen. Begrenzt -> Begrenzungsstellung, frei -> Normalstellung (v021: JEDER
+// Kontakt, nicht nur was WIR umgelegt haben). Danach immer zuruecklesen (nicht der Schaltantwort trauen: Gen2+ meldet
+// nur den Zustand VORHER).
+void kontakte() {
+    int i;
+    char c[96];
+    for (i = 0; i < NV; i++) {
+        if (!belegt(i) || !kontaktAktiv(i)) { kStat[i] = 0; continue; }   // v019
+        int soll = begrStellung(i);
+        if (begrenzt == 0) { soll = 1 - soll; }
+        // v021: frei, nicht von uns und schon in Normalstellung (oder Geraet antwortet nicht): nichts zu tun.
+        // an[i] liest die Runde ohnehin (liesRelais in der Messung) - kein zusaetzlicher Abruf.
+        if (begrenzt == 0 && vonUns[i] == 0 && (fehler[i] >= 3 || an[i] == soll)) { kStat[i] = 0; continue; }
+        if (fehler[i] >= 3) { kStat[i] = -1; continue; }   // antwortet nicht
+        int umgelegt = 0;   // v017
+        if (an[i] != soll) {
+            umgelegt = 1;
+            int ok = schalte(i, soll);
+            if (begrenzt == 1) { sprintf(c, "Steuerkontakt Prio %d -> Begrenzung (%s)", i + 1, ok == 1 ? "gesendet" : "NICHT gesendet"); }
+            else if (vonUns[i] == 1) { sprintf(c, "Steuerkontakt Prio %d -> frei (%s)", i + 1, ok == 1 ? "gesendet" : "NICHT gesendet"); }
+            else { sprintf(c, "Steuerkontakt Prio %d ohne Grenze -> Normalstellung (%s)", i + 1, ok == 1 ? "gesendet" : "NICHT gesendet"); }
+            addLog("STV %s", c);
+            if (ok == 1 && begrenzt == 1) { vonUns[i] = 1; ausSeit[i] = tasm_uptime; }
+            if (begrenzt == 1) { kontaktLog(i, 1); }
+            else if (vonUns[i] == 1) { kontaktLog(i, 2); }   // v016 (Relais = Stand vor dem Zuruecklesen)
+            else { kontaktLog(i, 8); }                       // v021
+        }
+        // zuruecklesen
+        int st = -1;
+        if (liesRelais(i) == 1 && an[i] == soll) { st = 1; }
+        if (begrenzt == 1 && st == 1 && vonUns[i] == 0) { vonUns[i] = 1; ausSeit[i] = tasm_uptime; }   // v021: stand schon richtig
+        if (st != kStat[i] || umgelegt == 1) {   // v017: nach jedem Umlegen das Ergebnis festhalten
+            if (st == 1) { sprintf(c, "Steuerkontakt Prio %d bestaetigt (Relais)", i + 1); }
+            else { sprintf(c, "Steuerkontakt Prio %d NICHT bestaetigt (Relais %d)", i + 1, an[i]); }
+            addLog("STV %s", c);
+            if (st == 1) { kontaktLog(i, 3); } else { kontaktLog(i, 4); }   // v016
+        }
+        kStat[i] = st;
+        if (begrenzt == 0 && st > 0) { vonUns[i] = 0; }   // zurueck in Normalstellung
+        p[i] = kontaktLeistung(i);
+    }
+}
+
+// v012: auf welche Leistung kommt die Einrichtung gerade herunter? Nicht abschaltbare oder nicht erreichbare Plaetze mit
+// ihrer (geschaetzten) Leistung, abschaltbare Verbraucher mit 0, Steuerkontakte mit ihrer Leistung bei Begrenzung.
+int erreichbar() {
+    int i;
+    int s = 0;
+    for (i = 0; i < NV; i++) {
+        if (!belegt(i)) { continue; }
+        if (kontaktAktiv(i)) {   // v014: Steuerkontakt traegt keine eigene Leistung bei (v019: nur echter)
+            if (fehler[i] >= 1 || kStat[i] == -1) { return -1; }   // v020: Kontakt nicht erreichbar/bestaetigt -> unbekannt
+            continue;
+        }
+        if (fehler[i] >= 3) { s = s + nennEff(i); continue; }   // antwortet nicht: mit Nennleistung rechnen
+        if (cAbs[i] == 1 && !nurMessen(i)) { continue; }   // laesst sich abschalten
+        s = s + p[i];
+    }
+    return s;
+}
+
 // Melder: LED-Ring setzen (erprobt):
 //   Plus Plug S (PLUGS_UI):  Farbe fuer "on" UND "off" von switch:0 setzen
 //   Plug PM Gen3 (plugpm_ui): erst leds.mode = switch, dann Farbe fuer pm1:0 "on"
@@ -475,7 +729,7 @@ void nennMelden() {
 void runde() {
     int i;
     int s = 0;
-    char c[64];
+    char c[96];   // v012: 64 -> 96 ("Grenze ... nicht erreichbar (...)" wurde abgeschnitten)
     int dt = tasm_uptime - letzteRunde;
     if (letzteRunde == 0 || dt < 0 || dt > 120) { dt = ABFRAGE_S; }
     letzteRunde = tasm_uptime;
@@ -515,10 +769,7 @@ void runde() {
         s = s + w;
     }
     summe = s;
-    // 2. Summe an den Treiber
-    if (unbek == 1) { strcpy(c, "EEBusCsPower unbekannt"); }   // Treiber ab SteuVE v026: valueState error
-    else { sprintf(c, "EEBusCsPower %d", summe); }
-    tasmCmd(c, resp);
+    // 2. (v012: Summe an den Treiber erst nach den Steuerkontakten, s. 3b)
     // 3. Zustand vom Treiber (Sensordaten, SteuVE v008). Zustand: 0 Anlauf, 1 gesteuert, 2 Failsafe, 3 autonom
     int warBegrenzt = begrenzt;
     float fb = sensorGet("EEBusCs#Begrenzt");
@@ -532,8 +783,31 @@ void runde() {
     else if (zn == 2) { strcpy(zustand, "Failsafe"); }
     else if (zn == 3) { strcpy(zustand, "autonom"); }
     else { strcpy(zustand, "Anlauf"); }
-    if (warBegrenzt == 1 && begrenzt == 0) { endeBegr = tasm_uptime; addLog("STV Begrenzung beendet"); }
-    if (warBegrenzt == 0 && begrenzt == 1) { sprintf(c, "Begrenzung auf %d W", grenze); addLog("STV %s", c); }
+    if (warBegrenzt == 1 && begrenzt == 0) { endeBegr = tasm_uptime; addLog("STV Begrenzung beendet"); kontaktLog(-1, 7); }
+    if (warBegrenzt == 0 && begrenzt == 1) { sprintf(c, "Begrenzung auf %d W", grenze); addLog("STV %s", c); kontaktLog(-1, 6); }
+    if (begrenzt == 0) { nichtErreicht = 0; failGemeldet = 0; }
+    if (grenze != grenzeAlt) { grenzeAlt = grenze; nichtErreicht = 0; failGemeldet = 0; }   // v020: neue Grenze
+
+    // 3b. v012: Steuerkontakte stellen + bestaetigen, dann Summe (mit geschaetzter Leistung der Kontakte) melden
+    kontakte();
+    s = 0;
+    int mitKontakt = 0;
+    for (i = 0; i < NV; i++) {
+        if (!belegt(i)) { continue; }
+        s = s + p[i];
+        if (kontaktAktiv(i) && cFake[i] == 0) { mitKontakt = 1; }
+    }
+    summe = s;
+    if (unbek == 1) { strcpy(c, "EEBusCsPower unbekannt"); }   // Treiber ab SteuVE v026: valueState error
+    else { sprintf(c, "EEBusCsPower %d", summe); }
+    tasmCmd(c, resp);
+    int q = 0;
+    // v014: keine Schaetzung mehr -> Wertquelle bleibt gemessen (mitKontakt nur noch zur Info)
+    if (q != quelleGemeldet) {   // Wertquelle nur bei Aenderung melden (Treiber ab SteuVE v032)
+        quelleGemeldet = q;
+        if (q == 2) { strcpy(c, "EEBusCsQuelle e"); } else { strcpy(c, "EEBusCsQuelle m"); }
+        tasmCmd(c, resp);
+    }
 
     // 4. begrenzt: abschalten, hoechste Prio-Zahl zuerst, bis Summe <= Grenze
     if (begrenzt == 1) {
@@ -543,7 +817,7 @@ void runde() {
             sicher = sicher + 1;
             int best = -1;
             for (i = NV - 1; i >= 0; i--) {
-                if (!belegt(i) || cAbs[i] != 1 || nurMessen(i) || an[i] != 1 || p[i] <= 0 || versucht[i] == 1) { continue; }
+                if (!belegt(i) || cAbs[i] != 1 || nurMessen(i) || kontaktAktiv(i) || an[i] != 1 || p[i] <= 0 || versucht[i] == 1) { continue; }
                 best = i;
                 break;
             }
@@ -564,12 +838,33 @@ void runde() {
                 addLog("STV %s", c);
             }
         }
+        // v012: nicht eingehalten (Summe ueber der Grenze oder ein Steuerkontakt nicht bestaetigt)?
+        int fehlt = 0;
+        if (summe > grenze) { fehlt = 1; }
+        for (i = 0; i < NV; i++) {
+            if (belegt(i) && kontaktAktiv(i) && kStat[i] == -1) { fehlt = 1; }
+        }
+        if (fehlt == 1) { nichtErreicht = nichtErreicht + 1; } else { nichtErreicht = 0; }
+        if (nichtErreicht >= FAIL_RUNDEN && failGemeldet == 0) {
+            failGemeldet = 1;
+            sprintf(c, "EEBusCsFail Summe %d W, Grenze %d W", summe, grenze);
+            tasmCmd(c, resp);   // Treiber hebt die Grenze auf und meldet es dem Energy Guard ([LPC-923])
+            sprintf(c, "Grenze %d W nicht eingehalten -> gemeldet", grenze);
+            addLog("STV %s", c);
+            kontaktLog(-1, 5);   // v016
+        }
     }
+
+    // 4b. v012: Zusage an den Treiber - so weit kommt die Einrichtung gerade herunter (ACK nur fuer Grenzen darueber)
+    zusage = erreichbar();
+    sprintf(c, "EEBusCsReady %d", zusage);
+    tasmCmd(c, resp);
 
     // 5. wieder einschalten — gestaffelt, Prio 1 zuerst, nur was wir abgeschaltet haben
     if (tasm_uptime - letztesEin >= EIN_ABSTAND_S) {
         for (i = 0; i < NV; i++) {
             if (vonUns[i] != 1) { continue; }
+            if (kontaktAktiv(i)) { continue; }   // v012: Steuerkontakte gehen in kontakte() zurueck
             if (begrenzt == 1) {
                 if (tasm_uptime - ausSeit[i] < MIN_AUS_S) { continue; }            // gegen Pendeln
                 if (summe + nennEff(i) > grenze - RESERVE_W) { continue; }        // mit Volllast rechnen
@@ -615,6 +910,16 @@ void WebCall() {
     int i;
     for (i = 0; i < NV; i++) {
         if (!belegt(i)) { continue; }
+        if (kontaktAktiv(i)) {   // v012 (v019: nur echter Steuerkontakt)
+            char ks[32];
+            strcpy(ks, "");
+            if (kStat[i] == 1) { strcpy(ks, " · bestaetigt"); }
+            if (kStat[i] == -1) { strcpy(ks, " · NICHT bestaetigt"); }
+            sprintf(b, "{s}Prio %d %s (Kontakt %s){m}%s · %s%s{e}", i + 1, name[i], cKont[i] == 2 ? "NO" : "NC",
+                    an[i] == 1 ? "geschlossen" : (an[i] == 0 ? "offen" : "unbekannt"), an[i] == begrStellung(i) ? "Begrenzung" : "normal", ks);
+            webSend(b);
+            continue;
+        }
         sprintf(b, "{s}Prio %d %s%s{m}%d W%s%s{e}", i + 1, name[i], cFake[i] == 1 ? " (Fake)" : "", p[i],
                 an[i] == 0 ? " · aus" : "", vonUns[i] == 1 ? " (von SteuVE)" : "");
         webSend(b);
@@ -654,10 +959,10 @@ void Command(char cmd[]) {
         strcpy(resp, "{\"STVLIST\":[");
         for (i = 0; i < ANZ; i++) {
             if (i > 0) { strcat(resp, ","); }
-            sprintf(z, "[%d,%d,%d,%d,%d]", i, p[i], an[i], vonUns[i], fehler[i]);
+            sprintf(z, "[%d,%d,%d,%d,%d,%d]", i, p[i], an[i], vonUns[i], fehler[i], kStat[i]);   // v012: + Kontakt-Bestaetigung
             strcat(resp, z);
         }
-        sprintf(z, "],\"Melder\":%d,\"Mode\":%d}", melderFarbe, cSimMode);
+        sprintf(z, "],\"Melder\":%d,\"Mode\":%d,\"Zusage\":%d}", melderFarbe, cSimMode, zusage);
         strcat(resp, z);
         responseCmnd(resp);
     } else if (strFind(cmd, "CFG") == 0) {
@@ -711,6 +1016,7 @@ void Command(char cmd[]) {
         if (ipNeu == 1 || cFake[k] != altFake) {   // anderes Geraet -> Typ neu erfragen, Messwerte verwerfen
             cTyp[k] = 0;
             strcpy(model[k], "");
+            if (k < NV) { cKont[k] = 0; cPbeg[k] = 0; kStat[k] = 0; kWarn[k] = 0; }   // v019: anderes Geraet -> kein Steuerkontakt
             p[k] = 0; an[k] = -1; fehler[k] = 0;
             if (k == MELDER) { melderFarbe = -1; }
             if (belegt(k) && cFake[k] == 0) { probeAll = 1; }
@@ -721,6 +1027,52 @@ void Command(char cmd[]) {
         sprintf(c, "Platz %d gespeichert", k + 1);
         addLog("STV %s", c);
         responseCmnd("{\"STVSET\":\"ok\"}");
+    } else if (strFind(cmd, "KONT") == 0) {
+        // v012/v013: STVKONT p,NO|NC|-,W,NO|NC|-  |  STVKONT (Liste)
+        strSub(a, cmd, 5, 0);
+        if (strlen(a) > 0) {
+            strToken(t, a, ',', 1);
+            int k = strToInt(t) - 1;
+            if (k < 0 || k >= NV) { responseCmnd("Platz 1..4 angeben"); return; }
+            if (vonUns[k] == 1) { responseCmnd("Platz ist gerade von SteuVE umgelegt - erst nach der Begrenzung aendern"); return; }
+            // v013: NC = Kontakt am Geraet normal geschlossen, oeffnet bei Begrenzung (Relais AUS) = 1
+            //       NO = Kontakt am Geraet normal offen, schliesst bei Begrenzung (Relais EIN) = 2;  0/- = kein Steuerkontakt
+            strToken(t, a, ',', 2);
+            int m = -1;
+            if (strcmp(t, "NC") == 0 || strcmp(t, "nc") == 0 || strcmp(t, "1") == 0) { m = 1; }
+            if (strcmp(t, "NO") == 0 || strcmp(t, "no") == 0 || strcmp(t, "2") == 0) { m = 2; }
+            if (strcmp(t, "0") == 0 || strcmp(t, "-") == 0) { m = 0; }
+            if (m < 0) { responseCmnd("Kontakt NO, NC oder - (kein Steuerkontakt)"); return; }
+            strToken(t, a, ',', 3);
+            int w = strToInt(t);
+            if (w < 0) { w = 0; }
+            // v013: Rueckmeldeeingang NO = Hilfskontakt schliesst bei Begrenzung (Eingang EIN = begrenzt) = 1,
+            //       NC = Hilfskontakt oeffnet bei Begrenzung (Eingang AUS = begrenzt) = 2;  0/- = keiner
+            strToken(t, a, ',', 4);
+            int e = 0;
+            if (strcmp(t, "NO") == 0 || strcmp(t, "no") == 0 || strcmp(t, "1") == 0) { e = 1; }
+            if (strcmp(t, "NC") == 0 || strcmp(t, "nc") == 0 || strcmp(t, "2") == 0) { e = 2; }
+            cKont[k] = m;
+            cPbeg[k] = w;
+            cEing[k] = 0;   // v015: kein Rueckmeldeeingang (e wird ignoriert)
+            kStat[k] = 0;
+            kWarn[k] = 0;
+            cVer = 1;
+            saveVars();
+            sprintf(c, "Platz %d Steuerkontakt %s, %d W, Eingang %s", k + 1, m == 1 ? "NC" : (m == 2 ? "NO" : "-"), w,
+                    e == 1 ? "NO" : (e == 2 ? "NC" : "-"));
+            addLog("STV %s", c);
+        }
+        strcpy(resp, "{\"STVKONT\":[");
+        for (i = 0; i < NV; i++) {
+            if (i > 0) { strcat(resp, ","); }
+            // [Platz,"Kontakt NO/NC/-",W bei Begrenzung,"Eingang NO/NC/-",Bestaetigung,Relais,aktiv] (v018: Relais, v019: aktiv)
+            sprintf(z, "[%d,\"%s\",%d,\"%s\",%d,%d,%d]", i, cKont[i] == 1 ? "NC" : (cKont[i] == 2 ? "NO" : "-"), cPbeg[i],
+                    "-", kStat[i], an[i], kontaktAktiv(i));   // v015: Eingang immer "-"; v018: Relais; v019: aktiv
+            strcat(resp, z);
+        }
+        strcat(resp, "]}");
+        responseCmnd(resp);
     } else if (strFind(cmd, "PROBE") == 0) {
         strSub(a, cmd, 6, 0);
         int k = strToInt(a) - 1;
@@ -740,7 +1092,7 @@ void Command(char cmd[]) {
         tasmDefer(c);   // v006: verzoegert, nicht im Command ausfuehren — Ergebnis steht in EEBusCs bzw. auf der Seite
         responseCmnd("{\"STVSIM\":\"gesendet\"}");
     } else {
-        responseCmnd("STVSTAT | STVLIST | STVCFG | STVSET p,fake,abs,ip,nenn,profil,name | STVPROBE p | STVMODE 0|1|2 | STVSIM <W> [s]");
+        responseCmnd("STVSTAT | STVLIST | STVCFG | STVSET p,fake,abs,ip,nenn,profil,name | STVKONT p,NO|NC|-,W,NO|NC|- | STVPROBE p | STVMODE 0|1|2 | STVSIM <W> [s]");
     }
 }
 
@@ -749,7 +1101,7 @@ int main() {
     if (cVer == 0) {
         // Vorgaben: alle Plaetze frei (IP 0), alle abschaltbar, Profile passend zu den Beispielnamen
         for (i = 0; i < 20; i++) { cIp[i] = 0; }
-        for (i = 0; i < ANZ; i++) { cNenn[i] = 0; cFake[i] = 0; cAbs[i] = 1; cTyp[i] = 0; }
+        for (i = 0; i < ANZ; i++) { cNenn[i] = 0; cFake[i] = 0; cAbs[i] = 1; cTyp[i] = 0; cKont[i] = 0; cPbeg[i] = 0; cEing[i] = 0; }
         cProf[0] = 3; cProf[1] = 1; cProf[2] = 2; cProf[3] = 4; cProf[4] = 0;
         cAbs[MELDER] = 0;
         cSimMode = 0;
@@ -760,9 +1112,10 @@ int main() {
         p[i] = 0; an[i] = -1; vonUns[i] = 0; ausSeit[i] = 0; fehler[i] = 0;
         simT[i] = 0; simOn[i] = 1; simTot[i] = 0;
         strcpy(model[i], "");
+        kStat[i] = 0; kWarn[i] = 0;   // v012
     }
     nennMelden();
     addCommand("STV");
-    addLog("STV: SteuVE-Verbraucher v010 gestartet");
+    addLog("STV: SteuVE-Verbraucher v020 gestartet");
     return 0;
 }
