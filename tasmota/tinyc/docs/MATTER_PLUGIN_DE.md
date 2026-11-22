@@ -2,17 +2,19 @@
 
 *English: [MATTER_PLUGIN.md](MATTER_PLUGIN.md)*
 
-Seit 1.6.70 hat nur noch der **ESP32-S3**-Testbau Matter fest eingebaut. Die
-Testbauten für C3, C6 und P4 lassen die Engine weg, weil sie auf jedem Gerät
-rund 33 KB RAM kostet — auch auf allen Geräten, die Matter nie benutzen. Wer
-Matter dort haben möchte, lädt es als Plugin (`MATTERF`). Skripte, Kopplung und
-die Seite `/mt` sind dieselben wie mit der eingebauten Engine.
+Seit 1.6.81 lassen die Testbauten für **ESP32-S3**, C3, C6 und P4 die Matter-Engine
+weg, weil sie auf jedem Gerät rund 33 KB RAM kostet — auch auf allen Geräten, die
+Matter nie benutzen (auf dem S3 gemessen: 33,5 KB statisches RAM und 48 KB Flash).
+Wer Matter dort haben möchte, lädt es als Plugin (`MATTERF`). Skripte, Kopplung und
+die Seite `/mt` sind dieselben wie mit der eingebauten Engine. Bis 1.6.80 hatte der
+S3 die Engine fest eingebaut; dieser Bau erscheint weiter als `tinyc32s3-matter`.
 
 ## Welche Firmware, welche Datei
 
 | Firmware (Testing-Release) | Matter | Plugin-Datei |
 |---|---|---|
-| `tinyc32s3` | eingebaut — das Plugin ist freiwillig; ist es geladen, wird es statt der eingebauten Engine benutzt | `MATTERF_32.bin` |
+| `tinyc32s3` | **nur als Plugin** (seit 1.6.81); sein Factory-Image hat die Plugin-Partition schon | `MATTERF_32.bin` |
+| `tinyc32s3-matter` | eingebaut — das Plugin ist freiwillig; ist es geladen, wird es statt der eingebauten Engine benutzt | `MATTERF_32.bin` |
 | `tinyc32c3`, `tinyc32c6`, `tinyc32-p4-full` | **nur als Plugin** | `MATTERF_32r.bin` |
 | `tinyc32-4M-plain`, `tinyc8266-4M` | nicht verfügbar | — |
 
@@ -23,6 +25,13 @@ wird beim Hochladen abgewiesen.
 
 Eigene Bauten: `-DTINYC_MATTER -DUSE_MATTER_C_PLUGIN_ONLY` ergibt dieselbe
 Nur-Plugin-Firmware; `-DTINYC_MATTER` allein behält die eingebaute Engine.
+
+⚠️ **Du betreibst Matter auf einem ESP32-S3 und aktualisierst per OTA?** Flashe
+`tinyc32s3-matter.bin`: Matter bleibt eingebaut, sonst ändert sich nichts.
+`tinyc32s3.bin` per OTA lässt Dich ohne Matter zurück, bis die Plugin-Partition
+existiert (Schritt 1 unten, formatiert das Dateisystem) und das Plugin geladen ist.
+Eine Neuinstallation mit `tinyc32s3.factory.bin` hat die Partition schon (256 KB,
+die S3-Tabelle `app3904k_fs11328k`): Schritt 1 entfällt.
 
 ## Vorher wissen
 

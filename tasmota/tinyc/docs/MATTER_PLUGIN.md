@@ -2,17 +2,19 @@
 
 *Deutsch: [MATTER_PLUGIN_DE.md](MATTER_PLUGIN_DE.md)*
 
-Since 1.6.70 only the **ESP32-S3** test build has Matter built in. The C3, C6
-and P4 test builds leave the engine out, because it costs about 33 KB of RAM on
-every device — including all the devices that never use Matter. If you want
-Matter on one of them, you load it as a plugin (`MATTERF`). Scripts, pairing
-and the `/mt` page are the same as with the built-in engine.
+Since 1.6.81 the **ESP32-S3**, C3, C6 and P4 test builds leave the Matter engine
+out, because it costs about 33 KB of RAM on every device — including all the devices
+that never use Matter (measured on the S3: 33.5 KB of static RAM and 48 KB of flash).
+If you want Matter on one of them, you load it as a plugin (`MATTERF`). Scripts,
+pairing and the `/mt` page are the same as with the built-in engine. Up to 1.6.80 the
+S3 had the engine built in; that build is still released as `tinyc32s3-matter`.
 
 ## Which firmware, which file
 
 | Firmware (testing release) | Matter | Plugin file |
 |---|---|---|
-| `tinyc32s3` | built in — the plugin is optional; when loaded, it is used instead | `MATTERF_32.bin` |
+| `tinyc32s3` | **plugin only** (since 1.6.81); its factory image has the plugin partition already | `MATTERF_32.bin` |
+| `tinyc32s3-matter` | built in — the plugin is optional; when loaded, it is used instead | `MATTERF_32.bin` |
 | `tinyc32c3`, `tinyc32c6`, `tinyc32-p4-full` | **plugin only** | `MATTERF_32r.bin` |
 | `tinyc32-4M-plain`, `tinyc8266-4M` | not available | — |
 
@@ -23,6 +25,12 @@ rejected when you upload it.
 
 Own builds: `-DTINYC_MATTER -DUSE_MATTER_C_PLUGIN_ONLY` gives the same
 plugin-only firmware; `-DTINYC_MATTER` alone keeps the built-in engine.
+
+⚠️ **You run Matter on an ESP32-S3 and update over the air?** Flash `tinyc32s3-matter.bin`:
+Matter stays built in and nothing else changes. `tinyc32s3.bin` over the air leaves
+you without Matter until the plugin partition exists (step 1 below, it formats the
+file system) and the plugin is loaded. A fresh install with `tinyc32s3.factory.bin`
+already has the partition (256 KB, the S3 table `app3904k_fs11328k`): skip step 1.
 
 ## Before you start
 

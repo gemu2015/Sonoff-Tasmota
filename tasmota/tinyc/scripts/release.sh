@@ -57,7 +57,8 @@ STD_TARGETS=(
   #                # Matter+camera build overflows internal DRAM (dram0_0_seg by
   #                # ~2 KB as of 1.6.58); not shippable on the 4M WROVER until
   #                # something big moves out of DRAM. Re-enable when it links.
-  tinyc32s3        # ESP32-S3 16MB flash (Matter built in + camera + LVGL + USB host with hub support)
+  tinyc32s3-plugin # ESP32-S3 16MB flash, Matter as plugin only (ships as tinyc32s3.bin, see asset_name); camera + LVGL + USB host with hub support
+  tinyc32s3        # the same with Matter built in (ships as tinyc32s3-matter.bin, see asset_name)
   tinyc32c3        # ESP32-C3           (Matter as plugin only)
   tinyc32c6        # ESP32-C6           (Matter as plugin only)
   tinyc32-p4-full  # ESP32-P4 16MB+PSRAM — FULL: DSI display + LVGL, MIPI camera, audio; Matter as plugin only
@@ -65,6 +66,17 @@ STD_TARGETS=(
   tinyc32s3-eth-guard   # ESP32-S3 16MB + Ethernet (W5500) + EEBUS Steuerbox (xdrv_126), for Andreas' users (docs/EEBUS_ETHERNET.md)
   tinyc32s3-eth-steuve  # same with the SteuVE driver (xdrv_128); the two drivers exclude each other
 )
+
+# Build environment -> name of the shipped file. The plugin-only S3 build is THE tinyc32s3 for the testers (1.6.81: the built-in
+# Matter engine costs ~33 KB of static RAM on every S3); the one with Matter built in keeps its environment name tinyc32s3 locally
+# (other local environments extend it) and ships as tinyc32s3-matter.
+asset_name() {
+  case "$1" in
+    tinyc32s3-plugin) echo tinyc32s3 ;;
+    tinyc32s3)        echo tinyc32s3-matter ;;
+    *)                echo "$1" ;;
+  esac
+}
 
 # ─────────── Argument parsing ────────────────────────────────────────────────
 SKIP_BUILD=false
@@ -217,7 +229,12 @@ else
     else
       # PlatformIO writes a final summary line; tail keeps the log readable.
       if ! pio run -e "$env" 2>&1 | tail -8; then
-        die "Build failed for env $env — see output above"
+        # After custom_sdkconfig rebuilt the Arduino libraries (or the platform package was refreshed) the first run can fail
+        # (checkprogsize, "has been removed"); a second run passes. Try once more before giving up.
+        warn "Build failed for env $env — trying once more"
+        if ! pio run -e "$env" 2>&1 | tail -8; then
+          die "Build failed for env $env — see output above"
+        fi
       fi
     fi
   done
@@ -250,7 +267,9 @@ for env in "${STD_TARGETS[@]}"; do
   else
     # ESP32 family: ship .bin (OTA) + .factory.bin (esptool / web installer)
     [[ -f "${src%.bin}.factory.bin" ]] || $DRY_RUN || die "Missing ${src%.bin}.factory.bin"
-    run "cp '$src' '${src%.bin}.factory.bin' '$STAGE_DIR/'"
+    asset="$(asset_name "$env")"
+    run "cp '$src' '$STAGE_DIR/${asset}.bin'"
+    run "cp '${src%.bin}.factory.bin' '$STAGE_DIR/${asset}.factory.bin'"
   fi
 done
 
@@ -327,7 +346,8 @@ cat > "$COMBINED_NOTES" <<HEADER
 | File | Description |
 |------|-------------|
 | \`tinyc32-4M-plain.bin\` / \`.factory.bin\` | ESP32 4MB classic WROOM — plain (no Matter / no camera) |
-| \`tinyc32s3.bin\` / \`.factory.bin\` | ESP32-S3 — **Matter** built in + camera + **LVGL** GUI + **USB host** on the OTG socket (flash drive as \`/usb\`, USB audio stick, FTDI, behind a hub; see \`USB_HOST.md\`) |
+| \`tinyc32s3.bin\` / \`.factory.bin\` | ESP32-S3 — Matter as a **plugin** (about 33 KB more RAM) + camera + **LVGL** GUI + **USB host** on the OTG socket (flash drive as \`/usb\`, USB audio stick, FTDI, behind a hub; see \`USB_HOST.md\`). Partition table with the \`custom\` plugin partition |
+| \`tinyc32s3-matter.bin\` / \`.factory.bin\` | The same ESP32-S3 build with **Matter built in**. Flash this one over the air if you already run Matter on an S3 |
 | \`tinyc32c3.bin\` / \`.factory.bin\` | ESP32-C3 — Matter as plugin |
 | \`tinyc32c6.bin\` / \`.factory.bin\` | ESP32-C6 — Matter as plugin |
 | \`tinyc32-p4-full.bin\` / \`.factory.bin\` | ESP32-P4 16MB+PSRAM — **FULL**: DSI display + **LVGL**, MIPI camera, audio; Matter as plugin |
@@ -345,9 +365,10 @@ cat > "$COMBINED_NOTES" <<HEADER
 | \`filemanager.html\`, \`filemanager.tcb\` | File manager (Flash / SD / USB, rename, edit, \`.pvs\` → CSV): put both on the file system, \`TinyCRun 1 /filemanager.tcb\` (any slot), button "File Manager" on the main page. Needs this release's firmware |
 | \`TinyC_Reference.md\` / \`_DE.md\` | Documentation EN/DE |
 
-**Matter** (Apple Home / Google / Alexa): built into the S3 build. The C3, C6
-and P4 builds load it as a plugin (\`MATTERF_32r.bin\`) — the built-in engine
-would cost every device about 33 KB of RAM, used or not. Installing the plugin
+**Matter** (Apple Home / Google / Alexa): the S3 (\`tinyc32s3.bin\`), C3, C6 and P4
+builds load it as a plugin (\`MATTERF_32.bin\` for the S3, \`MATTERF_32r.bin\` for the
+others) — the built-in engine would cost every device about 33 KB of RAM, used or
+not. \`tinyc32s3-matter.bin\` is the S3 with Matter built in. Installing the plugin
 formats the file system; follow \`MATTER_PLUGIN.md\` step by step. After that a
 script defines the device (see \`matter_*.tc\` examples); open pairing from the
 \`/mt\` web page (Bind) and add the QR in your controller app.
