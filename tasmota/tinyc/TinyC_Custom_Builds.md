@@ -245,6 +245,38 @@ lib_extra_dirs          = ${common.lib_extra_dirs}
 
 ---
 
+### ESP32-S3: raise the IDLE task stack to 3072 bytes
+
+⚠️ **Crash under load.** The Arduino libraries ship with `CONFIG_FREERTOS_IDLE_TASK_STACKSIZE=1024`. On the ESP32-S3 that is too
+small: a burst of network and file traffic (for example several downloads on port 82 together with uploads on port 83, or a
+TLS session on a W5500) ends with
+
+```
+Guru Meditation Error: Core 0 panic'ed (Unhandled debug exception).
+Debug exception reason: Stack canary watchpoint triggered (IDLE0)
+Backtrace: ... vTaskSwitchContext ...
+```
+
+Found by Andreas (EEBUS Steuerbox, S3 + W5500) and reproduced on a plain S3 with Wi-Fi and no SD card: three parallel downloads
+on port 82 plus continuous uploads on port 83 restarted the device every time with 1024 bytes and ran for 120 s without a
+single error with 3072 bytes (IDLE stack free at least about 2060 bytes). The spike comes from the interrupt exit, which runs
+on the stack of the interrupted task; **`TinyCStack` does not show it** (it reported 164–188 bytes free just before the
+crash), so "enough free" proves nothing.
+
+Add the setting to every ESP32-S3 environment you build, next to your other `custom_sdkconfig` lines:
+
+```ini
+custom_sdkconfig        = CONFIG_FREERTOS_IDLE_TASK_STACKSIZE=3072
+```
+
+An environment that already has `custom_sdkconfig` gets the line appended to its list (a child environment that sets the key
+replaces the parent's list, it does not add to it). The P4 did not need it in Andreas' measurement (IDLE stack free 624 / 664
+bytes at 1024). The same ⚠️ as for the USB hub applies: the Arduino libraries are rebuilt once (about 8 minutes, shared by all
+S3 environments) and the build rewrites `sdkconfig.defaults` and deletes `CMakeLists.txt` — `git checkout CMakeLists.txt
+sdkconfig.defaults` before you commit.
+
+---
+
 ### Additional Variants
 
 #### ESP32-S3 with USB CDC (DFRobot, native USB)
