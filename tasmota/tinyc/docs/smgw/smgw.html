@@ -13,6 +13,7 @@
   --ink:#ffffff; --ink-2:#c3c2b7; --muted:#898781;
   --grid:#2c2c2a; --axis:#383835; --ring:rgba(255,255,255,0.10);
   --s-bez:#b3261e; --s-einb:#f5c518;
+  --s-bez-mark:#ffffff; --s-einb-mark:#2ecc40;   /* 1.2.0: Balken unter der Maus (Andreas 19.11.) */
   --good:#0ca30c; --warn:#fab219; --crit:#d03b3b;
 }
 :root[data-theme="light"]{
@@ -21,6 +22,7 @@
   --ink:#0b0b0b; --ink-2:#52514e; --muted:#898781;
   --grid:#e1e0d9; --axis:#c3c2b7; --ring:rgba(11,11,11,0.10);
   --s-bez:#9e1b14; --s-einb:#f2b705;
+  --s-bez-mark:#0b0b0b; --s-einb-mark:#0ca30c;   /* 1.2.0: hell -> Bezug schwarz statt weiss */
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--page);color:var(--ink);font:14px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif}
@@ -45,7 +47,23 @@ h1{font-size:22px;margin:0;font-weight:650}
 .dot.ok{background:var(--good)} .dot.wa{background:var(--warn)} .dot.no{background:var(--crit)}
 .tabs{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 14px;border-bottom:1px solid var(--ring);padding-bottom:8px;position:sticky;top:0;background:var(--page);z-index:5;padding-top:6px}
 .tabs button{background:var(--surface);color:var(--ink-2);border:1px solid var(--ring);border-radius:8px;padding:6px 12px;font:inherit;font-size:13px;cursor:pointer}
-/* SMGW-Leser smgw.html Version 1.0.0 (13.11.2026) - gehoert zu slot0-smgw_1.0.0, slot1-smgwweb_1.0.0. */
+/* v076 15.11.2026 (Andreas, Mockup 2026-11-15--1625 "so passt es"): zwei Zaehler - Karteireiter Hauptzaehler / Zaehler 2
+   (Name aus den Einstellungen, blau, /smgw?z=2 laedt /smgwf...&z=2) / Stromkosten; Einstellungen, Status, TAF oben rechts
+   neben den Karteireitern (gelten fuers Gateway), im Band nur Tag, Monat, Jahr, Jahre. */
+/* v075 15.11.2026 (Andreas, Mockup 2026-11-15--1600 Variante B in den Farben von A): Seitenwahl SMGW-Leser / Stromkosten
+   als Karteireiter in eigener Zeile, Reiterleiste als gruenes Band darunter. */
+/* v077 16.11.2026 (Andreas): Excel / Power Query als Knopf "Excel" rechts in der Reiterzeile, Karte darunter (vorher unter Einstellungen) */
+/* SMGW-Leser smgw.html Version 1.2.0 Nachtrag (21.11.2026, Andreas): Reiter "Logbuch" neben "Export zu Excel" - Knopf "Logbuch herunterladen"
+   (SMGWLogbuch, braucht slot0-smgw_1.1.5), letzte 12 Fehler und Fehltage, alle Eintraege, als .csv. */
+/* SMGW-Leser smgw.html Version 1.2.0 (19.11.2026, Andreas): Balken unter der Maus deutlich markiert - Bezug weiss (hell: schwarz),
+   Einspeisung gruen (--s-bez-mark/--s-einb-mark), in Tag, Monat, Jahr, Jahre; Info-Fenster behaelt Rot/Gelb. Sonst wie 1.1.3. */
+/* SMGW-Leser smgw.html Version 1.1.2 (16.11.2026): vor dem ersten Messwert "sucht erste Daten · geprueft bis" (Feld "such" aus slot0-smgw_1.1.2); 1.1.1: IDE-Knopf ohne :82.
+   Version 1.1.0 (16.11.2026) - gehoert zu slot0-smgw_1.1.0, slot1-smgwweb_1.1.0, slot2-smgwkosten_1.1.0; entstanden aus v074-v077 (zwei Zaehler, Excel-Knopf), Basis 1.0.0 - gehoert zu slot0-smgw_v027, slot1-smgwweb_v010. */
+/* v073 15.11.2026 (Andreas, Mockup 2026-11-15--1500 freigegeben): Zugang 2 fuer einen zweiten Zaehler (z. B. Waermepumpe,
+   §14a Modul 2) in der goldenen Kachel (Bezeichnung, Benutzer, Passwort; /smgw_zugang2.secret ueber Slot 1 v010);
+   Kopfzeile und Reiter Status zeigen Zaehler 2 getrennt; Hinweis, wenn ein Zugang mehrere Zaehler anbietet ("mids"). */
+/* v074 15.11.2026 (Andreas, Bild): Empfehlungszeile "Passwort fuer Weboberflaeche" ragte zweizeilig ueber den Kachelrand -
+   engere Zeilenhoehe, darunter Platz fuer zwei Zeilen (zu- und aufgeklappt); betrifft HAN- und FTP-Kachel. */
 /* v072 13.11.2026 (Andreas): Zeitumstellung im Oktober - das Gateway liefert die Stunde 02:00-02:45 zweimal (100 Werte,
    geprueft 25.10.2026 per SMGWTestTag), gespeichert wird die erste; die gespeicherte Viertelstunde 02:45 umfasst darum
    75 Minuten (zweite 02-Uhr-Stunde + 02:45-03:00). Tagesansicht rechnet dort kW = kWh / 1,25 h statt x 4, Hinweis
@@ -81,9 +99,25 @@ h1{font-size:22px;margin:0;font-weight:650}
 .tabs button[aria-selected="true"]{background:#a5e8a8;color:#14531a;border-color:#a5e8a8;font-weight:600}
 /* v057 10.11.2026: Seitenwahl nur, wenn Slot 2 (slot2-smgwkosten) geladen ist - /smgwb?n=status antwortet; sonst wie ohne Kostenrechnung (Andreas) */
 /* v056 10.11.2026: Seitenwahl mittig in der Reiterzeile: SMGW-Leser | Stromkosten, offene Seite hellgruen (Andreas) */
-.seitenwahl{margin-left:auto;display:inline-flex;gap:6px;align-self:center}
-.seitenwahl a{background:var(--surface);color:var(--ink-2);border:1px solid var(--ring);border-radius:8px;padding:6px 14px;font-size:13px;text-decoration:none}
-.seitenwahl a.sg{background:#e2f6e3;color:#14531a;border-color:#a5e8a8}.seitenwahl a.sk{background:#ffe9d6;color:#8a3c00;border-color:#ffd3ad}.seitenwahl a.sg.on{background:#a5e8a8;border-color:#14531a;font-weight:600}.seitenwahl a.sk.on{background:#ffd3ad;border-color:#8a3c00;font-weight:600}.seitenwahl a:not(.on){opacity:.75}.seitenwahl a:not(.on):hover{opacity:1}
+/* v075/v053 15.11.2026 (Andreas): Seitenwahl als Karteireiter in eigener Zeile ueber der Reiterleiste; die
+   gewaehlte Seite geht nahtlos in ein Band mit ihren Reitern ueber (Variante B in den Farben von Variante A). */
+:root{--pf:#a5e8a8;--pink:#14531a;--pb:rgba(165,232,168,.08)}
+.seitenzeile{display:flex;flex-wrap:wrap;align-items:flex-end;gap:6px;margin:6px 0 0}   /* v076 */
+.seitenwahl{display:flex;flex-wrap:wrap;gap:4px}
+.seitenwahl a.sb{color:#42a5f5;border-color:rgba(66,165,245,.45)}   /* v076: Zaehler 2 blau */
+.seitenwahl a.sb.on{background:#bbdefb;color:#0d3c61;border-color:#bbdefb}
+.gwreiter{margin-left:auto;display:flex;gap:6px;padding-bottom:6px}   /* v076: Gateway-Reiter oben rechts */
+.gwreiter button{background:var(--surface);color:var(--ink-2);border:1px solid var(--ring);border-radius:8px;padding:6px 12px;font:inherit;font-size:13px;cursor:pointer}
+.gwreiter button[aria-selected="true"]{background:#e0e0e0;color:#111;border-color:#e0e0e0;font-weight:600}
+.seitenwahl a{display:inline-flex;align-items:center;gap:8px;text-decoration:none;font-size:15px;font-weight:600;padding:8px 18px;border:2px solid;border-bottom:0;border-radius:10px 10px 0 0;background:transparent}
+.seitenwahl a.sg{color:#37c871;border-color:rgba(55,200,113,.45)}
+.seitenwahl a.sk{color:#ff9800;border-color:rgba(255,152,0,.45)}
+.seitenwahl a.sg.on{background:#a5e8a8;color:#14531a;border-color:#a5e8a8}
+.seitenwahl a.sk.on{background:#ffd3ad;color:#8a3c00;border-color:#ffd3ad}
+.seitenwahl a:not(.on){opacity:.85;margin-bottom:3px}
+.seitenwahl a:not(.on):hover{opacity:1}
+.seitenzeile + .tabs{border:2px solid var(--pf);border-radius:0 10px 10px 10px;padding:8px;background:linear-gradient(var(--pb),var(--pb)),var(--page)}
+.tabs button[aria-selected="true"]{background:var(--pf)!important;color:var(--pink)!important;border-color:var(--pf)!important;font-weight:600}
 /* v055 10.11.2026: Knopf "Stromkosten" aus dem Kopf in die Reiterzeile, mittig zwischen den Reitergruppen (Andreas) */
 .tabs a.kosten{margin-left:auto;background:#FFEB9C;color:#9C5700;border:0;border-radius:8px;padding:6px 14px;font-size:13px;font-weight:600;text-decoration:none;align-self:center}
 /* v054 10.11.2026: Knopf "Stromkosten" im Kopf -> /smgwkosten (Slot 2 slot2-smgwkosten, Seite smgw_kosten.html) */
@@ -167,7 +201,9 @@ details.beschr[open] .auf{display:none}
 details.beschr>.note{margin-top:4px!important}
 /* v048: Empfehlung Webpasswort neben dem Knopf (HAN, FTP), auch zugeklappt sichtbar, klickt nicht mit */
 details.beschr{position:relative}
-.empf{position:absolute;left:190px;right:0;top:0;line-height:28px;text-align:center;font-weight:700;font-size:calc(13px + 2px);color:var(--ink-2);pointer-events:none;white-space:normal}
+.empf{position:absolute;left:190px;right:0;top:5px;line-height:18px;text-align:center;font-weight:700;font-size:calc(13px + 2px);color:var(--ink-2);pointer-events:none;white-space:normal}
+/* v074: Empfehlung darf zweizeilig sein - Platz dafuer freihalten (ragte ueber den Kachelrand / ueber den Beschreibungstext) */
+@media (min-width:761px){details.beschr:has(.empf){min-height:44px}details.beschr[open]:has(.empf)>summary.btn{margin-bottom:22px}}
 @media (max-width:760px){.empf{position:static;display:block;margin-top:6px;white-space:normal}}
 .kv{display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:13px}
 .kv span:nth-child(odd){color:var(--ink-2)}
@@ -178,6 +214,10 @@ details.beschr{position:relative}
 /* v021 07.11.2026 (Andreas): FTP-Kasten bei HEMS, SMGW und Datensammler gleich; Zeile "Sicherung taeglich um" (SMGWFtpZeit, slot0 ab v010) */
 .kv.anl{display:grid;grid-template-columns:1fr auto;gap:2px 10px;margin-top:8px;padding:6px 10px;border-radius:8px;background:rgba(250,178,25,.10);border:1px solid rgba(250,178,25,.40);font-size:13px;align-items:center}
 .kv.anl>span:nth-child(even){text-align:right}
+/* v073: Zaehler 1 / Zaehler 2 in der goldenen Kachel */
+.zTit{font-size:13px;font-weight:600;color:#d4af37;margin:10px 0 0}
+.zTit .note{font-weight:normal}
+.z2blk{margin-top:16px;padding-top:10px;border-top:1px solid rgba(212,175,55,.45)}
 .ftpin{width:16em;max-width:100%;box-sizing:border-box;padding:3px 6px;border:1px solid var(--grid);border-radius:4px;background:var(--surface);color:var(--ink);font:inherit}
 .btn.anbtn{margin-top:6px;background:rgba(250,178,25,.22);border-color:rgba(250,178,25,.65);color:var(--ink)}
 h2.ftph{color:#1fa3ec}
@@ -185,7 +225,7 @@ h2.ftph{color:#1fa3ec}
 footer{margin:22px 0 8px;color:var(--muted);font-size:12px;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center}
 footer a{color:var(--ink-2)}
 .msg{background:var(--surface-2);border:1px dashed var(--muted);color:var(--ink-2);border-radius:8px;padding:8px 12px;font-size:13px;margin-bottom:12px;display:none}
-#druckKopf{display:none}@page{size:A4 portrait;margin:10mm}.nav .druckBtn{margin-left:auto}body.druck{background:#fff}body.druck header,body.druck #chips,body.druck #msg,body.druck nav.tabs,body.druck .unterkopf,body.druck .pane .nav button,body.druck .pane .nav input,body.druck details:not([open]),body.druck details>summary{display:none!important}body.druck .wrap{max-width:none;width:1000px;margin:0;padding:0}body.druck #druckKopf{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:12px;border-bottom:2px solid #1fa3ec;padding:0 0 6px;margin:0 0 10px;font-size:13px;color:#52514e}body.druck #druckKopf b{font-size:20px;color:#0b0b0b;margin-right:12px}body.druck #druckKopf .dkQuelle{flex-basis:100%;font-size:12px}body.druck .pane .nav{display:none}body.druck .tblwrap{overflow:visible;max-height:none}body.druck .card,body.druck section{break-inside:avoid}body.druck *{-webkit-print-color-adjust:exact;print-color-adjust:exact}body.druck .g4{grid-template-columns:repeat(4,minmax(0,1fr))!important}body.druck .g2{grid-template-columns:repeat(2,minmax(0,1fr))!important}body.druck .g5{grid-template-columns:repeat(3,minmax(0,1fr))!important}body.druck footer .btn,body.druck footer button{display:none!important}@media print{body.druck .wrap{zoom:var(--dz,1)}}
+#druckKopf{display:none}@page{size:A4 portrait;margin:10mm}body.druck .seitenwahl{display:none!important}.nav .druckBtn{margin-left:auto}body.druck{background:#fff}body.druck header,body.druck #chips,body.druck #msg,body.druck nav.tabs,body.druck .unterkopf,body.druck .pane .nav button,body.druck .pane .nav input,body.druck details:not([open]),body.druck details>summary{display:none!important}body.druck .wrap{max-width:none;width:1000px;margin:0;padding:0}body.druck #druckKopf{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:12px;border-bottom:2px solid #1fa3ec;padding:0 0 6px;margin:0 0 10px;font-size:13px;color:#52514e}body.druck #druckKopf b{font-size:20px;color:#0b0b0b;margin-right:12px}body.druck #druckKopf .dkQuelle{flex-basis:100%;font-size:12px}body.druck .pane .nav{display:none}body.druck .tblwrap{overflow:visible;max-height:none}body.druck .card,body.druck section{break-inside:avoid}body.druck *{-webkit-print-color-adjust:exact;print-color-adjust:exact}body.druck .g4{grid-template-columns:repeat(4,minmax(0,1fr))!important}body.druck .g2{grid-template-columns:repeat(2,minmax(0,1fr))!important}body.druck .g5{grid-template-columns:repeat(3,minmax(0,1fr))!important}body.druck footer .btn,body.druck footer button{display:none!important}@media print{body.druck .wrap{zoom:var(--dz,1)}}
 </style>
 </head>
 <body>
@@ -197,24 +237,26 @@ footer a{color:var(--ink-2)}
     <div class="sub" id="sub_ip" style="justify-self:center">—</div>
     <div class="sub" id="sub" style="font-size:16px">—</div>
   </div>
-  <div style="display:flex;gap:8px;align-items:center"><a class="btn tas" href="/">&#8592; Tasmota</a><a class="btn" href="/tc" title="TinyC-Seite: Slots, Laden, IDE-Update">TinyC</a><a class="btn" href="/ide" target="_blank" title="TinyC-IDE auf Port 82" onclick="this.href='http://'+location.hostname+':82/ide'">TinyC-IDE</a><button class="btn" id="theme">Hell / Dunkel</button></div>
+  <div style="display:flex;gap:8px;align-items:center"><span class="note" id="anmMsg" style="color:var(--warn)"></span><button class="btn" id="abmelden" style="display:none" title="Anmeldung dieses Browsers am Leser beenden (Befehle, Speichern und Hochladen gehen danach erst nach neuer Anmeldung)">&#128274; Abmelden</button><button class="btn" id="anmelden" style="display:none;background:#e0a030;color:#111;border:0;font-weight:600" title="Befehle, Speichern und Hochladen brauchen die Tasmota-Anmeldung (Benutzer admin, Webpasswort). Öffnet die Anmeldung in einem kleinen Fenster.">&#128275; Anmelden</button><a class="btn tas" href="/">&#8592; Tasmota</a><a class="btn" href="/tc" title="TinyC-Seite: Slots, Laden, IDE-Update">TinyC</a><a class="btn" href="/ide" target="_blank" title="TinyC-IDE (mit Webpasswort ueber Port 80 mit Anmeldung, sonst Port 82)">TinyC-IDE</a><button class="btn" id="theme">Hell / Dunkel</button></div>
 </header>
 <div class="chips" id="chips"></div>
 <div class="msg" id="msg"></div>
 
+<div class="seitenzeile">   <!-- v076: Karteireiter je Zaehler + Stromkosten links, Gateway-Reiter rechts -->
+  <div class="seitenwahl" id="seitenwahl"><a class="sg on" id="swZ1" href="/smgw"><span>📈</span><span id="swZ1t">SMGW-Leser</span></a><a class="sb" id="swZ2" href="/smgw?z=2" style="display:none"><span>📈</span><span id="swZ2t">Zähler 2</span></a><a class="sk" id="swK" href="/smgwkosten" title="Stromkosten aus den Viertelstunden (Slot 2)" style="display:none"><span>💶</span>Stromkosten</a></div>
+  <span class="gwreiter"><button role="tab" data-t="einst">Einstellungen</button><button role="tab" data-t="status">Status</button><button role="tab" data-t="taf">TAF</button></span>
+</div>
 <nav class="tabs" role="tablist">
   <button role="tab" data-t="tag">Tag</button>
   <button role="tab" data-t="monat">Monat</button>
   <button role="tab" data-t="jahr">Jahr</button>
   <button role="tab" data-t="jahre">Jahre</button>
-  <span class="seitenwahl" id="seitenwahl" style="display:none"><a class="sg on" href="/smgw">SMGW-Leser</a><a class="sk" href="/smgwkosten" title="Stromkosten aus den Viertelstunden (Slot 2)">Stromkosten</a></span>
-  <button role="tab" data-t="einst" class="rechts">Einstellungen</button>   <!-- v030: rechtsbuendig -->
-  <button role="tab" data-t="status">Status</button>
-  <button role="tab" data-t="taf">TAF</button>
+  <button role="tab" data-t="logbuch" class="rechts" title="Logbuch des Gateways: Neustarts, Fehler, fehlende Viertelstunden">📒 Logbuch</button>   <!-- 1.2.0 (Andreas 21.11.) -->
+  <button role="tab" data-t="excel" title="Alle 15-Minuten-Zählerstände direkt in Excel (Power Query)">📊 Export zu Excel</button>   <!-- v077; 1.1.2: Text "Export zu Excel" (Andreas 16.11.) -->
 </nav>
 <!-- v006 07.11.2026 (Andreas): Beschreibung + Datenstand unter den Reitern, Statuszeile direkt unter dem Kopf wie HEMS -->
 <div id="druckKopf"></div>
-<div class="unterkopf"><div class="sub tasblau">Amtliche 15-Minuten-Zählerstände · <span style="color:var(--s-bez)">Bezug 1.8.0</span> · <span style="color:var(--s-einb)">Einspeisung 2.8.0</span></div>   <!-- v027: Bezug rot, Einspeisung gelb wie im Diagramm --><div class="sub" id="hdrStand">–</div></div>
+<div class="unterkopf"><div class="sub tasblau"><span id="zTitel"></span>Amtliche 15-Minuten-Zählerstände · <span style="color:var(--s-bez)">Bezug 1.8.0</span> · <span style="color:var(--s-einb)">Einspeisung 2.8.0</span></div>   <!-- v027: Bezug rot, Einspeisung gelb wie im Diagramm --><div class="sub" id="hdrStand">–</div></div>
 
 <!-- ================= Tag ================= -->
 <div class="pane" data-p="tag">
@@ -413,6 +455,7 @@ footer a{color:var(--ink-2)}
   <!-- v033 08.11.2026: Zugangsdaten der HAN-Schnittstelle als eigene goldene Kachel -->
   <section class="card gold">
     <h2>🔒 Zugangsdaten der HAN-Schnittstelle</h2>
+    <div class="zTit">Zähler 1 – Hauptzähler</div>   <!-- v073 -->
     <div class="kv anl">
       <span>Benutzer</span><span><input type="text" id="gw_user" class="ftpin" style="width:30em" autocomplete="off" spellcheck="false"></span>
       <span>Passwort</span><span><input type="password" id="gw_pw" class="ftpin" style="width:30em" autocomplete="new-password"></span>
@@ -423,11 +466,24 @@ footer a{color:var(--ink-2)}
       <span>Passwort der Zertifikatsdatei</span><span><input type="password" id="gw_p12pw" class="ftpin" style="width:30em" autocomplete="off" placeholder="nur zum Öffnen – wird nicht gespeichert"></span>
       <span></span><span><span class="note" id="gw_cmsg"></span> <button class="btn" id="gwCertDel">Zertifikat löschen</button> <button class="btn anbtn" id="gwCertSet">Zertifikat laden</button></span>
     </div>
+    <!-- v073 15.11.2026: Zugang 2 fuer einen zweiten Zaehler -->
+    <div class="z2blk">
+      <div class="zTit">Zähler 2 – zweiter Zähler <span class="note">(z. B. Wärmepumpe mit §14a Modul 2) – nur ausfüllen, wenn der Messstellenbetreiber dafür eigene Zugangsdaten gegeben hat</span></div>
+      <div class="kv anl">
+        <span>Bezeichnung</span><span><input type="text" id="z2_name" class="ftpin" style="width:30em" maxlength="40" autocomplete="off" placeholder="z. B. Wärmepumpe"></span>
+        <span>Benutzer</span><span><input type="text" id="z2_user" class="ftpin" style="width:30em" autocomplete="off" spellcheck="false"></span>
+        <span>Passwort</span><span><input type="password" id="z2_pw" class="ftpin" style="width:30em" autocomplete="new-password"></span>
+        <span></span><span class="note">Gateway-Adresse und Identifikationsnummer gelten für beide Zähler (dasselbe Gateway)</span>
+        <span></span><span><span class="note" id="z2_msg"></span> <button class="btn" id="z2Del">Zugang 2 löschen</button> <button class="btn anbtn" id="z2Set">Zugang 2 speichern</button></span>
+      </div>
+      <div class="note" style="margin-top:6px">Gespeichert in <code>/smgw_zugang2.secret</code> auf der SD-Karte – gleicher Schutz wie Zugang 1 (nie angezeigt, nicht über Port 82/83, nicht in der FTP-Sicherung). Leer = kein zweiter Zähler, der Leser arbeitet wie bisher. Der Leser holt Zähler 2 direkt nach Zähler 1, nie gleichzeitig; Fehler und Wartezeiten zählen getrennt. Die Werte landen in eigenen Dateien (<code>smgw2_JJJJ-MM.txt</code>), die Dateien von Zähler 1 bleiben unberührt.</div>
+    </div>
     <details class="beschr"><summary class="btn"><span class="auf">Beschreibung ansehen</span><span class="zu">Beschreibung einklappen</span><span class="empf">Empfehlung: in Tasmota unter Einstellungen → Erweitert ein „Passwort für Weboberfläche“ setzen – Beschreibung lesen</span></summary>
     <div class="note" style="margin-top:10px;line-height:1.6">
       <b>Woher:</b> Benutzername und Passwort der HAN-Schnittstelle stehen in den Unterlagen des Messstellenbetreibers. Beim ersten Speichern sind Benutzer und Passwort nötig; danach gilt: Feld leer lassen = gespeicherter Benutzer bzw. gespeichertes Passwort bleibt. Der Leser übernimmt neue Daten spätestens nach einer Minute; eine laufende Wartezeit nach einem Fehler (auch die 12 h nach abgelehnter Anmeldung) wird dabei aufgehoben. Mehrmals falsche Daten hintereinander können das Gateway kurz sperren.<br>
       <b>Identifikationsnummer:</b> steht auf dem Gateway (E + 3 Buchstaben + 10 Ziffern, ohne Leerzeichen, z. B. EABC0112345678). Der Abruf über die PPC-Weboberfläche braucht sie nicht; sie ist für den zweiten Weg (Maschinenschnittstelle wie bei TRuDI) vorbereitet. Leer lassen = gespeicherte bleibt, „-“ = löschen.<br>
       <b>Zertifikat:</b> manche Messstellenbetreiber geben statt Benutzer/Passwort ein Zugangszertifikat aus – eine Datei <code>.p12</code> oder <code>.pfx</code>, dazu ein Passwort. Sie enthält den „Ausweis“ (Zertifikat) und den geheimen Schlüssel. Die Datei wird <b>im Browser</b> mit dem Passwort geöffnet (Bibliothek node-forge, geprüft per Prüfsumme); zum Leser gehen nur Zertifikat und Schlüssel, die Datei selbst und ihr Passwort nicht. <b>Das Passwort der Zertifikatsdatei wird nirgends gespeichert</b> – der Leser braucht es nie wieder, der Schlüssel liegt danach schon entpackt vor. Gespeichert als <code>/smgw_cert.secret</code> (Zertifikat) und <code>/smgw_key.secret</code> (geheimer Schlüssel, Kurve, Ablaufdatum). Danach werden Dateiauswahl und Passwortfeld geleert; angezeigt wird nur „********* (gespeichert) · Kurve · gültig bis …“, nie der Inhalt. Nur EC-Schlüssel auf P-256 oder P-384 (keine Brainpool-Kurven, kein RSA-Schlüssel). Braucht die Firmware ab 08.11.2026 (Befehl <code>TinyCTlsCert</code>). Ist ein Zertifikat gespeichert, zeigt der Leser es beim Verbindungsaufbau vor; fragt das Gateway trotzdem nach Benutzer/Passwort, werden die oben gespeicherten benutzt.<br>
+      <b>Zähler 2:</b> Zugang 2 liegt in <code>/smgw_zugang2.secret</code> (Zeile 1 Benutzer, Zeile 2 Passwort, Zeile 3 Bezeichnung). Ein Zertifikat gilt nur für Zugang 1. Die FTP-Sicherung nimmt die Werte von Zähler 2 noch nicht mit.<br>
       <b>Wo sie liegen:</b> nur in der Datei <code>/smgw_zugang.secret</code> auf der SD-Karte des Lesers (Zeile 1 Benutzer, Zeile 2 Passwort, Zeile 3 Identifikationsnummer); ein Zertifikat in <code>/smgw_cert.secret</code> und <code>/smgw_key.secret</code> (gleicher Schutz).<br>
       <b>Was die Endung .secret schützt:</b>
       <ul style="margin:4px 0 4px 18px;padding:0">
@@ -461,6 +517,47 @@ footer a{color:var(--ink-2)}
       <b>FTP → ESP Restore</b>: holt Daten und Einstellungen vom Server zurück — nur Dateien, die hier fehlen oder kürzer sind als auf dem Server (z. B. nach einem SD-Kartentausch). Vorhandene längere Dateien bleiben unangetastet.<br>
       FRITZ!Box: unter Heimnetz → Speicher (NAS) FTP einschalten, Benutzer mit Schreibrecht auf den NAS-Inhalt; die IP angeben, nicht fritz.box (über IPv6 verweigert die Box den passiven Modus). Der Zielordner muss auf dem Stick vorhanden sein (sonst Fehlermeldung statt Ablage an fremder Stelle). Passwortfeld leer lassen = gespeichertes Passwort bleibt. „Speichern“ übernimmt Zugang und Uhrzeit. Sichern mehrere Geräte auf denselben Server, jedem eine eigene Uhrzeit geben (z. B. 01:00, 02:00, 04:20). Der Zugang liegt in /smgw_ftp.secret auf der SD-Karte; über die Seiten und Port 82/83 ist er gesperrt, der Dateimanager von Tasmota (Port 80) kann ihn aber herunterladen, solange kein Passwort für die Weboberfläche gesetzt ist.</p></details>
   </section>
+  <section class="card">
+    <h2>Hinweise</h2>
+<details class="beschr"><summary class="btn"><span class="auf">Beschreibung ansehen</span><span class="zu">Beschreibung einklappen</span></summary>
+    <div class="note" style="font-size:13px;line-height:1.6">
+      Werte = signierte Zählerstände des Gateways (eingerichtete Profile: Monatswerte und 15-Minuten-Werte).<br>
+      Ganze Tage werden einmal täglich nach 00:20 abgeholt; fehlen mehrere Tage, holt der Leser bis zu 400 Tage je Abruf und macht danach 10 Minuten Pause. Beim ersten Abruf sucht er ab 01.01.2024 und überspringt Tage, für die das Gateway „Keine Zählerdaten vorhanden“ meldet. Der laufende Tag nur bei eingestelltem Takt (Einstellungen → Abruf einstellen).<br>
+      Nach einem Fehler wartet der Abruf 60 Minuten; bei jedem weiteren Fehler verdoppelt sich die Wartezeit bis höchstens 24 Stunden. Nach abgelehnter Anmeldung wartet er 12 Stunden (das Gateway sperrt sonst). Ein erfolgreicher Abruf setzt die Wartezeit zurück.<br>
+      Konsole: <code>SMGW</code> Status · <code>SMGWAbruf</code> jetzt abrufen · <code>SMGWTakt &lt;min&gt;</code> (0 = aus, sonst mind. 15) · <code>SMGWVersatz &lt;min&gt;</code> (0–14) · <code>SMGWHost</code> / <code>SMGWPort</code> / <code>SMGWPfad</code> Gateway-Adresse · <code>SMGWFtp</code> Daten jetzt sichern (<code>SMGWFtp SYNC</code> / <code>SMGWFtp RESTORE</code>, Schreibweise egal) · <code>SMGWFtpZeit HH:MM</code> · <code>SMGWFrei</code> Wartezeit nach einem Fehler aufheben (nur bewusst benutzen: das Gateway sperrt bei zu vielen Fehlversuchen, deshalb nicht hier auf der Seite). Zugangsdaten gibt es absichtlich nicht als Konsolenbefehl.
+    </div></details>
+  </section>
+</div>
+
+<!-- ================= v077: Excel ================= -->
+<!-- ================= Logbuch (1.2.0, 21.11.2026, Andreas) - braucht slot0-smgw_1.1.5 ================= -->
+<div class="pane" data-p="logbuch">
+  <section class="card" style="margin-top:0">
+    <h2>Logbuch des Gateways</h2>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button class="btn anbtn" id="lbLaden" title="Holt das Logbuch Tag für Tag vom Gateway (beim ersten Mal ab dem ersten Tag mit Messwerten, danach nur das Neue)">Logbuch herunterladen</button>
+      <span class="note" id="lbStand">–</span>
+      <button class="btn" id="lbCsv" style="margin-left:auto" title="alle geladenen Einträge als CSV (UTF-8, Semikolon) für Excel">Logbuch als .csv</button>
+    </div>
+    <p class="note" style="margin:8px 0 0">Nur auf Knopfdruck, nicht beim täglichen Abruf. Kennungen (Benutzer, Zählernummer, Gateway) macht der Leser beim Speichern unkenntlich (***); die stündlichen Anmeldungen dieses Lesers stehen nicht in der Liste.</p>
+  </section>
+  <section class="card">   <!-- 1.2.0 Nachtrag (Andreas 21.11.): Firmware-Updates des Gateways, die letzten 5 -->
+    <h2>Firmware-Updates des Gateways (letzte 5)</h2>
+    <div class="tblwrap"><table id="lbUpd"></table></div>
+    <div class="note" style="margin-top:6px" id="lbUpdFw">&nbsp;</div>
+  </section>
+  <section class="card">
+    <h2>Letzte 12 Fehler und Fehltage</h2>
+    <div class="tblwrap"><table id="lbFehl"></table></div>
+    <div class="note" style="margin-top:6px">Fehltag = Tag mit weniger als 96 Viertelstunden vom Gateway (Zeitumstellung und erster Tag ausgenommen). Gateway = Neustart, Fehler oder „fehlgeschlagen“ im Logbuch. Zeile anklicken = Tag öffnen.</div>
+  </section>
+  <section class="card">
+    <details><summary>Alle Einträge (<span id="lbAnz">0</span>)</summary>
+      <div class="tblwrap" style="max-height:520px;overflow:auto"><table id="lbAlle"></table></div></details>
+  </section>
+</div>
+
+<div class="pane" data-p="excel">
   <section class="card">   <!-- v049 (Andreas): Excel / Power Query -->
     <h2>Excel / Power Query</h2>
     <p class="note" style="margin:0 0 8px">Alle 15-Minuten-Zählerstände (alle Monate + laufender Tag) direkt in Excel. Die Adresse dieses Lesers ist schon eingesetzt: <code id="pqAdr">–</code></p>
@@ -471,16 +568,6 @@ footer a{color:var(--ink-2)}
       Aktualisieren: <b>Daten → Alle aktualisieren</b> – neue Tage und Monate kommen von selbst dazu, auch nach Tagen ohne Abholung (z. B. Urlaub).<br>
       Spalten: Zeit (Datum und Uhrzeit), Bezug 1.8.0, Einspeisung 2.8.0 in kWh (Zählerstände, unverändert vom Gateway). Doppelte Viertelstunden (laufender Tag) werden entfernt.<br>
       <b>Excel holt die Daten von diesem SMGW-Leser, nicht vom Gateway:</b> die Abfrage liest die Dateien auf seiner SD-Karte über Port 82 (nur lesen). Mit dem Gateway spricht nur der Leser selbst. Excel braucht deshalb keine Zugangsdaten, und Aktualisieren meldet sich nicht am Gateway an (keine Sperrgefahr) – Excel sieht den Stand, den der Leser schon abgeholt hat. Ändert sich die Adresse des Lesers, diese Seite unter der neuen Adresse öffnen und die Abfrage neu kopieren – oder in Excel nur die Zeile <code>Basis</code> ändern.</p></details>
-  </section>
-  <section class="card">
-    <h2>Hinweise</h2>
-<details class="beschr"><summary class="btn"><span class="auf">Beschreibung ansehen</span><span class="zu">Beschreibung einklappen</span></summary>
-    <div class="note" style="font-size:13px;line-height:1.6">
-      Werte = signierte Zählerstände des Gateways (eingerichtete Profile: Monatswerte und 15-Minuten-Werte).<br>
-      Ganze Tage werden einmal täglich nach 00:20 abgeholt; fehlen mehrere Tage, holt der Leser bis zu 400 Tage je Abruf und macht danach 10 Minuten Pause. Beim ersten Abruf sucht er ab 01.01.2024 und überspringt Tage, für die das Gateway „Keine Zählerdaten vorhanden“ meldet. Der laufende Tag nur bei eingestelltem Takt (Einstellungen → Abruf einstellen).<br>
-      Nach einem Fehler wartet der Abruf 60 Minuten; bei jedem weiteren Fehler verdoppelt sich die Wartezeit bis höchstens 24 Stunden. Nach abgelehnter Anmeldung wartet er 12 Stunden (das Gateway sperrt sonst). Ein erfolgreicher Abruf setzt die Wartezeit zurück.<br>
-      Konsole: <code>SMGW</code> Status · <code>SMGWAbruf</code> jetzt abrufen · <code>SMGWTakt &lt;min&gt;</code> (0 = aus, sonst mind. 15) · <code>SMGWVersatz &lt;min&gt;</code> (0–14) · <code>SMGWHost</code> / <code>SMGWPort</code> / <code>SMGWPfad</code> Gateway-Adresse · <code>SMGWFtp</code> Daten jetzt sichern (<code>SMGWFtp SYNC</code> / <code>SMGWFtp RESTORE</code>, Schreibweise egal) · <code>SMGWFtpZeit HH:MM</code> · <code>SMGWFrei</code> Wartezeit nach einem Fehler aufheben (nur bewusst benutzen: das Gateway sperrt bei zu vielen Fehlversuchen, deshalb nicht hier auf der Seite). Zugangsdaten gibt es absichtlich nicht als Konsolenbefehl.
-    </div></details>
   </section>
 </div>
 
@@ -513,6 +600,10 @@ function addDays(iso, d){ const t = new Date(iso + 'T12:00:00Z'); t.setUTCDate(t
 function deDate(iso){ const [y, m, d] = iso.split('-'); return `${+d}.${+m}.${y}`; }
 function wday(iso){ return ['So','Mo','Di','Mi','Do','Fr','Sa'][new Date(iso + 'T12:00:00Z').getUTCDay()]; }
 
+// v076: welcher Zaehler (/smgw?z=2 = Zaehler 2); die Datendateien kommen dann ueber /smgwf...&z=2
+const ZN = new URLSearchParams(location.search).get('z') === '2' ? 2 : 1;
+const ZQ = ZN === 2 ? '&z=2' : '';
+if (ZN === 2) { const r = document.documentElement.style; r.setProperty('--pf', '#bbdefb'); r.setProperty('--pink', '#0d3c61'); r.setProperty('--pb', 'rgba(187,222,251,.08)'); }
 async function holeText(url){
   const r = await fetch(url, {cache:'no-store'});
   if (!r.ok) throw new Error(url + ' → ' + r.status);
@@ -523,10 +614,22 @@ const fl = s => (s == null || s === '') ? null : parseFloat(s);
 
 async function ladeStatus(){
   try { ST.status = JSON.parse(await holeText('/smgwj')); } catch(e){ ST.status = null; }
+  zeigeZaehlerReiter();                         // v076
+}
+// v076: Karteireiter je Zaehler (zweiter nur, wenn Slot 0 Zugang 2 meldet); Name aus den Einstellungen
+function zeigeZaehlerReiter(){
+  const z2 = ST.status && ST.status.z2, name2 = (z2 && z2.name) || 'Zähler 2';
+  $('swZ2').style.display = (z2 || ZN === 2) ? '' : 'none';
+  $('swZ1t').textContent = (z2 || ZN === 2) ? 'Hauptzähler' : 'SMGW-Leser';
+  $('swZ2t').textContent = name2;
+  $('swZ1').classList.toggle('on', ZN === 1);
+  $('swZ2').classList.toggle('on', ZN === 2);
+  $('zTitel').textContent = (z2 || ZN === 2) ? (ZN === 2 ? name2 : 'Hauptzähler') + ' · ' : '';
+  document.title = ZN === 2 ? 'SMGW-Leser · ' + name2 : 'SMGW-Leser';
 }
 async function ladeTage(){
   try {
-    ST.tage = zeilen(await holeText('/smgwf?n=tage')).filter(f => f.length >= 5).map(f => ({
+    ST.tage = zeilen(await holeText('/smgwf?n=tage' + ZQ)).filter(f => f.length >= 5).map(f => ({
       d:f[0], b0:fl(f[1]), b1:fl(f[2]), e0:fl(f[3]), e1:fl(f[4]), n:parseInt(f[5] || '0', 10)
     }));
   } catch(e){ ST.tage = []; }
@@ -541,12 +644,12 @@ async function ladeTage(){
 async function ladeMonat(ym){
   if (ST.monate[ym]) return ST.monate[ym];
   let rows = [];
-  try { rows = zeilen(await holeText('/smgwf?n=' + ym)); } catch(e){ rows = []; }
+  try { rows = zeilen(await holeText('/smgwf?n=' + ym + ZQ)); } catch(e){ rows = []; }
   ST.monate[ym] = rows;
   return rows;
 }
 async function ladeHeute(){
-  try { ST.heute = zeilen(await holeText('/smgwf?n=heute')); } catch(e){ ST.heute = []; }
+  try { ST.heute = zeilen(await holeText('/smgwf?n=heute' + ZQ)); } catch(e){ ST.heute = []; }
 }
 
 // ---------- Kopf + Chips ----------
@@ -564,10 +667,17 @@ function zeigeKopf(){
   } else { msg.style.display = 'none'; }
   if (s){
     const fehler = s.fehler && s.fehler.length > 0;
-    ch.push(`<span class="chip"><span class="dot ${fehler ? 'wa' : (s.ok ? 'ok' : '')}"></span>${fehler ? 'Fehler: <b>' + esc(s.fehler) + '</b>' : 'Abruf <b>' + (s.ok ? 'in Ordnung' : 'noch keiner') + '</b>'}</span>`);
+    ch.push(`<span class="chip"><span class="dot ${fehler ? 'wa' : (s.ok ? 'ok' : '')}"></span>${fehler ? 'Fehler: <b>' + esc(s.fehler) + '</b>' : 'Abruf <b>' + (s.ok ? 'in Ordnung' : (s.aktiv ? 'läuft gerade' : (s.bis ? 'seit Neustart noch keiner' : 'noch keiner'))) + '</b>'}</span>`);
     if (s.ok) ch.push(`<span class="chip">letzter Abruf <b>${esc(s.ok.replace('T', ' '))}</b></span>`);
-    ch.push(`<span class="chip">gespeichert bis <b>${s.bis ? deDate(s.bis) : '–'}</b></span>`);
+    if (!s.bis && s.such && s.aktiv) ch.push(`<span class="chip" title="Vor dem ersten Messwert prüft der Leser Tag für Tag, ab wann das Gateway Daten hat. Leere Tage werden nicht gespeichert.">sucht erste Daten · geprüft bis <b>${deDate(s.such)}</b></span>`);   // 1.1.2: Suchstand
+    else ch.push(`<span class="chip">gespeichert bis <b>${s.bis ? deDate(s.bis) : '–'}</b></span>`);
     ch.push(`<span class="chip" title="Ganze Tage holt der Leser automatisch täglich ab 00:20 (alle fehlenden bis gestern).">nächster Abruf <b>${esc(naechsterAbruf(s))}</b></span>`);
+    if (s.z2){                                   // v073: Zaehler 2
+      const z = s.z2, f2 = z.fehler && z.fehler.length > 0;
+      ch.push(`<span class="chip"><span class="dot ${f2 ? 'wa' : (z.ok ? 'ok' : '')}"></span>${esc(z.name || 'Zähler 2')}: ${f2 ? 'Fehler: <b>' + esc(z.fehler) + '</b>' : (!z.bis && z.such && s.aktiv ? 'sucht erste Daten · geprüft bis <b>' + deDate(z.such) + '</b>' : 'gespeichert bis <b>' + (z.bis ? deDate(z.bis) : '–') + '</b>')}</span>`);
+      if (z.mids > 1) ch.push(`<span class="chip"><span class="dot wa"></span>Zugang 2 bietet <b>${z.mids} Zähler</b> an – gelesen wird der erste</span>`);
+    }
+    if (s.mids > 1) ch.push(`<span class="chip"><span class="dot wa"></span>Zugang 1 bietet <b>${s.mids} Zähler</b> an – gelesen wird der erste (bitte im Forum melden)</span>`);   // v073
     if (s.aktiv) ch.push(`<span class="chip"><span class="dot ok"></span><b>Abruf läuft …</b></span>`);
     if (s.warte > 0) ch.push(`<span class="chip">nächster Versuch in <b>${Math.ceil(s.warte / 60)} min</b></span>`);
     ch.push(`<span class="chip" title="${esc(TAKT_INFO)}" style="cursor:help">Takt heute <b>${s.takt > 0 ? 'alle ' + s.takt + ' min, +' + ((s.versatz == null) ? 2 : s.versatz) + ' min' : 'aus'}</b> ⓘ</span>`);
@@ -612,8 +722,8 @@ function balken(id, labels, bez, ein, xTitel, onClick, titel){
   ST.charts[id] = new Chart($(id), {
     type:'bar',
     data:{ labels, datasets:[
-      {label:'Bezug', data:bez, backgroundColor:css('--s-bez'), stack:'s'},
-      {label:'Einspeisung', data:ein.map(v => v == null ? null : -v), backgroundColor:css('--s-einb'), stack:'s'}
+      {label:'Bezug', data:bez, backgroundColor:css('--s-bez'), hoverBackgroundColor:css('--s-bez-mark'), stack:'s'},   // 1.2.0
+      {label:'Einspeisung', data:ein.map(v => v == null ? null : -v), backgroundColor:css('--s-einb'), hoverBackgroundColor:css('--s-einb-mark'), stack:'s'}
     ]},
     options:{
       responsive:true, maintainAspectRatio:false, animation:false,
@@ -909,7 +1019,7 @@ function zeigeStatus(){
   const w = s.warte > 0 ? `${Math.ceil(s.warte / 60)} min` : 'keine';
   const kv = [
     ['Zugangsdaten', s.zugang ? 'vorhanden' : 'fehlen (Einstellungen → Zugangsdaten)'],
-    ['Gespeichert bis', s.bis ? deDate(s.bis) : '–'],
+    ['Gespeichert bis', s.bis ? deDate(s.bis) : (s.such ? 'noch nichts – Suche nach den ersten Daten: geprüft bis ' + deDate(s.such) : '–')],   // 1.1.2
     ['Erster Tag', s.start ? deDate(s.start) : '–'],
     ['Letzter erfolgreicher Abruf', s.ok ? s.ok.replace('T', ' ') : '–'],
     ['Letzter Fehler', s.fehler ? `${s.fehler} (${(s.fehlerzeit || '').replace('T', ' ')})` : 'keiner'],
@@ -922,20 +1032,33 @@ function zeigeStatus(){
     ['Tage gespeichert', String(ST.tage.length)],
     ['Gerät läuft seit', `${Math.floor(s.up / 3600)} h ${Math.floor((s.up % 3600) / 60)} min`]
   ];
+  if (s.mids > 1) kv.splice(kv.length - 1, 0, ['Zähler am Zugang 1', `${s.mids} – gelesen wird der erste`]);   // v073
+  if (s.z2){                                     // v073: Zaehler 2
+    const z = s.z2, w2 = (z.naechster || 0) - (s.up || 0);
+    kv.splice(kv.length - 1, 0,
+      ['Zähler 2', `${z.name || 'Zähler 2'} – Zugang ${z.zugang ? 'vorhanden' : 'unvollständig'}`],
+      ['Zähler 2: gespeichert bis', z.bis ? deDate(z.bis) : '–'],
+      ['Zähler 2: erster Tag', z.start ? deDate(z.start) : '–'],
+      ['Zähler 2: letzter erfolgreicher Abruf', z.ok ? z.ok.replace('T', ' ') : '–'],
+      ['Zähler 2: letzter Fehler', z.fehler ? `${z.fehler} (${(z.fehlerzeit || '').replace('T', ' ')})` : 'keiner'],
+      ['Zähler 2: Wartezeit bis nächster Versuch', w2 > 0 ? `${Math.ceil(w2 / 60)} min` : 'keine']);
+    if (z.mids > 1) kv.splice(kv.length - 1, 0, ['Zähler am Zugang 2', `${z.mids} – gelesen wird der erste`]);
+  }
   $('kvStatus').innerHTML = kv.map(([k, v]) => `<span>${esc(k)}</span><span>${esc(v)}</span>`).join('');
 }
 
 // ---------- Reiter ----------
 function zeigeTab(t){
-  document.querySelectorAll('.tabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.t === t ? 'true' : 'false'));
+  document.querySelectorAll('button[role=tab]').forEach(b => b.setAttribute('aria-selected', b.dataset.t === t ? 'true' : 'false'));
   document.querySelectorAll('.pane').forEach(p => p.classList.toggle('on', p.dataset.p === t));
   try { localStorage.setItem('smgwTab', t); } catch(e){}
 }
-document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
+document.querySelectorAll('button[role=tab]').forEach(b => b.addEventListener('click', () => {
   zeigeTab(b.dataset.t);
   if (b.dataset.t === 'status') zeigeStatus();
   if (b.dataset.t === 'jahre') zeigeJahre();
   if (b.dataset.t === 'einst') zeigeEinst();
+  if (b.dataset.t === 'logbuch') zeigeLogbuch();   // 1.2.0
 }));
 $('dPrev').onclick = () => zeigeTag(addDays(ST.tag, -1));
 $('dNext').onclick = () => zeigeTag(addDays(ST.tag, 1));
@@ -961,6 +1084,7 @@ async function start(){
   // FTP-Zugang und Uhrzeit leer, im Reiter Status/TAF die Gateway-Angaben)
   if (tab === 'einst') { zeigeEinst(); ftpLaden(); }
   if (tab === 'status' || tab === 'taf') zeigeGateway();
+  if (tab === 'logbuch') zeigeLogbuch();   // 1.2.0
   await zeigeTag(letzter);
   zeigeMonat(letzter.slice(0, 7));
   zeigeJahr(+letzter.slice(0, 4));
@@ -974,6 +1098,9 @@ setInterval(async () => {
   await ladeStatus(); zeigeKopf(); zeigeStatus();
   const s = ST.status || {}, p = document.querySelector('.pane.on'), reiter = p ? p.dataset.p : '';
   if (NEU_BIS === null) { NEU_BIS = s.bis || ''; NEU_OK = s.ok || ''; return; }
+  // 1.1.2: waehrend eines laufenden Abrufs nur die Tagesliste nachladen (rechts stand sonst bis zum Ende
+  // "noch keine Tage gespeichert", obwohl oben schon "gespeichert bis" mitlief - Andreas 16.11.)
+  if (s.aktiv && (s.bis || '') !== (ST.tageBis || '')) { ST.tageBis = s.bis || ''; await ladeTage(); zeigeKopf(); }
   const neu = (s.bis || '') !== NEU_BIS || heuteIso() !== NEU_TAG || (s.takt > 0 && reiter === 'tag' && (s.ok || '') !== NEU_OK);
   if (neu && !s.aktiv && reiter !== 'einst' && !document.body.classList.contains('druck')) location.reload();
 }, 60000);
@@ -1113,13 +1240,13 @@ function certStandZeigen(j){
 function certLaden(){
   CERT_OK = false; $('gwCertSet').disabled = true; $('gwCertDel').disabled = true;
   zugang({ art: 'cert' }).then(j => {
-    if (j.art !== 'cert'){ gwCMeldung('Slot 1 zu alt – slot1-smgwweb_1.0.0.tc laden', 'var(--muted)'); $('gw_cst').textContent = '–'; return; }
+    if (j.art !== 'cert'){ gwCMeldung('Slot 1 zu alt – slot1-smgwweb_1.1.0.tc laden', 'var(--muted)'); $('gw_cst').textContent = '–'; return; }
     CERT_OK = true; $('gwCertSet').disabled = false;
     certStandZeigen(j);
   }).catch(e => gwCMeldung('Stand nicht lesbar (' + e + ')', 'var(--s-bez)'));
 }
 $('gwCertSet').onclick = async () => {
-  if (!CERT_OK){ gwCMeldung('✗ Slot 1 zu alt – slot1-smgwweb_1.0.0.tc laden', 'var(--s-bez)'); return; }
+  if (!CERT_OK){ gwCMeldung('✗ Slot 1 zu alt – slot1-smgwweb_1.1.0.tc laden', 'var(--s-bez)'); return; }
   const f = $('gw_p12').files[0];
   if (!f){ gwCMeldung('✗ Zertifikatsdatei wählen', 'var(--s-bez)'); return; }
   if (f.size > 20000){ gwCMeldung('✗ Datei zu groß für ein Zugangszertifikat', 'var(--s-bez)'); return; }
@@ -1150,7 +1277,7 @@ $('gwCertDel').onclick = () => {
 function hanLaden(){            // v033: Zugang der HAN-Schnittstelle (Slot 1 ab v005), nie mit Passwort
   HAN_OK = false; $('gwZugSet').disabled = true;
   zugang({ art: 'han' }).then(j => {
-    if (j.art !== 'han'){ gwZMeldung('Slot 1 zu alt – slot1-smgwweb_1.0.0.tc laden', 'var(--muted)'); return; }
+    if (j.art !== 'han'){ gwZMeldung('Slot 1 zu alt – slot1-smgwweb_1.1.0.tc laden', 'var(--muted)'); return; }
     HAN_OK = true; $('gwZugSet').disabled = false;
     $('gw_user').value = ''; $('gw_user').placeholder = j.user ? '********* (gespeichert)' : '';   // v035: Benutzer nie anzeigen
     HAN_USERFLAG = (typeof j.user === 'number');   // v035: Slot 1 ab v006 meldet nur 1/0
@@ -1161,17 +1288,17 @@ function hanLaden(){            // v033: Zugang der HAN-Schnittstelle (Slot 1 ab
   }).catch(e => gwZMeldung('Zugang nicht lesbar (' + e + ')', 'var(--s-bez)'));
 }
 $('gwZugSet').onclick = () => {
-  if (!HAN_OK){ gwZMeldung('✗ Slot 1 zu alt (slot1-smgwweb_1.0.0.tc laden) – sonst würde der FTP-Zugang überschrieben', 'var(--s-bez)'); return; }
+  if (!HAN_OK){ gwZMeldung('✗ Slot 1 zu alt (slot1-smgwweb_1.1.0.tc laden) – sonst würde der FTP-Zugang überschrieben', 'var(--s-bez)'); return; }
   const user = $('gw_user').value.trim(), pw = $('gw_pw').value;
   const gid = $('gw_id').value.replace(/\s+/g, '').toUpperCase();   // v038
   if (gid && gid !== '-' && !/^E[A-Z]{3}\d{10}$/.test(gid)){ gwZMeldung('✗ Identifikationsnummer: E + 3 Buchstaben + 10 Ziffern', 'var(--s-bez)'); return; }
-  if (gid && typeof HAN_IDFLAG !== 'undefined' && !HAN_IDFLAG){ gwZMeldung('✗ Identifikationsnummer: Slot 1 zu alt – slot1-smgwweb_1.0.0.tc laden', 'var(--s-bez)'); return; }
+  if (gid && typeof HAN_IDFLAG !== 'undefined' && !HAN_IDFLAG){ gwZMeldung('✗ Identifikationsnummer: Slot 1 zu alt – slot1-smgwweb_1.1.0.tc laden', 'var(--s-bez)'); return; }
   if (!user && !(HAN_USERFLAG && $('gw_user').placeholder)){ gwZMeldung('✗ Benutzer eintragen', 'var(--s-bez)'); return; }   // v035: leer = bisheriger (nur Slot 1 ab v006)
   if (/[\r\n]/.test(user + pw)){ gwZMeldung('✗ Zeilenumbruch im Feld', 'var(--s-bez)'); return; }
   if (user.length > 70 || pw.length > 95){ gwZMeldung('✗ zu lang (Benutzer max. 70, Passwort max. 95 Zeichen)', 'var(--s-bez)'); return; }
   gwZMeldung('speichert …');
   zugang({ art: 'han', setz: '1', user: user, pw: pw, id: gid }).then(j => {
-    if (j.art !== 'han'){ throw 'Slot 1 zu alt – slot1-smgwweb_1.0.0.tc laden'; }
+    if (j.art !== 'han'){ throw 'Slot 1 zu alt – slot1-smgwweb_1.1.0.tc laden'; }
     if (!j.user || !j.pw){ throw 'Kontrolle'; }
     $('gw_user').value = ''; $('gw_user').placeholder = '********* (gespeichert)';   // v035
     $('gw_id').value = ''; $('gw_id').placeholder = j.id ? '********* (gespeichert)' : 'z. B. EABC0112345678 (auf dem Gateway aufgedruckt)';   // v038
@@ -1179,12 +1306,50 @@ $('gwZugSet').onclick = () => {
     gwZMeldung('✓ gespeichert – der Leser nimmt ihn spätestens in 1 min', 'var(--ok, #37c871)');
   }).catch(e => gwZMeldung('✗ nicht gespeichert (' + e + ')', 'var(--s-bez)'));
 };
+// v073: Zugang 2 (Slot 1 ab v010, art han2) - Benutzer und Passwort nie anzeigen, die Bezeichnung schon
+let HAN2_OK = false;
+function z2Meldung(t, farbe){ $('z2_msg').textContent = t; $('z2_msg').style.color = farbe || ''; }
+function han2Zeigen(j){
+  $('z2_user').value = ''; $('z2_user').placeholder = j.user ? '********* (gespeichert)' : 'noch nicht gespeichert';
+  $('z2_pw').value = ''; $('z2_pw').placeholder = j.pw ? '********* (gespeichert)' : 'noch nicht gespeichert';
+  if (document.activeElement !== $('z2_name')) $('z2_name').value = j.name || '';
+}
+function han2Laden(){
+  HAN2_OK = false; $('z2Set').disabled = true; $('z2Del').disabled = true;
+  zugang({ art: 'han2' }).then(j => {
+    if (j.art !== 'han2'){ z2Meldung('Slot 1 zu alt – slot1-smgwweb_v010.tc laden', 'var(--muted)'); return; }
+    HAN2_OK = true; $('z2Set').disabled = false; $('z2Del').disabled = !j.da;
+    han2Zeigen(j);
+    z2Meldung(j.da ? '' : 'kein zweiter Zähler eingerichtet', 'var(--muted)');
+  }).catch(e => z2Meldung('Zugang 2 nicht lesbar (' + e + ')', 'var(--s-bez)'));
+}
+$('z2Set').onclick = () => {
+  if (!HAN2_OK){ z2Meldung('✗ Slot 1 zu alt – slot1-smgwweb_v010.tc laden', 'var(--s-bez)'); return; }
+  const name = $('z2_name').value.trim(), user = $('z2_user').value.trim(), pw = $('z2_pw').value;
+  if (!user && !$('z2_user').placeholder.startsWith('*')){ z2Meldung('✗ Benutzer eintragen', 'var(--s-bez)'); return; }
+  if (!pw && !$('z2_pw').placeholder.startsWith('*')){ z2Meldung('✗ Passwort eintragen', 'var(--s-bez)'); return; }
+  if (/[\r\n]/.test(user + pw + name)){ z2Meldung('✗ Zeilenumbruch im Feld', 'var(--s-bez)'); return; }
+  if (/["\\]/.test(name)){ z2Meldung('✗ Bezeichnung ohne " und \\', 'var(--s-bez)'); return; }
+  if (user.length > 70 || pw.length > 95 || name.length > 40){ z2Meldung('✗ zu lang (Benutzer max. 70, Passwort max. 95, Bezeichnung max. 40 Zeichen)', 'var(--s-bez)'); return; }
+  z2Meldung('speichert …');
+  zugang({ art: 'han2', setz: '1', user: user, pw: pw, name: name }).then(j => {
+    if (j.art !== 'han2' || !j.user || !j.pw){ throw 'Kontrolle'; }
+    han2Zeigen(j); $('z2Del').disabled = false;
+    z2Meldung('✓ gespeichert – der Leser nimmt ihn spätestens in 1 min', 'var(--ok, #37c871)');
+  }).catch(e => z2Meldung('✗ nicht gespeichert (' + e + ')', 'var(--s-bez)'));
+};
+$('z2Del').onclick = () => {
+  if (!HAN2_OK) return;
+  if (!confirm('Zugang 2 vom Leser löschen? Die schon gespeicherten Werte von Zähler 2 bleiben auf der SD-Karte.')) return;
+  zugang({ art: 'han2', setz: '2' }).then(j => { han2Zeigen(j); $('z2Del').disabled = true; z2Meldung('✓ gelöscht', 'var(--ok, #37c871)'); })
+    .catch(e => z2Meldung('✗ ' + e, 'var(--s-bez)'));
+};
 let gwLanAlt = {ip:'', mask:''};
 async function zeigeGw(){
   const s = ST.status || {};
   const host = s.host || GW_STD.host, port = s.port || GW_STD.port, pfad = s.pfad || GW_STD.pfad;
   if (document.activeElement !== $('gw_url')) $('gw_url').value = `https://${host}:${port}${pfad}`;
-  if (s.host == null) gwMeldung('Gerät meldet noch keine Adresse – Skript slot0-smgw_1.0.0.tc laden (bis dahin gilt die Vorgabe).', 'var(--muted)');
+  if (s.host == null) gwMeldung('Gerät meldet noch keine Adresse – Skript slot0-smgw_1.1.0.tc laden (bis dahin gilt die Vorgabe).', 'var(--muted)');
   const a = await cmJson('EthIPAddress'), b = await cmJson('EthSubnetmask');
   gwLanAlt = {ip:(a && a.EthIPAddress) || '', mask:(b && b.EthSubnetmask) || ''};
   if (document.activeElement !== $('gw_lip')) $('gw_lip').value = gwLanAlt.ip;
@@ -1222,11 +1387,12 @@ function zeigeEinst(){
   const s = ST.status; if (!s) return;
   zeigeGw();                                  // v031
   hanLaden();                                 // v033
+  han2Laden();                                // v073
   certLaden();                                // v040
   $('eTakt').value = String([0,15,30,60,120].includes(s.takt) ? s.takt : 0);
   const v = (s.versatz == null) ? 2 : +s.versatz;
   $('eVers').value = String([0,1,2,3,5,10].includes(v) ? v : 2);
-  $('eVersInfo').textContent = (s.versatz == null) ? '(Gerät meldet noch keinen Abstand – slot0-smgw_1.0.0.tc laden)' : '';
+  $('eVersInfo').textContent = (s.versatz == null) ? '(Gerät meldet noch keinen Abstand – slot0-smgw_1.1.0.tc laden)' : '';
 }
 $('eVersSet').onclick = async () => {
   $('eAntwort').textContent = 'sende …';
@@ -1300,7 +1466,7 @@ const dez = s => String(s == null ? '' : s).replace('.', ',');
 $('dlT').onclick = async () => {
   $('dlMsg').textContent = 'lade Tage …';
   let rows = [];
-  try { rows = zeilen(await holeText('/smgwf?n=tage')); } catch(e){ $('dlMsg').textContent = 'Fehler: ' + e.message; return; }
+  try { rows = zeilen(await holeText('/smgwf?n=tage' + ZQ)); } catch(e){ $('dlMsg').textContent = 'Fehler: ' + e.message; return; }
   const out = ['Datum;Bezug 00:00 kWh;Bezug Ende kWh;Einspeisung 00:00 kWh;Einspeisung Ende kWh;Viertelstunden']
     .concat(rows.map(f => [f[0], dez(f[1]), dez(f[2]), dez(f[3]), dez(f[4]), f[5] || ''].join(';')));
   speichereCsv('smgw_tage_' + heuteIso() + '.csv', out);
@@ -1314,7 +1480,7 @@ $('dlQ').onclick = async () => {
   while (ym <= bis){            // nacheinander, damit das Geraet nicht mehrere Dateien gleichzeitig liefern muss
     $('dlMsg').textContent = 'lade ' + ym + ' …';
     let rows = [];
-    try { rows = zeilen(await holeText('/smgwf?n=' + ym)); } catch(e){ rows = []; }
+    try { rows = zeilen(await holeText('/smgwf?n=' + ym + ZQ)); } catch(e){ rows = []; }
     rows.forEach(f => out.push([f[0], dez(f[1]), dez(f[2])].join(';')));
     ym = monatPlus(ym, 1);
   }
@@ -1328,7 +1494,7 @@ async function cmJson(c){
   try { const r = await fetch('/cm?cmnd=' + encodeURIComponent(c), {cache:'no-store'}); return await r.json(); }
   catch(e){ return null; }
 }
-const SEITE_VERSION = '1.0.0';
+const SEITE_VERSION = '1.2.0';   // 1.2.0: stand noch auf v076 (Andreas 21.11.)
 const gb = kb => (kb / 1048576).toLocaleString('de-DE', {maximumFractionDigits: 1}) + ' GB';
 const mb = kb => (kb / 1024).toLocaleString('de-DE', {maximumFractionDigits: 1}) + ' MB';
 const gr = kb => kb >= 1048576 ? gb(kb) : (kb >= 1024 ? mb(kb) : kb.toLocaleString('de-DE') + ' KB');   // passende Einheit
@@ -1434,9 +1600,121 @@ async function zeigeGateway(){
   zeigeTafListe();
 }
 zeigeTafListe();
-document.querySelector('.tabs button[data-t="status"]').addEventListener('click', zeigeGateway);
-document.querySelector('.tabs button[data-t="taf"]').addEventListener('click', zeigeGateway);   // v017
+document.querySelector('button[role=tab][data-t="status"]').addEventListener('click', zeigeGateway);
+document.querySelector('button[role=tab][data-t="taf"]').addEventListener('click', zeigeGateway);   // v017
 // v022: beim Start ruft start() zeigeGateway auf, sobald der gemerkte Reiter wieder offen ist
+
+// ---------- Logbuch (1.2.0, 21.11.2026, Andreas) ----------
+// Slot 0 (ab 1.1.5) holt das Logbuch nur auf Knopfdruck (SMGWLogbuch) Tag fuer Tag und schreibt je Eintrag
+// "Zeit<TAB>Stufe<TAB>ID<TAB>Status<TAB>Nachricht" nach /smgw_logbuch.txt (+ _heute.txt), Kennungen schon als ***.
+// Status in /smgwj: lbbis, lbzeit, lbn, lbaktiv, lbfehler. Lesen ueber Port 82 (wie smgw_gateway.json).
+const LB_ID_GW = ['10172', '10173', '10260'];   // Spannungsverlust-Meldung beim Start, SMGW gestartet, Messbetrieb eingestellt
+let LB = [], LB_POLL = null;
+function lbText(t){ const d = document.createElement('textarea'); d.innerHTML = t; return d.value; }   // &uuml; -> ü
+async function lbDatei(n){
+  try {
+    const r = await fetch('http://' + hostUrl() + ':82/ufs/' + n + '?_=' + Date.now(), {cache:'no-store'});
+    if (!r.ok) return [];
+    const txt = new TextDecoder('iso-8859-1').decode(new Uint8Array(await r.arrayBuffer()));
+    return txt.split('\n').filter(z => z.length > 12 && z[4] === '-').map(z => { const f = z.split('\t');
+      return { t: f[0] || '', lev: f[1] || '', id: f[2] || '', st: f[3] || '', txt: lbText(f.slice(4).join(' ').trim()) }; });
+  } catch(e){ return []; }
+}
+// Firmware-Verlauf (Slot 0 ab 1.1.5): [{d:'JJJJ-MM-TT', v:'boot / svc'}], aufsteigend
+async function fwVerlauf(){
+  try {
+    const r = await fetch('http://' + hostUrl() + ':82/ufs/smgw_fw_verlauf.txt?_=' + Date.now(), {cache:'no-store'});
+    if (!r.ok) return [];
+    return (await r.text()).split('\n').map(z => z.trim().split('\t')).filter(f => f.length >= 3 && f[0][4] === '-')
+      .map(f => ({ d: f[0], v: f[1] + ' / ' + f[2] })).sort((a, b) => a.d.localeCompare(b.d));
+  } catch(e){ return []; }
+}
+const lbZeitDe = t => t ? deDate(t.slice(0, 10)) + ' ' + t.slice(11, 16) : '–';
+function lbIstFehler(e){ return e.lev !== 'INFO' || (e.st && e.st !== 'erfolgreich') || LB_ID_GW.includes(e.id); }
+function lbStand(){
+  const s = ST.status || {};
+  let h;
+  if (s.lbaktiv) h = `<b>lädt …</b> gespeichert bis ${esc(s.lbbis ? deDate(s.lbbis) : '–')}`;
+  else if (!s.lbzeit && !s.lbbis) h = s.lbbis === undefined ? 'Slot 0 ab 1.1.5 nötig' : 'noch nicht heruntergeladen';
+  else h = `gespeichert bis <b>${esc(s.lbbis ? deDate(s.lbbis) : '–')}</b>` + (s.lbzeit ? ` · zuletzt geladen ${esc(lbZeitDe(s.lbzeit))} (${s.lbn || 0} Einträge)` : '') +
+    (s.lbfehler ? ` · <span style="color:var(--crit)">${esc(s.lbfehler)}</span>` : '');
+  $('lbStand').innerHTML = h;
+  $('lbLaden').disabled = !!s.lbaktiv || !!s.aktiv;
+}
+// Fehltage aus der Tagesliste: weniger als 96 Viertelstunden, ohne ersten Tag, ohne Zeitumstellung (Maerz 92, Oktober 100)
+function lbFehltage(){
+  const letzterSo = (y, m) => { const d = new Date(Date.UTC(y, m + 1, 0)); d.setUTCDate(d.getUTCDate() - d.getUTCDay()); return d.toISOString().slice(0, 10); };
+  return ST.tage.filter((t, i) => i > 0 && t.n && t.n !== 96 && t.d !== heuteIso() &&
+      !(t.d === letzterSo(+t.d.slice(0, 4), 2) && t.n === 92) && !(t.d === letzterSo(+t.d.slice(0, 4), 9) && t.n === 100))
+    .map(t => ({ t: t.d + ' 00:00', tag: t.d, art: 'Fehltag', txt: `${t.n} von 96 Viertelstunden vom Gateway` }));
+}
+async function zeigeLogbuch(){
+  lbStand();
+  const a = await lbDatei('smgw_logbuch.txt'), b = await lbDatei('smgw_logbuch_heute.txt');
+  LB = a.concat(b).sort((x, y) => y.t.localeCompare(x.t));
+  // Gateway-Meldungen derselben Minute zu einer Zeile (ein Neustart = eine Zeile)
+  const gw = [];
+  LB.filter(lbIstFehler).forEach(e => {
+    const k = e.t.slice(0, 16), z = gw.find(g => g.k === k);
+    if (z) { if (!z.txt.includes(e.txt)) z.txt += ' · ' + e.txt; z.err = z.err || e.lev !== 'INFO'; }
+    else gw.push({ k, t: e.t, tag: e.t.slice(0, 10), art: 'Gateway', txt: e.txt, err: e.lev !== 'INFO' });
+  });
+  const liste = gw.concat(lbFehltage()).sort((x, y) => y.t.localeCompare(x.t)).slice(0, 12);
+  $('lbFehl').innerHTML = liste.length
+    ? '<tr><th style="text-align:left">Zeit</th><th style="text-align:left">Art</th><th style="text-align:left">Meldung</th></tr>' +
+      liste.map(e => `<tr data-tag="${esc(e.tag)}" style="cursor:pointer"><td style="text-align:left">${esc(e.art === 'Fehltag' ? wday(e.tag) + ' ' + deDate(e.tag) : lbZeitDe(e.t))}</td>` +
+        `<td style="text-align:left;${e.art === 'Fehltag' ? 'color:var(--warn)' : (e.err ? 'color:var(--crit)' : '')}">${e.art}</td><td style="text-align:left;white-space:normal">${esc(e.txt)}</td></tr>`).join('')
+    : '<tr><td class="leer" style="text-align:left">keine – ' + (LB.length ? 'Logbuch ohne Fehler, alle Tage vollständig' : 'Logbuch noch nicht heruntergeladen') + '</td></tr>';
+  $('lbFehl').onclick = ev => { const tr = ev.target.closest('tr[data-tag]'); if (tr) { zeigeTab('tag'); zeigeTag(tr.dataset.tag); } };
+  // Firmware-Updates: Eintrag 10063 "Selbsttest wurde durch SW-Update ausgeloest"; Dauer bis "Messbetrieb wieder aufgenommen" (10261)
+  const upd = LB.filter(e => e.id === '10063' && /update/i.test(e.txt)).slice(0, 5);
+  const dauer = e => { const w = LB.filter(x => x.id === '10261' && x.t > e.t && x.t.slice(0, 10) === e.t.slice(0, 10)).sort((a, b) => a.t.localeCompare(b.t))[0];
+    if (!w) return '–'; const s = (new Date(w.t.replace(' ', 'T')) - new Date(e.t.replace(' ', 'T'))) / 1000; return s < 120 ? Math.round(s) + ' s' : Math.round(s / 60) + ' min'; };
+  // Version: das Logbuch nennt keine. Slot 0 (ab 1.1.5) fuehrt /smgw_fw_verlauf.txt ("JJJJ-MM-TT<TAB>boot<TAB>svc", je Versionswechsel
+  // eine Zeile, Startwerte von Hand moeglich). vorher = letzte Zeile vor dem Update-Tag, danach = erste Zeile ab dem Update-Tag;
+  // ohne Verlauf beim juengsten Update die heutige Version (danach gab es kein Update mehr).
+  const sv = ST.status || {}, fwJetzt = (sv.gwboot || sv.gwsvc) ? `${sv.gwboot || '–'} / ${sv.gwsvc || '–'}` : '';
+  const fwV = await fwVerlauf();
+  const fwTxt = (e, i) => {
+    const d = e.t.slice(0, 10), vor = fwV.filter(v => v.d < d).pop(), nach = fwV.find(v => v.d >= d);
+    const n = nach ? nach.v : (i === 0 ? fwJetzt : '');
+    const a = vor ? `${esc(vor.v)} <span class="note">(seit ${esc(deDate(vor.d))})</span>` : '<span class="note">?</span>';
+    return `${a} → ${n ? '<b>' + esc(n) + '</b>' + (i === 0 && n === fwJetzt ? ' <span class="note">(= heute)</span>' : '') : '<span class="note">?</span>'}`;
+  };
+  $('lbUpd').innerHTML = upd.length
+    ? '<tr><th style="text-align:left">Zeit</th><th style="text-align:left">Meldung</th><th style="text-align:left">Firmware vorher → danach</th><th>Messpause bis</th></tr>' +
+      upd.map((e, i) => `<tr data-tag="${esc(e.t.slice(0, 10))}" style="cursor:pointer"><td style="text-align:left">${esc(wday(e.t.slice(0, 10)) + ' ' + lbZeitDe(e.t))}</td>` +
+        `<td style="text-align:left;white-space:normal">${esc(e.txt)}</td>` +
+        `<td style="text-align:left">${fwTxt(e, i)}</td><td>${esc(dauer(e))}</td></tr>`).join('')
+    : '<tr><td class="leer" style="text-align:left">' + (LB.length ? 'im geladenen Logbuch kein Firmware-Update' : 'Logbuch noch nicht heruntergeladen') + '</td></tr>';
+  $('lbUpd').onclick = ev => { const tr = ev.target.closest('tr[data-tag]'); if (tr) { zeigeTab('tag'); zeigeTag(tr.dataset.tag); } };
+  const s = ST.status || {};
+  $('lbUpdFw').innerHTML = 'Die Versionsnummer steht nicht im Logbuch. Aktuell laut Gateway: ' +
+    (s.gwboot || s.gwsvc ? `smgw-bootstream <b>${esc(s.gwboot || '–')}</b> · smgw-services <b>${esc(s.gwsvc || '–')}</b>${s.gwfwtag ? ' (gelesen am ' + esc(deDate(s.gwfwtag)) + ')' : ''}` : 'noch nicht gelesen') + ' – siehe auch Reiter Status.';
+  $('lbAnz').textContent = LB.length;
+  $('lbAlle').innerHTML = '<tr><th style="text-align:left">Zeit</th><th>Stufe</th><th>ID</th><th style="text-align:left">Status</th><th style="text-align:left">Nachricht</th></tr>' +
+    LB.map(e => `<tr${e.lev !== 'INFO' ? ' style="color:var(--crit)"' : ''}><td style="text-align:left">${esc(lbZeitDe(e.t))}</td><td>${esc(e.lev)}</td><td>${esc(e.id)}</td>` +
+      `<td style="text-align:left">${esc(e.st)}</td><td style="text-align:left;white-space:normal">${esc(e.txt)}</td></tr>`).join('');
+}
+$('lbLaden').onclick = async () => {
+  $('lbLaden').disabled = true;
+  const r = await smgwBefehl('SMGWLogbuch');
+  if (/WARNING|user=/i.test(r)) { $('lbStand').innerHTML = '<span style="color:var(--warn)">Bitte zuerst am Leser anmelden (Tasmota-Hauptseite), dann erneut.</span>'; $('lbLaden').disabled = false; return; }
+  if (!/vorgemerkt/.test(r)) { let m = r; try { m = JSON.parse(r).SMGWLogbuch || r; } catch(e){} $('lbStand').innerHTML = '<span style="color:var(--warn)">' + esc(m) + '</span>'; $('lbLaden').disabled = false; return; }
+  $('lbStand').innerHTML = '<b>vorgemerkt – lädt …</b>';
+  let warAktiv = false; const altZeit = (ST.status || {}).lbzeit || '';
+  clearInterval(LB_POLL);
+  LB_POLL = setInterval(async () => {
+    await ladeStatus(); const s = ST.status || {};
+    if (s.lbaktiv) { warAktiv = true; lbStand(); return; }
+    if (warAktiv || (s.lbzeit && s.lbzeit !== altZeit)) { clearInterval(LB_POLL); LB_POLL = null; await ladeTage(); zeigeLogbuch(); }
+  }, 4000);
+};
+$('lbCsv').onclick = () => {
+  if (!LB.length) { $('lbStand').textContent = 'erst herunterladen'; return; }
+  const q = s => '"' + String(s).replace(/"/g, '""') + '"';
+  speichereCsv('smgw_logbuch.csv', ['Zeit;Stufe;ID;Status;Nachricht'].concat(LB.map(e => [e.t, e.lev, e.id, e.st, e.txt].map(q).join(';'))));
+};
 
 // v019 07.11.2026 (Andreas): FTP-Server wie am HEMS. Zugang ueber /smgwzugang (Slot 1 ab v004, POST, Antwort nie mit
 // Passwort), Sicherung/Sync/Restore ueber SMGWFtp [sync|restore] (Slot 0 ab v009, laeuft in dessen TaskLoop).
@@ -1449,13 +1727,13 @@ function ftpZeitSpeichern(){
   if (!um || um === FTPUM) return Promise.resolve('');
   return smgwBefehl('SMGWFtpZeit ' + um).then(t => {
     const m = /"SMGWFtpZeit":"(\d\d:\d\d)"/.exec(t);
-    if (!m || m[1] !== um) throw 'Uhrzeit nicht übernommen – Skript slot0-smgw_1.0.0.tc laden';
+    if (!m || m[1] !== um) throw 'Uhrzeit nicht übernommen – Skript slot0-smgw_1.1.0.tc laden';
     FTPUM = um; if (ST.status) ST.status.ftpum = um;
     return ', Sicherung täglich um ' + um;
   });
 }
 function ftpWort(s){
-  if (s.ftp == null) return 'Skript ohne FTP – slot0-smgw_1.0.0.tc laden';
+  if (s.ftp == null) return 'Skript ohne FTP – slot0-smgw_1.1.0.tc laden';
   const z = s.ftpzeit ? String(s.ftpzeit).replace('T', ' ') + ' · ' : '';
   if (s.ftp === 2) return z + 'Fehler: ' + (s.ftptext || '');
   return z + (s.ftptext || 'noch nicht gelaufen');
@@ -1463,14 +1741,14 @@ function ftpWort(s){
 function knopfMeldung(t, farbe){ $('ftp_msg').textContent = t; $('ftp_msg').style.color = farbe || ''; }
 function zugang(f){
   return fetch('/smgwzugang', { method: 'POST', body: new URLSearchParams(f) }).then(r => { if (!r.ok) { throw 'HTTP ' + r.status; } return r.text(); })
-    .then(t => { let j = null; try { j = JSON.parse(t); } catch (e) { throw 'Slot 1 zu alt – slot1-smgwweb_1.0.0.tc laden'; } if (!j.ok) { throw j.err || 'abgelehnt'; } return j; });
+    .then(t => { let j = null; try { j = JSON.parse(t); } catch (e) { throw 'Slot 1 zu alt – slot1-smgwweb_1.1.0.tc laden'; } if (!j.ok) { throw j.err || 'abgelehnt'; } return j; });
 }
 function zeigeFtp(){
   const s = ST.status; if (s) { $('ftp_st').textContent = ftpWort(s); $('ftp_st').style.color = s.ftp === 2 ? ROT : ''; }
   if (s && s.ftpum) {
     if (document.activeElement !== $('ftp_um') && $('ftp_um').value === FTPUM) $('ftp_um').value = s.ftpum;
     FTPUM = s.ftpum; $('ftp_um_i').textContent = '';
-  } else if (s) { $('ftp_um_i').textContent = '(Skript meldet keine Uhrzeit – slot0-smgw_1.0.0.tc laden)'; }
+  } else if (s) { $('ftp_um_i').textContent = '(Skript meldet keine Uhrzeit – slot0-smgw_1.1.0.tc laden)'; }
 }
 function ftpLaden(){
   zugang({ art: 'ftp' }).then(j => {
@@ -1493,7 +1771,7 @@ $('ftp_set').onclick = () => {
   $('ftp_host').value = host; $('ftp_dir').value = dir;
   const pw = $('ftp_pw').value;
   if (!host) { knopfMeldung('✗ Server (IP) eintragen', ROT); return; }
-  if (!user && $('ftp_user').placeholder && !FTP_USERFLAG) { knopfMeldung('✗ Benutzer eintragen (leer lassen geht erst mit slot1-smgwweb_1.0.0.tc)', ROT); return; }   // v035
+  if (!user && $('ftp_user').placeholder && !FTP_USERFLAG) { knopfMeldung('✗ Benutzer eintragen (leer lassen geht erst mit slot1-smgwweb_1.1.0.tc)', ROT); return; }   // v035
   if (/[\r\n]/.test(host + user + pw + dir)) { knopfMeldung('✗ Zeilenumbruch im Feld', ROT); return; }
   knopfMeldung('speichert …');
   zugang({ art: 'ftp', setz: '1', ip: host, user: user, pw: pw, dir: dir }).then(j => {
@@ -1511,7 +1789,7 @@ $('ftp_set').onclick = () => {
 function ftpLauf(befehl, text){
   knopfMeldung(text);
   smgwBefehl(befehl).then(t => {
-    if (!/SMGWFtp/.test(t)) { knopfMeldung('✗ Slot 0 (slot0-smgw_1.0.0.tc) antwortet nicht', ROT); return; }
+    if (!/SMGWFtp/.test(t)) { knopfMeldung('✗ Slot 0 (slot0-smgw_1.1.0.tc) antwortet nicht', ROT); return; }
     const nach = () => ladeStatus().then(() => { zeigeKopf(); zeigeStatus(); zeigeFtp(); });
     setTimeout(nach, 10000);
     setTimeout(() => nach().then(() => knopfMeldung('✓ fertig, siehe Zeile darüber', GRUEN)), 30000);
@@ -1523,7 +1801,7 @@ $('syncFtp2').onclick = () => {
   if (!confirm('FTP → ESP Restore?\n\nDaten und Einstellungen, die hier fehlen oder kürzer sind als auf dem FTP-Server, werden vom Server geholt.\nLängere Dateien auf der SD-Karte bleiben unverändert.')) { return; }
   ftpLauf('SMGWFtp RESTORE', 'holt …');   // v044
 };
-document.querySelector('.tabs button[data-t="einst"]').addEventListener('click', ftpLaden);
+document.querySelector('button[role=tab][data-t="einst"]').addEventListener('click', ftpLaden);
 // v022: beim Start ruft start() ftpLaden auf, sobald der gemerkte Reiter wieder offen ist
 
 // ---------- v049: Excel / Power Query (Adresse = wie diese Seite aufgerufen wurde) ----------
@@ -1573,7 +1851,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 // v057: Seitenwahl SMGW-Leser | Stromkosten nur zeigen, wenn Slot 2 (Kostenrechnung, freiwillig) antwortet
 fetch('/smgwb?n=status', { cache: 'no-store' }).then(r => r.ok ? r.json() : null)
-  .then(j => { if (j && j.version) document.getElementById('seitenwahl').style.display = ''; }).catch(() => { });
+  .then(j => { if (j && j.version) document.getElementById('swK').style.display = ''; }).catch(() => { });   // v076: nur der Reiter Stromkosten
 
 // v067: Diagrammfarben nach dem Farbschema neu setzen (Drucken hell; auch beim Umschalten Hell/Dunkel)
 function chartFarben(){
@@ -1583,6 +1861,7 @@ function chartFarben(){
     o.scales.x.ticks.color = i; o.scales.x.grid.color = g; o.scales.y.ticks.color = i; o.scales.y.grid.color = g;
     if (o.scales.y.title) o.scales.y.title.color = i; if (o.plugins.legend.labels) o.plugins.legend.labels.color = i;
     if (c.data.datasets[0]) c.data.datasets[0].backgroundColor = css('--s-bez'); if (c.data.datasets[1]) c.data.datasets[1].backgroundColor = css('--s-einb');
+    if (c.data.datasets[0]) c.data.datasets[0].hoverBackgroundColor = css('--s-bez-mark'); if (c.data.datasets[1]) c.data.datasets[1].hoverBackgroundColor = css('--s-einb-mark');   // 1.2.0: Markierung mit umschalten
     c.update('none'); }
 }
 // v067: Druck / PDF - eine A4-Seite (190 x 277 mm nutzbar = 718 x 1047 px bei 96 dpi), Layout 1000 px breit, dann verkleinert
@@ -1598,7 +1877,8 @@ function druckVorbereiten(v){
   for (const c of Object.values(ST.charts)) if (c) c.resize();
   chartFarben();
   w.style.setProperty('--dz', 1);
-  const z = Math.min(718 / 1000, 1035 / w.scrollHeight);
+  // 1.1.2 (16.11.2026, Andreas): nur auf A4-Breite verkleinern - was laenger ist (z. B. aufgeklappte Tabelle), geht auf Seite 2 statt winzig
+  const z = 718 / 1000;
   w.style.setProperty('--dz', z.toFixed(4));
   document.title = 'SMGW-Leser ' + T[v];
   return () => { b.classList.remove('druck'); w.style.removeProperty('--dz'); document.title = titel;
@@ -1617,6 +1897,50 @@ function druck(v){
   setTimeout(() => window.print(), 300);
 }
 document.querySelectorAll('.druckBtn').forEach(k => k.onclick = () => druck(k.dataset.druck));
+
+// ---------- Anmelden (1.2.0, Andreas 23.11.2026) ----------
+// Die Seite ist ohne Anmeldung lesbar; Befehle (/cm), Speichern und Hochladen brauchen die Tasmota-Anmeldung (Webpasswort).
+// Knopf "Anmelden" nur sichtbar, wenn nicht angemeldet: oeffnet die Tasmota-Hauptseite in einem kleinen Fenster (dort fragt der
+// Browser nach Benutzer admin + Passwort) und schliesst es wieder, sobald die Anmeldung gilt. Ohne Webpasswort bleibt er unsichtbar.
+let ANM_OK = null, ANM_FENSTER = null, ANM_POLL = null;
+let ANM_PW = null;   // true = am Leser ist ein Webpasswort gesetzt (Hauptseite ohne Zugangsdaten -> 401)
+async function anmeldungPruefen(){
+  try { const t = await (await fetch('/cm?cmnd=Time', {cache:'no-store'})).text(); ANM_OK = !/WARNING|user=/i.test(t); }
+  catch(e){ ANM_OK = null; }
+  if (ANM_PW === null) { try { ANM_PW = (await fetch('/?pw=' + Date.now(), {cache:'no-store', credentials:'omit'})).status === 401; } catch(e){} }
+  const b = document.getElementById('anmelden'); if (b) b.style.display = ANM_OK === false ? '' : 'none';
+  const a = document.getElementById('abmelden'); if (a) a.style.display = ANM_OK === true && ANM_PW === true ? '' : 'none';
+  return ANM_OK;
+}
+// Abmelden (Andreas 23.11.): Basic-Anmeldung kennt kein Abmelden - die Anfrage mit absichtlich falschen Zugangsdaten an die
+// Hauptseite ersetzt die vom Browser gemerkte Anmeldung. Behaelt der Browser sie trotzdem, Hinweis.
+document.getElementById('abmelden').onclick = () => {
+  const x = new XMLHttpRequest();
+  x.open('GET', '/?abmelden=' + Date.now(), true, 'abgemeldet', 'x' + Date.now());
+  x.onloadend = async () => {
+    const m = document.getElementById('anmMsg');
+    if (await anmeldungPruefen() === false) { if (m) m.textContent = ''; }
+    else if (m) { m.textContent = 'Chrome hat die Anmeldung behalten – abmelden nur durch Schließen von Chrome'; setTimeout(() => { m.textContent = ''; }, 15000); }
+  };
+  x.send();
+};
+// Andreas 23.11.: ohne Zusatzfenster - die Seite ruft die geschuetzte Hauptseite im Hintergrund ab, dann zeigt der Browser seine
+// Anmeldeabfrage direkt ueber dieser Seite. Nur wenn er das nicht tut (Antwort 401 sofort, ohne Abfrage), das kleine Fenster als Notloesung.
+document.getElementById('anmelden').onclick = async () => {
+  const t0 = Date.now(); let st = 0;
+  try { st = (await fetch('/?anmelden=' + t0, {cache:'no-store', credentials:'same-origin'})).status; } catch(e){ st = 0; }
+  if (await anmeldungPruefen()) return;
+  if (!(st === 401 && Date.now() - t0 < 400)) return;   // Abfrage war da und wurde abgebrochen -> nichts weiter
+  ANM_FENSTER = window.open('/', 'smgwAnmeldung', 'width=520,height=640');
+  clearInterval(ANM_POLL); let n = 0;
+  ANM_POLL = setInterval(async () => {
+    n++;
+    if (await anmeldungPruefen()) { clearInterval(ANM_POLL); try { if (ANM_FENSTER && !ANM_FENSTER.closed) ANM_FENSTER.close(); } catch(e){} }
+    else if (n > 90 || (ANM_FENSTER && ANM_FENSTER.closed)) { clearInterval(ANM_POLL); anmeldungPruefen(); }
+  }, 2000);
+};
+anmeldungPruefen();
+setInterval(() => { if (!document.hidden) anmeldungPruefen(); }, 60000);
 </script>
 </body>
 </html>

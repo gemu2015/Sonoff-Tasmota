@@ -1,0 +1,64 @@
+SMGW-Leser Version 1.2.0 (ENTWURF, Stand 23.11.2026) - Logbuch des Gateways, Abschlag je Tarifblatt, Varianten, Skalen
+=====================================================================
+Auf die SD-Karte (Hauptverzeichnis, GENAU diese Namen, ohne Versionsnummer):
+  smgw.html.gz           Leserseite                          Pflicht   (NEU 1.2.0: Reiter Logbuch, Balken unter der Maus markiert)
+  smgw_kosten.html.gz    Kostenseite                         nur mit Stromkosten   (NEU 1.2.0)
+  tinyc_ide.html.gz      TinyC-IDE (mit Webpasswort-Abfrage) Pflicht   (unveraendert, aus 1.1.3)
+
+In die TinyC-IDE laden (bleiben auf dem PC):
+  slot0-smgw_1.1.5.tc         Slot 0, Autostart  (NEU 1.1.5: Logbuch)
+  slot1-smgwweb_1.1.0.tc      Slot 1, Autostart  (unveraendert)
+  slot2-smgwkosten_1.1.1.tc   Slot 2, Autostart  (unveraendert, nur mit Stromkosten)
+
+Firmware: NEU BAUEN - Stand universal ab 18.11.2026 (gemu dcf1635584: TC_MAX_FILE_HANDLES
+          einstellbar) mit "#define TC_MAX_FILE_HANDLES 8" im Geraeteblock (Anleitung 4.3).
+          Getestet: Bau 19.11.2026 aus universal 1ece97a2c3 + TC_MAX_FILE_HANDLES 8 (ESP32-S3-ETH).
+
+Neu gegenueber 1.1.3:
+  Logbuch   : Slot 0 1.1.5 + Leserseite Reiter "Logbuch": Knopf "Logbuch herunterladen" (Konsole
+              SMGWLogbuch) holt das Letztverbraucher-Logbuch des Gateways NUR auf Knopfdruck, Tag
+              fuer Tag (Gateway liefert je Abfrage hoechstens 100 Eintraege), nach /smgw_logbuch.txt
+              (+ _heute.txt); Kennungen (Benutzer, Zaehlernummer, Gateway) als ***, Anmeldungen des
+              Lesers weggelassen. Seite: letzte 12 Fehler (Neustarts, Fehler) und Fehltage (Tage mit
+              weniger als 96 Viertelstunden), alle Eintraege, als .csv.
+  Leserseite: Balken unter der Maus weiss (hell: schwarz) bzw. gruen markiert.
+  Anmelden  : Leser- und Kostenseite oben ein Umschalter "Anmelden" (offenes Schloss, orange) /
+              "Abmelden" (geschlossenes Schloss) - nur wenn ein Webpasswort gesetzt ist. Anmelden zeigt die
+              Anmeldeabfrage des Browsers direkt ueber der Seite; Abmelden beendet die Anmeldung des Browsers.
+  Korrektur : Kostenseite Einspeiseverguetung - Namensfelder aller Abschnitte buendig (vorher versetzt,
+              weil nur ab dem 2. Abschnitt ein Loeschknopf da war).
+  Slot 0 1.1.4: Rohantwort von SMGWTestTag als /smgw_testtag.secret statt /smgw_testtag.html
+              (enthaelt die Zaehlerkennung; Port 82 gab .html ohne Anmeldung heraus, .secret sperrt er).
+              Alte /smgw_testtag.html wird beim Start geloescht.
+Kostenseite (smgw_kosten.html 1.2.0):
+  Varianten : Tarifblatt des Folgejahres -> "+ Variante" (Name, loeschen); gespeichert in
+              /smgw_tarif.json unter "var". Nur fuer den Tarifvergleich: je Variante eine Zeile
+              mit Unterschied zum Grundblatt und zum laufenden Jahr. Lieferantenpreis wie im
+              Grundblatt, Netzentgelte/Abgaben/Steuern/14a der Variante werden weitergegeben.
+              Tag/Monat/Abrechnungsjahr rechnen nie mit einer Variante.
+  Abschlag  : "Abrechnungsjahr beginnt im", "Abschlag je Monat" und "Abschlaege im Jahr" jetzt JE
+              TARIFBLATT (Karte 1 Lieferant) statt einmal fuer alle Jahre im Reiter Abrechnungsjahr
+              (dort keine Eingabe mehr; Zeile: links Jahr, rechts Speichern + PDF). Ein Stand "ab ..." kann den
+              Abschlag mitten im Jahr aendern. Alte Tarifdateien: bisherige Werte gelten weiter,
+              bis im Tarifblatt etwas eingetragen ist.
+  Skalen    : Diagramme mit Skala links und Hilfslinien. Tag in kW (Viertelstunde x 4,
+              Bezug oben, Einspeisung unten); Monat und Abrechnungsjahr in kWh oder EUR
+              (Umschalter "kWh | EUR", vom Browser gemerkt).
+  Korrektur : Tagesansicht - Viertelstunden waren in 1.1.3 nur ein schmaler Streifen
+              (CSS-Regel .q aus "Import aus Excel" griff auf die Balken).
+  Bedienung : Reiter "Tarifvergleich" direkt hinter "Tarife & 14a Module"; Speicherstatus
+              des Tarifblatts in eigener Zeile, "gespeichert ..." verschwindet nach 15 s.
+  Anleitung : 1.2.0 (Kasten "Version 1.2.0", NEU 9.6 Logbuch + Firmware-Verlauf, 11.3 Abschlag je Jahr,
+              Bilder 06/09 neu, 17 Reiter Logbuch neu; 11.3 Varianten, 11.4 Skalen, 11.5 Variantenzeilen,
+              5 neue Bilder 12-16, Reitername "Tarife & 14a Module").
+
+md5:
+  1be9b23ff57c9fb07dc6cdc3a25b3ff3 *slot0-smgw_1.1.5.tc
+  a1c82ca5160692ae4b84baf103764abe *slot1-smgwweb_1.1.0.tc
+  eadffb021ac72046282fa94fda8cb3d6 *slot2-smgwkosten_1.1.1.tc
+  1e64749b414f03a41e4dd21be7a8239e *smgw.html
+  1d6fd65d246783f1825848f4e5fda4f5 *smgw.html.gz
+  261b8ee1fd3b8b9dd11f087b5ec0af2d *smgw_kosten.html
+  68029f6258cdf0ebe4ec6a886fa4f2b9 *smgw_kosten.html.gz
+  502ca6b9d9fbaa370d8c9f1a3b8a3193 *ANLEITUNG-SMGW-Leser_1.2.0.pdf
+  026fc5be9d110440eb76f394eb611273 *Muster-15min-Werte_1.0.1.xlsx

@@ -1,7 +1,10 @@
 // @name: SMGW-Kosten
 // ============================================================================
-// slot2-smgwkosten_1.0.0.tc - Boersenpreise fuer die Kostenrechnung des SMGW-Lesers (Erweiterung)
-// Version 1.0.0 (13.11.2026). Teil des SMGW-Lesers (Slot 0 slot0-smgw, Slot 1 slot1-smgwweb, Erweiterung
+// slot2-smgwkosten_1.1.1.tc - Boersenpreise fuer die Kostenrechnung des SMGW-Lesers (Erweiterung)
+// Version 1.1.1 (16.11.2026): wartet, bis Slot 0 alle Tage bis gestern hat ("nach":0 im Status, ab slot0-smgw 1.1.3) - beim
+//   Erstabruf hielt der Preis-Download 2 der nur 4 Dateien fuer alle Slots, Slot 0 verlor dadurch Tage (Andreas 16.11.:
+//   erst Gateway-Daten, dann Boersenpreise). Ohne "nach" im Status (aelterer Slot 0) wie bisher nur "aktiv".
+// Version 1.1.0 (16.11.2026, Programm unveraendert gegenueber 1.0.0 vom 13.11.2026). Teil des SMGW-Lesers (Slot 0 slot0-smgw, Slot 1 slot1-smgwweb, Erweiterung
 // Slot 2 slot2-smgwkosten, Seiten smgw.html und smgw_kosten.html); Bau- und Bedienungsanleitung im selben Ordner.
 //
 // Web: /smgwkosten = Seite /smgw_kosten.html (SD) · /smgwb?n=JJJJ-MM | tarif | status
@@ -81,6 +84,7 @@ void leseStart() {
 int slot0Aktiv() {
     if (leseStatus() == 0) { return 0; }
     if (strFind(st, "\"aktiv\":1") >= 0) { return 1; }
+    if (strFind(st, "\"nach\":1") >= 0) { return 1; }   // 1.1.1: Slot 0 holt noch Tage nach -> SD-Dateien frei lassen
     return 0;
 }
 
@@ -349,7 +353,7 @@ int main() {
     webOn(1, "/smgwkosten");
     webOn(2, "/smgwb");
     if (startTag[0] == 0) { scopy(dTmp2, "noch keinem Messwert"); } else { scopy(dTmp2, startTag); }
-    sprintf(W, "SMG-Kosten: 1.0.0 bereit, Boerse bis '%s' (Monatsabruf), Messung ab %s", bis, dTmp2);
+    sprintf(W, "SMG-Kosten: 1.1.0 bereit, Boerse bis '%s' (Monatsabruf), Messung ab %s", bis, dTmp2);
     addLog(W);
     return 0;
 }

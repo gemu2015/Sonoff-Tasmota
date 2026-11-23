@@ -59,7 +59,11 @@ with total size and `abi_rev`) arrived in 1.6.35; v2–v5 files still load.
 
 ---
 
-## Unreleased — IDE only (23.11.2026, already on `universal`; run `TinyCIde`, no firmware flash needed)
+## Unreleased (23.11.2026)
+
+- **SMGW reader 1.2.0** (Andreas, 23.11.2026, replaces 1.0.0; `docs/smgw/`): slot 0 1.1.5, slot 1 1.1.0, slot 2 1.1.1, both pages and the guide (52 pages) 1.2.0. New: gateway logbook on a button press (`SMGWLogbuch`, tab "Logbuch"), login / logout switch on the pages (only with a web password), tariff variants, monthly advance payment per tariff sheet, charts with a scale, `SMGWTestTag` raw answer as `/smgw_testtag.secret`. ⚠️ Build the firmware new from `universal` 18.11.2026 or later with `#define TC_MAX_FILE_HANDLES 8` in the device block. Tested by Andreas under load on ports 82/83 (150 s, no hang).
+
+IDE only (already on `universal`; run `TinyCIde`, no firmware flash needed):
 
 - **⚠️ IDE compiler: `OnMqttData` was missing from the callback list** (mi-hol, discussion #144, 23.11.2026): the firmware looks callbacks up by NAME in the function table, but the compiler only wrote the names in `CALLBACK_NAMES`. A function `OnMqttData(char topic[], char payload[])` was compiled as a normal function and never called: `mqttSubscribe()` ran, messages arrived, nothing happened and no error was shown. Programs that use `OnMqttData` must be recompiled with the new IDE; the four SML examples that use it (`sml_ct002`, `sml_eco_shelly` and both chart versions) are rebuilt. Workaround with the old IDE: name the function in `taskRunning("OnMqttData")`.
 - **IDE compiler warns about callbacks that are never called** (mi-hol, 23.11.2026): a function whose name starts with `On` or `Every` but is not a known callback gets a warning with the list of known names. Catches typos and a forgotten `CALLBACK_NAMES` entry. A helper function that happens to be called `OnFoo` gets the warning too and can ignore it.

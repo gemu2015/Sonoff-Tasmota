@@ -1,7 +1,27 @@
 // @name: SMGW-Leser
 // ============================================================================
-// slot0-smgw_1.0.0.tc - Smart Meter Gateway ueber die HAN-Schnittstelle auslesen
-// Version 1.0.0 (13.11.2026). Teil des SMGW-Lesers (Slot 0 slot0-smgw, Slot 1 slot1-smgwweb, Erweiterung
+// slot0-smgw_1.1.5.tc - Smart Meter Gateway ueber die HAN-Schnittstelle auslesen
+// Version 1.1.5 (21.11.2026): Firmware-Verlauf /smgw_fw_verlauf.txt (je Versionswechsel Datum + Version). Logbuch des Gateways (Andreas: Luecke 20.11. 18:30 klaeren - war ein Neustart des Gateways).
+//                             SMGWLogbuch laedt es NUR bei Bedarf Tag fuer Tag (Gateway liefert je Abfrage hoechstens 100 Eintraege)
+//                             nach /smgw_logbuch.txt (+ _heute), ohne die Anmeldungen des Lesers; Stand in /smgw_logbuch_bis.txt,
+//                             Status "lbbis/lbzeit/lbn/lbaktiv/lbfehler". Rohabfrage "SMGWLogbuch action=..log..&.." nur mit "log"
+//                             im Aktionsnamen, nie logout, kein tkn.
+// Version 1.1.4 (19.11.2026): Rohantwort von SMGWTestTag heisst jetzt /smgw_testtag.secret statt /smgw_testtag.html - sie enthaelt die
+//                             Zaehlerkennung, und Port 82 gibt jede Datei ohne Anmeldung heraus ausser solchen auf .secret (Andreas).
+//                             Ansehen nur noch angemeldet (Tasmota-Dateimanager) oder per Kartenleser. Eine alte /smgw_testtag.html
+//                             wird beim Start geloescht.
+// Version 1.1.3 (16.11.2026): Status "nach":1, solange Tage bis gestern fehlen (Erstabruf / Nachholen). Slot 2 (Boersenpreise)
+//                             wartet darauf - Ursache der verlorenen ersten Datentage am 16.11.: nur 4 offene Dateien fuer alle
+//                             Slots (TC_MAX_FILE_HANDLES), Slot 2 hielt 2 davon beim Preis-Download, Slot 0 bekam keine Monatsdatei
+//                             ("SD: Monatsdatei nicht beschreibbar") und hakte den Tag bis 1.1.1 trotzdem ab. Reihenfolge (Andreas):
+//                             erst Gateway-Daten (Slot 0), dann Boersenpreise/Kosten (Slot 2).
+// Version 1.1.2 (16.11.2026): SD-Schreibfehler: 3x nachfassen, Tag bei Fehler NICHT abhaken (vorher verloren).
+// Version 1.1.2 (16.11.2026): Suchstand im Status - vor dem ersten Messwert zeigt die Seite "sucht erste Daten, geprueft bis ..."
+//                             ("such" in /smgw_status.txt, alle 50 leeren Tage; Andreas: "ich sehe nicht wie weit der Abruf ist").
+// Version 1.1.1 (16.11.2026): keine 10-min-Pause mehr zwischen den Nachhol-Sitzungen (Andreas: "Das Gateway braucht die Pause nicht";
+//                             Erstabruf 16.11. lief 400 Tage am Stueck ohne Sperre). Der Leser holt ohne Unterbrechung weiter.
+// Version 1.1.0 (16.11.2026): zwei Zaehler (Zugang 2) - entstanden aus den Arbeitsstaenden v027/v028 (15.11.), Basis 1.0.0 (13.11.2026).
+// v028: neue Bezeichnung von Zaehler 2 sofort im Status (vorher erst beim naechsten Abruf - Andreas 15.11.: Reiter blieb "Test"). Teil des SMGW-Lesers (Slot 0 slot0-smgw, Slot 1 slot1-smgwweb, Erweiterung
 // Slot 2 slot2-smgwkosten, Seiten smgw.html und smgw_kosten.html); Bau- und Bedienungsanleitung im selben Ordner.
 // ============================================================================
 //
@@ -36,6 +56,12 @@
 //                        die Seiten nehmen fuer den Tagesverbrauch den Anfang des Folgetages)
 //   /smgw_heute.txt      wie Monatsdatei, nur heute (nur bei takt > 0)
 //   /smgw.html           Dashboard
+//   v027 ZWEITER ZAEHLER (z. B. Waermepumpe, §14a Modul 2), nur wenn /smgw_zugang2.secret da ist:
+//   /smgw_zugang2.secret Zeile 1 Benutzer, Zeile 2 Passwort, Zeile 3 Bezeichnung (ueber die Seite, Slot 1)
+//   /smgw2_JJJJ-MM.txt, /smgw2_tage.txt, /smgw2_heute.txt, /smgw2_leer.txt  wie oben, nur Zaehler 2
+//   Ablauf: Zugang 1 anmelden/lesen/abmelden, 5 s Pause, Zugang 2 anmelden/lesen/abmelden - nie gleichzeitig.
+//   Fehler, Wartezeit und Stand je Zaehler getrennt. Zertifikat gilt nur fuer Zugang 1 (fuer Zugang 2 abgeschaltet).
+//   Status: Unterobjekt "z2" in /smgw_status.txt. Die FTP-Sicherung nimmt Zaehler 2 (noch) nicht mit.
 //   Werte bleiben TEXT wie vom Gateway (4 Nachkommastellen) - kein float (7 Stellen
 //   reichen fuer 4013.1638 nicht).
 //
@@ -45,6 +71,9 @@
 //          SMGWVersatz <min> Abstand nach dem Viertelstundenende (0..14, Vorgabe 2)
 //          SMGWFrei       Fehler-Wartezeit aufheben (nur bewusst benutzen)
 //          SMGWFtpZeit <HH:MM> Uhrzeit der taeglichen FTP-Sicherung (Vorgabe 02:00) - v010
+//          SMGWLogbuch    Logbuch des Gateways herunterladen (Tag fuer Tag ab dem letzten Stand, nur bei Bedarf) - 1.1.5
+//          SMGWLogbuch neu   alles neu ab dem ersten Tag mit Messwerten
+//          SMGWLogbuch action=..log..&..  Rohabfrage zum Erkunden -> /smgw_lbroh.secret, Feldnamen ins Log
 // ============================================================================
 
 #define GW_HOST    "192.168.1.200"
@@ -73,7 +102,7 @@ char line[640];        // Kopfzeile
 char req[900];         // Anfrage
 char post[480];        // POST-Inhalt
 char L[200];           // Dateizeile
-char SB[700];          // Status-JSON fuer /smgw_status.txt
+char SB[1200];         // Status-JSON fuer /smgw_status.txt (v027: 700 -> 1200 wegen "z2")
 char md_in[480];
 char md_bin[20];
 char md_hex[40];
@@ -137,6 +166,7 @@ int fKeine = 0;        // v025: Antwort enthaelt "Keine Zaehlerdaten vorhanden"
 int  wantFw = 0;       // v008: Antwort auf action=swversions auswerten
 char fwBoot[24];       // v008: smgw-bootstream Version
 char fwSvc[24];        // v008: smgw-services Version
+char fwVL[64];         // 1.1.5: letzte Version im Firmware-Verlauf "boot<TAB>svc" ("" = noch nicht gelesen)
 char fwTag[12];        // v008: Datum, an dem sie gelesen wurden (einmal je Tag)
 int  rohH = -1;        // v008: offene Datei fuer Rohseite, -1 = keine
 int  rohN = 0;         // v008: geschriebene Bytes (Grenze rohMax)
@@ -146,6 +176,24 @@ char ersterTag[16];   // v024: erster Tag in /smgw_tage.txt, leer = noch kein Me
 char leerVon[16];     // v024: erster uebersprungene Tag dieser Sitzung
 int  nLeer = 0;       // v024: uebersprungene Tage dieser Sitzung
 int  testWunsch = 0;  // v023: 1 = Test in der TaskLoop ausfuehren
+int  lbWunsch = 0;    // 1.1.5: 1 = Logbuch in der TaskLoop lesen
+int  lbModus = 1;     // 1.1.5: 1 = herunterladen (ab letztem Stand), 2 = Rohabfrage (Zusatz), 3 = alles neu
+int  lbAktiv = 0;     // 1.1.5: 1 = Logbuch wird gerade geladen (Status "lbaktiv")
+int  lbN = 0;         // 1.1.5: Eintraege beim letzten Herunterladen
+int  lbRows = 0;      // 1.1.5: Tabellenzeilen der letzten Tagesantwort (Gateway liefert hoechstens 100)
+int  lbTab = 0;       // 1.1.5: 1 = Antwort enthielt die Logbuch-Tabelle (<table id="log")
+char lbZus[100];      // 1.1.5: Zusatz fuer die 2. Anfrage (leer = nur logform)
+char lbTmp[100];      // 1.1.5: Hilfsfeld beim Sammeln der Feldnamen
+int  lbTr = 0;        // 1.1.5: Anzahl "<tr" in der Logbuch-Antwort
+char lbBis[16];       // 1.1.5: letzter vollstaendig gespeicherter Tag (/smgw_logbuch_bis.txt)
+char lbZeitL[24];     // 1.1.5: Zeitpunkt des letzten Herunterladens
+char lbFehler[80];    // 1.1.5: Fehler beim letzten Herunterladen ("" = ok)
+char lbZeit[24];      // 1.1.5: Felder eines Logbuch-Eintrags
+char lbLev[16];
+char lbId[16];
+char lbSt[24];
+char lbTxt[240];
+char lbZ[420];        // 1.1.5: eine Ausgabezeile
 char errAlt[120];     // v023: Fehlertext vor dem Test
 char errZAlt[24];
 int  backoffAlt = 0;  // v023
@@ -188,9 +236,54 @@ int  fMsz = -1;       // Groesse von fMon beim letzten Senden
 int  fTsz = -1;       // Groesse der Tagesliste beim letzten Senden           // v008: Hilfsfeld (global wegen TinyC-Falle lokales char[])
 int nWerte = 0;
 
+// ── v027: zweiter Zaehler ───────────────────────────────────────────────────
+int  zn = 1;           // Zaehler der Arbeitsvariablen (1 oder 2)
+char pre[8];           // Anfang der Dateinamen: "smgw" (Zaehler 1) oder "smgw2" (Zaehler 2)
+char zTag[4];          // Log-Zusatz: "" oder "2"
+char fnZ[32];          // Dateiname (global wegen TinyC-Falle lokales char[])
+int  kette = 0;        // 1 = Zaehler 1 fertig, Zaehler 2 folgt (Status "aktiv" bleibt 1)
+int  nMid = 0;         // Eintraege der Zaehlerauswahl bei der letzten Anmeldung
+int  force2 = 0;       // SMGWAbruf fuer Zaehler 2
+int  z2Da = 0;         // 1 = /smgw_zugang2.secret vollstaendig
+char z2Name[48];       // Bezeichnung (Zeile 3), Vorgabe "Zaehler 2"
+char z2NameAlt[48];    // v028: Bezeichnung vor dem Neulesen
+// gesicherte Saetze je Zaehler (Arbeitsvariablen <-> Satz, siehe sichern/laden)
+char s1lt[12]; char s1et[16]; char s1ok[24]; char s1er[120]; char s1ez[24]; char s1u[96]; char s1p[96]; char s1st[12];
+int  s1nt = 0; int s1bo = 3600; int s1zo = 0; int s1ao = 0; int s1sm = -1; int s1nm = 0;
+char s2lt[12]; char s2et[16]; char s2ok[24]; char s2er[120]; char s2ez[24]; char s2u[96]; char s2p[96]; char s2st[12];
+int  s2nt = 0; int s2bo = 3600; int s2zo = 0; int s2ao = 0; int s2sm = -1; int s2nm = 0;
+char cR[700];          // Antwort des Statusbefehls SMGW (global, wird laenger)
+
 // ── kleine Helfer ───────────────────────────────────────────────────────────
 
 void scopy(char dst[], char src[]) { sprintf(dst, "%s", src); }
+
+// v027: Arbeitsvariablen -> Satz z
+void sichern(int z) {
+    if (z == 1) {
+        scopy(s1lt, letzterTag); scopy(s1et, ersterTag); scopy(s1ok, okZeit); scopy(s1er, errText); scopy(s1ez, errZeit);
+        scopy(s1u, user); scopy(s1p, pass); scopy(s1st, slotTag);
+        s1nt = nextTry; s1bo = backoff; s1zo = zugangOk; s1ao = anmeldungOk; s1sm = slotMin; s1nm = nMid;
+    } else {
+        scopy(s2lt, letzterTag); scopy(s2et, ersterTag); scopy(s2ok, okZeit); scopy(s2er, errText); scopy(s2ez, errZeit);
+        scopy(s2u, user); scopy(s2p, pass); scopy(s2st, slotTag);
+        s2nt = nextTry; s2bo = backoff; s2zo = zugangOk; s2ao = anmeldungOk; s2sm = slotMin; s2nm = nMid;
+    }
+}
+// v027: Satz z -> Arbeitsvariablen (setzt zn, Dateinamen-Anfang und Log-Zusatz)
+void laden(int z) {
+    if (z == 1) {
+        scopy(letzterTag, s1lt); scopy(ersterTag, s1et); scopy(okZeit, s1ok); scopy(errText, s1er); scopy(errZeit, s1ez);
+        scopy(user, s1u); scopy(pass, s1p); scopy(slotTag, s1st);
+        nextTry = s1nt; backoff = s1bo; zugangOk = s1zo; anmeldungOk = s1ao; slotMin = s1sm; nMid = s1nm;
+        zn = 1; scopy(pre, "smgw"); zTag[0] = 0;
+    } else {
+        scopy(letzterTag, s2lt); scopy(ersterTag, s2et); scopy(okZeit, s2ok); scopy(errText, s2er); scopy(errZeit, s2ez);
+        scopy(user, s2u); scopy(pass, s2p); scopy(slotTag, s2st);
+        nextTry = s2nt; backoff = s2bo; zugangOk = s2zo; anmeldungOk = s2ao; slotMin = s2sm; nMid = s2nm;
+        zn = 2; scopy(pre, "smgw2"); scopy(zTag, "2");
+    }
+}
 
 // Status fuer Slot 1 (Web) als JSON-Datei; "naechster" = tasm_uptime, ab dem wieder versucht wird
 // v010: "H:MM" / "HH:MM" -> Minuten ab Mitternacht, -1 = ungueltig (zeichenweise, nicht auf atoi verlassen)
@@ -206,18 +299,34 @@ int zeitWert(char s[]) {
 }
 
 void schreibeStatus() {
-    if (ersterTag[0] != 0) {                     // v024: "bis" erst ab dem ersten Messwert, "start" = erster Tag mit Werten
-        sprintf(SB, "{\"zugang\":%d,\"bis\":\"%s\",\"ok\":\"%s\",\"start\":\"%s\",", zugangOk, letzterTag, okZeit, ersterTag);
+    sichern(zn);                                 // v027: Zaehler 1 immer oben, Zaehler 2 als "z2"
+    int ak = busy;
+    if (kette == 1) { ak = 1; }
+    if (s1et[0] != 0) {                          // v024: "bis" erst ab dem ersten Messwert, "start" = erster Tag mit Werten
+        sprintf(SB, "{\"zugang\":%d,\"bis\":\"%s\",\"ok\":\"%s\",\"start\":\"%s\",", s1zo, s1lt, s1ok, s1et);
     } else {
-        sprintf(SB, "{\"zugang\":%d,\"bis\":\"\",\"ok\":\"%s\",\"start\":\"\",", zugangOk, okZeit);
+        sprintf(SB, "{\"zugang\":%d,\"bis\":\"\",\"ok\":\"%s\",\"start\":\"\",\"such\":\"%s\",", s1zo, s1ok, s1lt);   // 1.1.2: Suchstand
     }
-    sprintfAppend(SB, "\"fehler\":\"%s\",\"fehlerzeit\":\"%s\",", errText, errZeit);
-    sprintfAppend(SB, "\"naechster\":%d,\"takt\":%d,\"versatz\":%d,\"aktiv\":%d,", nextTry, takt, versatz, busy);
+    sprintfAppend(SB, "\"fehler\":\"%s\",\"fehlerzeit\":\"%s\",", s1er, s1ez);
+    sprintfAppend(SB, "\"naechster\":%d,\"takt\":%d,\"versatz\":%d,\"aktiv\":%d,", s1nt, takt, versatz, ak);
+    char tsS[24]; char hS[12]; char gS[12]; int na = 1;   // 1.1.3: "nach":1 = es fehlen noch Tage bis gestern (Slot 2 wartet)
+    timeStamp(tsS); strSub(hS, tsS, 0, 10); tagPlus(gS, hS, -1);
+    if (s1lt[0] != 0 && s1et[0] != 0 && strcmp(s1lt, gS) >= 0) { na = 0; }
+    sprintfAppend(SB, "\"nach\":%d,", na);
+    sprintfAppend(SB, "\"mids\":%d,", s1nm);   // v027: Eintraege der Zaehlerauswahl
+    if (z2Da == 1) {                             // v027
+        sprintfAppend(SB, "\"z2\":{\"zugang\":%d,\"name\":\"%s\",", s2zo, z2Name);
+        if (s2et[0] != 0) { sprintfAppend(SB, "\"bis\":\"%s\",\"start\":\"%s\",", s2lt, s2et); }
+        else { sprintfAppend(SB, "\"bis\":\"\",\"start\":\"\",\"such\":\"%s\",", s2lt); }   // 1.1.2: Suchstand
+        sprintfAppend(SB, "\"ok\":\"%s\",\"fehler\":\"%s\",\"fehlerzeit\":\"%s\",", s2ok, s2er, s2ez);
+        sprintfAppend(SB, "\"naechster\":%d,\"mids\":%d},", s2nt, s2nm);
+    }
     sprintfAppend(SB, "\"gwboot\":\"%s\",\"gwsvc\":\"%s\",\"gwfwtag\":\"%s\",", fwBoot, fwSvc, fwTag);   // v008
     sprintfAppend(SB, "\"ftpum\":\"%02d:%02d\",", ftpUm / 60, ftpUm % 60);   // v010
     sprintfAppend(SB, "\"host\":\"%s\",\"port\":%d,\"pfad\":\"%s\",", gwHost, gwPort, gwPfad);   // v011
     if (gwId[0] != 0) { strcat(SB, "\"smgwid\":1,"); } else { strcat(SB, "\"smgwid\":0,"); }   // v012: nie den Wert
     sprintfAppend(SB, "\"cert\":%d,", certSt);   // v013
+    sprintfAppend(SB, "\"lbbis\":\"%s\",\"lbzeit\":\"%s\",\"lbn\":%d,\"lbaktiv\":%d,\"lbfehler\":\"%s\",", lbBis, lbZeitL, lbN, lbAktiv, lbFehler);   // 1.1.5
     sprintfAppend(SB, "\"certbis\":\"%s\",", gCertBis);   // v021
     sprintfAppend(SB, "\"ftp\":%d,\"ftpzeit\":\"%s\",\"ftptext\":\"%s\"}\n", ftpRes, ftpZeit, ftpText);   // v009
     int h = fileOpen("/smgw_status.txt", 1);
@@ -229,7 +338,8 @@ void schreibeStatus() {
 void setErr(char t[]) {
     scopy(errText, t);
     timeStamp(errZeit);
-    addLog("SMG: Fehler: %s", errText);
+    sprintf(X, "SMG%s: Fehler: %s", zTag, errText);   // v027: Zaehler 2 als "SMG2"
+    addLog(X);
     schreibeStatus();
 }
 
@@ -405,8 +515,9 @@ void schreibeCfg() {
 // v024: ersten Tag aus /smgw_tage.txt (erste Zeile), leer = noch kein Messwert gespeichert
 void leseErsterTag() {
     ersterTag[0] = 0;
-    if (fileExists("/smgw_tage.txt") == 0) { return; }
-    int h = fileOpen("/smgw_tage.txt", 0);
+    sprintf(fnZ, "/%s_tage.txt", pre);           // v027
+    if (fileExists(fnZ) == 0) { return; }
+    int h = fileOpen(fnZ, 0);
     if (h < 0) { return; }
     int n = fileRead(h, B, 40);
     fileClose(h);
@@ -419,8 +530,9 @@ void leseErsterTag() {
 // v024: noch kein Messwert -> bis wohin schon gesucht wurde (/smgw_leer.txt), damit ein Neustart nicht von vorn beginnt
 void leseLeer() {
     if (ersterTag[0] != 0 || letzterTag[0] != 0) { return; }
-    if (fileExists("/smgw_leer.txt") == 0) { return; }
-    int h = fileOpen("/smgw_leer.txt", 0);
+    sprintf(fnZ, "/%s_leer.txt", pre);           // v027
+    if (fileExists(fnZ) == 0) { return; }
+    int h = fileOpen(fnZ, 0);
     if (h < 0) { return; }
     int n = fileRead(h, B, 20);
     fileClose(h);
@@ -431,8 +543,9 @@ void leseLeer() {
 void leseLetzterTag() {
     leseErsterTag();                             // v024
     letzterTag[0] = 0;
-    if (fileExists("/smgw_tage.txt") == 0) { return; }
-    int h = fileOpen("/smgw_tage.txt", 0);
+    sprintf(fnZ, "/%s_tage.txt", pre);           // v027
+    if (fileExists(fnZ) == 0) { return; }
+    int h = fileOpen(fnZ, 0);
     if (h < 0) { return; }
     fileSeek(h, 0, 2);
     int sz = fileTell(h);
@@ -545,7 +658,7 @@ void werteAus() {
             p = strFind(B, "name='tkn' value='");
             if (p >= 0) { best = p; typ = 1; }
         }
-        if (wantOpt == 1 && gotMid == 0) {
+        if (wantOpt == 1) {                      // v027: alle Eintraege zaehlen, gelesen wird der erste
             p = strFind(B, "<option value='");
             if (p >= 0 && (best < 0 || p < best)) { best = p; typ = 2; }
         }
@@ -597,7 +710,7 @@ void werteAus() {
                     X[q] = 0;
                     cut = best + kl + q;
                     if (typ == 1) { scopy(tkn, X); gotTkn = 1; }
-                    if (typ == 2) { scopy(mid, X); gotMid = 1; }
+                    if (typ == 2) { if (gotMid == 0) { scopy(mid, X); gotMid = 1; } nMid = nMid + 1; }   // v027
                     if (typ == 4) { strTrim(X); scopy(vCur, X); }
                     if (typ == 5) {
                         if (strcmp(X, "1-0:1.8.0") == 0) { merkeWert(1); }
@@ -729,11 +842,15 @@ int anmelden() {
 
 int holeZaehler() {
     flagsAus();
-    wantOpt = 1; gotMid = 0; mid[0] = 0;
+    wantOpt = 1; gotMid = 0; mid[0] = 0; nMid = 0;
     sprintf(post, "tkn=%s&action=meterform", tkn);
     if (sendePost() == 0) { logDiag("Zaehlerseite"); setErr("Zaehlerseite: keine Antwort"); return 0; }
     if (fLock == 1 || fUnerl == 1) { setErr("Zaehlerseite: Zugriff verweigert"); return 0; }
     if (gotMid == 0 || gotTkn == 0) { setErr("Zaehlerseite: Zaehler-Kennung fehlt"); return 0; }
+    if (nMid > 1) {                              // v027: nur melden (nie die Kennungen)
+        sprintf(X, "SMG%s: Zaehlerseite bietet %d Zaehler an - gelesen wird der erste", zTag, nMid);
+        addLog(X);
+    }
     return 1;
 }
 
@@ -794,6 +911,40 @@ void holeCert() {
     addLog("SMG: Gateway-Zertifikat gueltig bis %s UTC", gCertBis);
 }
 
+// 1.1.5 (Andreas 21.11.): Firmware-Verlauf /smgw_fw_verlauf.txt, je Zeile "JJJJ-MM-TT<TAB>bootstream<TAB>services".
+// Neue Zeile nur, wenn sich die Version gegenueber der letzten Zeile geaendert hat (oder die Datei leer ist). Das Logbuch
+// nennt bei einem Update keine Version - die Seite ordnet den Updates damit "vorher -> danach" zu. Startwerte von Hand moeglich.
+void fwVerlauf() {
+    sprintf(lbTmp, "%s\t%s", fwBoot, fwSvc);
+    if (fwVL[0] == 0 && fileExists("/smgw_fw_verlauf.txt") == 1) {     // letzte Zeile einmal lesen
+        int h = fileOpen("/smgw_fw_verlauf.txt", 0);
+        if (h >= 0) {
+            int n = fileRead(h, B2, 3000);
+            fileClose(h);
+            if (n > 11) {
+                B2[n] = 0;
+                int e = n - 1;
+                while (e > 0 && (B2[e] == 10 || B2[e] == 13 || B2[e] == 32)) { B2[e] = 0; e = e - 1; }
+                int a = e;
+                while (a > 0 && B2[a - 1] != 10) { a = a - 1; }
+                strSub(X, B2, a + 11, 60);           // hinter "JJJJ-MM-TT<TAB>"
+                scopy(fwVL, X);
+            }
+            B2[0] = 0;
+        }
+    }
+    if (strcmp(fwVL, lbTmp) == 0) { return; }
+    int hw = fileOpen("/smgw_fw_verlauf.txt", 2);
+    if (hw < 0) { return; }
+    sprintf(lbZ, "%s\t%s\n", heute, lbTmp);
+    fileWrite(hw, lbZ, strlen(lbZ));
+    fileClose(hw);
+    scopy(fwVL, lbTmp);
+    lbZ[0] = 0;
+    sprintf(X, "SMG: Gateway-Firmware %s / %s in den Verlauf eingetragen", fwBoot, fwSvc);
+    addLog(X);
+}
+
 int holeFw() {
     flagsAus();
     wantFw = 1;
@@ -818,6 +969,7 @@ int holeFw() {
     scopy(fwTag, heute);
     sprintf(X, "SMG: Gateway-Firmware bootstream %s, services %s", fwBoot, fwSvc);
     addLog(X);
+    fwVerlauf();                                 // 1.1.5
     return 1;
 }
 
@@ -859,9 +1011,14 @@ int speichereTag() {
     char ym[8];
     char fn[24];
     strSub(ym, tagA, 0, 7);
-    sprintf(fn, "/smgw_%s.txt", ym);
+    sprintf(fn, "/%s_%s.txt", pre, ym);         // v027
     int h = fileOpen(fn, 2);
-    if (h < 0) { setErr("SD: Monatsdatei nicht beschreibbar"); return 0; }
+    int wv = 0;                                  // 1.1.2: SD kurz belegt -> bis zu 3x nachfassen
+    while (h < 0 && wv < 3) { wv = wv + 1; delay(500); h = fileOpen(fn, 2); }
+    if (wv > 0) { addLog("SMG: Monatsdatei %s erst nach %d Wiederholung(en) offen (%d)", fn, wv, h); }
+    // 1.1.2: -1 statt 0 - der Tag gilt dann NICHT als gespeichert, die naechste Sitzung holt ihn erneut
+    // (vorher wurde er trotzdem abgehakt und waere verloren gewesen; Andreas 16.11. "Monatsdatei nicht beschreibbar")
+    if (h < 0) { setErr("SD: Monatsdatei nicht beschreibbar"); return -1; }
     int n = schreibeZeilen(h);
     fileClose(h);
     // Anfang = erste vorhandene Viertelstunde (normal 00:00), Ende = 00:00 Folgetag
@@ -879,15 +1036,20 @@ int speichereTag() {
     wertQ(2, qa); strcat(L, X); strcat(L, "\t");
     wertQ(2, qe); strcat(L, X);
     sprintfAppend(L, "\t%d\n", n);
-    h = fileOpen("/smgw_tage.txt", 2);
-    if (h < 0) { setErr("SD: Tagesliste nicht beschreibbar"); return 0; }
+    sprintf(fnZ, "/%s_tage.txt", pre);           // v027
+    h = fileOpen(fnZ, 2);
+    wv = 0;
+    while (h < 0 && wv < 3) { wv = wv + 1; delay(500); h = fileOpen(fnZ, 2); }
+    // Monatsdatei ist schon geschrieben -> Tag bleibt abgehakt (kein doppelter Eintrag beim Wiederholen)
+    if (h < 0) { setErr("SD: Tagesliste nicht beschreibbar"); return n; }
     fileWrite(h, L, strlen(L));
     fileClose(h);
     return n;
 }
 
 void speichereHeute() {
-    int h = fileOpen("/smgw_heute.txt", 1);
+    sprintf(fnZ, "/%s_heute.txt", pre);          // v027
+    int h = fileOpen(fnZ, 1);
     if (h < 0) { return; }
     schreibeZeilen(h);
     fileClose(h);
@@ -954,7 +1116,8 @@ void certLaden() {
 // v025: Suchstand vor dem ersten Messwert sichern (letzter abgefragter leerer Tag)
 void schreibeLeer() {
     if (ersterTag[0] != 0 || letzterTag[0] == 0) { return; }
-    int hl = fileOpen("/smgw_leer.txt", 1);
+    sprintf(fnZ, "/%s_leer.txt", pre);           // v027
+    int hl = fileOpen(fnZ, 1);
     if (hl >= 0) { sprintf(dTmp, "%s\n", letzterTag); fileWrite(hl, dTmp, strlen(dTmp)); fileClose(hl); }
 }
 
@@ -962,7 +1125,10 @@ int sitzung(int mitTagen, int mitHeute) {
     busy = 1;
     tageHeute = 0;
     nLeer = 0;                                   // v024
-    certLaden();                                 // v013
+    if (zn == 1) { certLaden(); }                // v013
+    else {                                       // v027: Zugang 2 nie mit dem Zertifikat von Zugang 1
+        if (certSt != 0) { certAnt[0] = 0; tasmCmd("TinyCTlsCert 0", certAnt); certAnt[0] = 0; }
+    }
     schreibeStatus();
     int ok = 0;
     if (mitTagen == 1) {                     // ersten Tag VOR der Anmeldung bestimmen und pruefen
@@ -1012,20 +1178,22 @@ int sitzung(int mitTagen, int mitHeute) {
                     if (nLeer == 0) { scopy(leerVon, tagLauf); }
                     nLeer = nLeer + 1;
                     scopy(letzterTag, tagLauf);
-                    if (nLeer % 50 == 0) { schreibeLeer(); }   // v025: Suchstand zwischendurch sichern
+                    if (nLeer % 50 == 0) { schreibeLeer(); schreibeStatus(); }   // v025: Suchstand zwischendurch sichern (1.1.2: auch im Status)
                     tagPlus(tagLauf, letzterTag, 1);
                     k = k + 1;
                     delay(200);
                 }
                 else {
                     int n = speichereTag();
+                    if (n < 0) { ok = 0; break; }       // 1.1.2: Tag nicht abhaken, naechste Sitzung holt ihn erneut
                     scopy(letzterTag, tagLauf);
                     if (ersterTag[0] == 0 && n > 0) {           // v024: erster Messwert
                         scopy(ersterTag, tagLauf);
-                        fileDelete("/smgw_leer.txt");
+                        sprintf(fnZ, "/%s_leer.txt", pre);   // v027
+                        fileDelete(fnZ);
                     }
                     tageHeute = tageHeute + 1;
-                    sprintf(X, "SMG: Tag %s gespeichert (%d Viertelstunden, %d Werte)", tagLauf, n, nWerte);
+                    sprintf(X, "SMG%s: Tag %s gespeichert (%d Viertelstunden, %d Werte)", zTag, tagLauf, n, nWerte);   // v027
                     addLog(X);
                     schreibeStatus();
                     tagPlus(tagLauf, letzterTag, 1);
@@ -1035,7 +1203,7 @@ int sitzung(int mitTagen, int mitHeute) {
             }
         }
         if (nLeer > 0) {                             // v024
-            sprintf(X, "SMG: %d Tage ohne Zaehlerdaten uebersprungen (%s bis %s)", nLeer, leerVon, letzterTag);
+            sprintf(X, "SMG%s: %d Tage ohne Zaehlerdaten uebersprungen (%s bis %s)", zTag, nLeer, leerVon, letzterTag);   // v027
             addLog(X);
             if (ersterTag[0] == 0) { schreibeLeer(); }
         }
@@ -1051,10 +1219,11 @@ int sitzung(int mitTagen, int mitHeute) {
             if (rh == 1) { speichereHeute(); } else { ok = 0; }
         }
     }
-    if (ok == 1 && strcmp(fwTag, heute) != 0) { holeFw(); holeCert(); }   // v008/v021: einmal je Tag, Fehler hier zaehlt nicht
+    if (ok == 1 && zn == 1 && strcmp(fwTag, heute) != 0) { holeFw(); holeCert(); }   // v008/v021 (v027: nur Zugang 1)
     abmelden();
     trenne();
     busy = 0;
+    if (zn == 1 && z2Da == 1) { kette = 1; }      // v027: Zaehler 2 folgt -> Status bleibt "aktiv"
     if (ok == 1) { timeStamp(okZeit); errText[0] = 0; backoff = 3600; }
     schreibeStatus();
     return ok;
@@ -1293,7 +1462,7 @@ void testSitzung() {
     certLaden();
     addLog("SMG: Testtag %s - Abfrage startet", testTag);
     if (anmeldenSicher() == 1) {
-        rohH = fileOpen("/smgw_testtag.html", 1); rohN = 0; rohMax = 400000;   // v026
+        rohH = fileOpen("/smgw_testtag.secret", 1); rohN = 0; rohMax = 400000;   // v026; 1.1.4: .secret (Zaehlerkennung, Port 82 sperrt .secret)
         int r = holeTag(testTag);
         if (rohH >= 0) { fileClose(rohH); }
         rohH = -1; rohMax = 150000;
@@ -1312,6 +1481,408 @@ void testSitzung() {
     busy = 0;
     scopy(errText, errAlt); scopy(errZeit, errZAlt); backoff = backoffAlt;
     schreibeStatus();
+}
+
+// 1.1.5: Zusatz in cIn pruefen: "action=<..log..>[&feld=wert..]", nur a-z A-Z 0-9 = & _ - : . + %, ohne tkn, nie logout
+int lbZusOk() {
+    int n = strlen(cIn);
+    if (n < 8 || n > 95) { return 0; }
+    for (int i = 0; i < n; i++) {
+        int c = cIn[i];
+        int ok = 0;
+        if (c >= 'a' && c <= 'z') { ok = 1; }
+        if (c >= 'A' && c <= 'Z') { ok = 1; }
+        if (c >= '0' && c <= '9') { ok = 1; }
+        if (c == '=' || c == '&' || c == '_' || c == '-' || c == ':' || c == '.' || c == '+' || c == '%') { ok = 1; }
+        if (ok == 0) { return 0; }
+    }
+    if (strFind(cIn, "action=") != 0) { return 0; }
+    if (strFind(cIn, "tkn") >= 0) { return 0; }
+    if (strFind(cIn, "logout") >= 0) { return 0; }
+    scopy(lbTmp, cIn);
+    int a = strFind(lbTmp, "&");
+    if (a >= 0) { lbTmp[a] = 0; }
+    if (strFind(lbTmp, "log") < 0 && strFind(lbTmp, "Log") < 0) { return 0; }
+    return 1;
+}
+
+// 1.1.5: Feldnamen (name='..'), Wert von action und Anzahl Tabellenzeilen der Logbuch-Antwort ins Log - keine Inhalte
+void lbMerk() {
+    if (strcmp(X, "tkn") == 0) { return; }
+    sprintf(lbTmp, " %s", X);
+    if (strFind(L, lbTmp) >= 0) { return; }
+    if (strlen(L) + strlen(lbTmp) > 190) { return; }
+    strcat(L, lbTmp);
+}
+void lbFelder() {
+    int h = fileOpen("/smgw_lbroh.secret", 0);
+    if (h < 0) { addLog("SMG: Logbuch: Datei nicht lesbar"); return; }
+    L[0] = 0; B[0] = 0; lbTr = 0;
+    int n = fileRead(h, T, 1000);
+    while (n > 0) {
+        T[n] = 0;
+        strcat(B, T);
+        int weiter = 1;
+        while (weiter == 1) {
+            int pn = strFind(B, "name='");
+            int pt = strFind(B, "<tr");
+            if (pt >= 0 && (pn < 0 || pt < pn)) {
+                lbTr = lbTr + 1;
+                strSub(B2, B, pt + 3, 0); strcpy(B, B2);
+            } else {
+                if (pn < 0) { weiter = 0; }
+                else {
+                    strSub(X, B, pn + 6, 220);
+                    int q = strFind(X, "'");
+                    if (q < 0) { weiter = 0; }
+                    else {
+                        if (q > 40) { q = 40; }
+                        X[q] = 0;
+                        int istAct = strcmp(X, "action");
+                        lbMerk();
+                        strSub(B2, B, pn + 6 + q, 0); strcpy(B, B2);
+                        if (istAct == 0) {
+                            int pv = strFind(B, "value='");
+                            if (pv >= 0 && pv < 20) {
+                                strSub(X, B, pv + 7, 60);
+                                int q2 = strFind(X, "'");
+                                if (q2 >= 0) { X[q2] = 0; sprintf(lbTmp, "=%s", X); if (strlen(L) + strlen(lbTmp) < 190) { strcat(L, lbTmp); } }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        int lb = strlen(B);
+        if (lb > 260) { strSub(B2, B, lb - 260, 0); strcpy(B, B2); }
+        n = fileRead(h, T, 1000);
+    }
+    fileClose(h);
+    B[0] = 0; B2[0] = 0; T[0] = 0;
+    sprintf(X, "SMG: Logbuch: %d Tabellenzeilen, Felder:", lbTr);
+    addLog(X);
+    strSub(X, L, 0, 100); addLog(X);
+    if (strlen(L) > 100) { strSub(X, L, 100, 100); addLog(X); }
+    L[0] = 0;
+}
+
+// 1.1.5: Rohabfrage (SMGWLogbuch action=..): Logbuch-Seite und optional eine zweite Anfrage roh nach /smgw_lbroh.secret,
+// nur Feldnamen ins Log (zum Erkunden; das Herunterladen fuer die Seite macht logbuchLauf)
+void logbuchSitzung() {
+    busy = 1;
+    scopy(errAlt, errText); scopy(errZAlt, errZeit); backoffAlt = backoff;
+    certLaden();
+    addLog("SMG: Logbuch - Abfrage startet");
+    if (anmeldenSicher() == 1) {
+        rohH = fileOpen("/smgw_lbroh.secret", 1); rohN = 0; rohMax = 400000;
+        flagsAus();
+        sprintf(post, "tkn=%s&action=logform", tkn);
+        int r = sendePost();
+        int st1 = st;
+        int n1 = rohN;
+        int r2 = -1;
+        if (r == 1 && gotTkn == 1 && fLock == 0 && fUnerl == 0 && fParam == 0 && lbZus[0] != 0) {
+            flagsAus();
+            sprintf(post, "tkn=%s&%s", tkn, lbZus);
+            r2 = sendePost();
+        }
+        if (rohH >= 0) { fileClose(rohH); }
+        rohH = -1; rohMax = 150000;
+        sprintf(X, "SMG: Logbuch: Seite %d (HTTP %d, %d Byte), Abfrage %d (HTTP %d, %d Byte)", r, st1, n1, r2, st, rohN - n1);
+        addLog(X);
+        sprintf(X, "SMG: Logbuch: Token %d, Parameterfehler %d, Unerlaubter Zugriff %d, gesperrt %d", gotTkn, fParam, fUnerl, fLock);
+        addLog(X);
+    } else {
+        addLog("SMG: Logbuch - Anmeldung nicht gelungen");
+    }
+    abmelden();
+    trenne();
+    lbFelder();
+    busy = 0;
+    scopy(errText, errAlt); scopy(errZeit, errZAlt); backoff = backoffAlt;
+    schreibeStatus();
+}
+
+// ── 1.1.5: Logbuch herunterladen (Knopf "Logbuch herunterladen" bzw. SMGWLogbuch) ────────────────
+// Das Gateway liefert je Abfrage hoechstens 100 Eintraege -> Tag fuer Tag (action=log&from=TAG&to=TAG).
+// /smgw_logbuch.txt        je Eintrag eine Zeile "Zeit<TAB>Stufe<TAB>ID<TAB>Status<TAB>Nachricht" (ganze Tage bis gestern,
+//                             angehaengt; Umlaute als HTML-Zeichen wie vom Gateway). Anmeldungen des Lesers (ID 10228) weggelassen.
+// /smgw_logbuch_heute.txt  dasselbe nur fuer heute (bei jedem Herunterladen neu)
+// /smgw_logbuch_bis.txt       letzter vollstaendig gespeicherter Tag; das naechste Herunterladen beginnt am Tag danach
+// Die Rohantwort enthaelt Benutzer-Kennung, Zaehlernummer und Gateway-ID: sie liegt nur kurz als /smgw_lbroh.secret und wird danach
+// geloescht. In die .txt kommen Kennungen NIE: jedes Wort mit Buchstaben UND mind. 4 Ziffern wird "***" (lbMaske) - die .txt ist wie die
+// Zaehlerdaten ohne Anmeldung lesbar (Port 82, /smgwf). Datum/Uhrzeit (nur Ziffern und Zeichen) bleiben.
+
+// Nachricht lbTxt mit unkenntlichen Kennungen hinten an lbZ anhaengen
+void lbMaske() {
+    int o = strlen(lbZ);
+    int i = 0; int w0 = 0; int nb = 0; int nd = 0;
+    int fertig = 0;
+    while (fertig == 0 && i < 240 && o < 400) {
+        int c = lbTxt[i];
+        if (c == ' ' || c == 0) {
+            if (i > w0) {
+                if (nb > 0 && nd >= 4) { lbZ[o] = '*'; lbZ[o + 1] = '*'; lbZ[o + 2] = '*'; o = o + 3; }
+                else { for (int k = w0; k < i; k++) { if (o < 400) { lbZ[o] = lbTxt[k]; o = o + 1; } } }
+            }
+            if (c == 0) { fertig = 1; }
+            else { lbZ[o] = ' '; o = o + 1; }
+            w0 = i + 1; nb = 0; nd = 0;
+        } else {
+            if (c >= '0' && c <= '9') { nd = nd + 1; }
+            if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) { nb = nb + 1; }
+        }
+        i = i + 1;
+    }
+    lbZ[o] = 0;
+}
+
+void lbLeseBis() {
+    lbBis[0] = 0;
+    if (fileExists("/smgw_logbuch_bis.txt") == 0) { return; }
+    int h = fileOpen("/smgw_logbuch_bis.txt", 0);
+    if (h < 0) { return; }
+    int n = fileRead(h, lbTmp, 20);
+    fileClose(h);
+    if (n >= 10) { lbTmp[10] = 0; if (lbTmp[4] == '-' && lbTmp[7] == '-') { scopy(lbBis, lbTmp); } }
+}
+void lbSchreibeBis() {
+    int h = fileOpen("/smgw_logbuch_bis.txt", 1);
+    if (h < 0) { return; }
+    sprintf(lbTmp, "%s\n", lbBis);
+    fileWrite(h, lbTmp, strlen(lbTmp));
+    fileClose(h);
+}
+
+// Wert einer Spalte aus X (X beginnt hinter "table_logs_col_"): a = Position von '>', e = von '<'
+void lbFeld(int sp, int a, int e) {
+    X[e] = 0;
+    if (sp == 4) { strSub(lbTxt, X, a + 1, 230); }
+    else {
+        strSub(lbTmp, X, a + 1, 22);
+        if (sp == 1) { scopy(lbZeit, lbTmp); }
+        if (sp == 2) { scopy(lbLev, lbTmp); }
+        if (sp == 3) { scopy(lbId, lbTmp); }
+        if (sp == 5) { scopy(lbSt, lbTmp); }
+    }
+}
+
+// Rohantwort /smgw_lbroh.secret in Zeilen fuer Datei ho umsetzen. Rueckgabe: geschriebene Eintraege, -1 = Datei fehlt
+int lbParse(int ho) {
+    int h = fileOpen("/smgw_lbroh.secret", 0);
+    if (h < 0) { return -1; }
+    int nz = 0;
+    lbRows = 0; lbTab = 0;
+    B[0] = 0;
+    lbZeit[0] = 0; lbLev[0] = 0; lbId[0] = 0; lbSt[0] = 0; lbTxt[0] = 0;
+    int n = fileRead(h, T, 1000);
+    while (n > 0) {
+        T[n] = 0;
+        strcat(B, T);
+        if (lbTab == 0 && strFind(B, "<table id=\"log\"") >= 0) { lbTab = 1; }
+        int weiter = 1;
+        while (weiter == 1) {
+            int p = strFind(B, "table_logs_col_");
+            if (p < 0) {
+                int lb = strlen(B);
+                if (lb > 40) { strSub(B2, B, lb - 40, 0); strcpy(B, B2); }
+                weiter = 0;
+            } else {
+                strSub(X, B, p + 15, 280);
+                int a = strFind(X, ">");
+                int e = -1;
+                if (a >= 0) { e = strFind(X, "</td>"); }
+                if (a < 0 || (e < 0 && strlen(X) < 280)) {
+                    strSub(B2, B, p, 0); strcpy(B, B2);      // Wert noch nicht ganz da -> naechsten Block lesen
+                    weiter = 0;
+                } else {
+                    if (e < 0) { e = 279; }                  // ueberlanger Text: abschneiden
+                    int sp = 0;
+                    if (strFind(X, "zeit") == 0) { sp = 1; }
+                    if (strFind(X, "loglevel") == 0) { sp = 2; }
+                    if (strFind(X, "logid") == 0) { sp = 3; }
+                    if (strFind(X, "msgtext") == 0) { sp = 4; }
+                    if (strFind(X, "outcome") == 0) { sp = 5; }
+                    if (sp > 0) { lbFeld(sp, a, e); }
+                    strSub(B2, B, p + 15 + e, 0); strcpy(B, B2);
+                    if (sp == 5) {                           // Zeile fertig
+                        lbRows = lbRows + 1;
+                        if (strcmp(lbId, "10228") != 0) {
+                            int k = 0;
+                            while (lbTxt[k] != 0) { if (lbTxt[k] == 9 || lbTxt[k] == 10 || lbTxt[k] == 13) { lbTxt[k] = ' '; } k = k + 1; }
+                            sprintf(lbZ, "%s\t%s\t%s\t%s\t", lbZeit, lbLev, lbId, lbSt);
+                            lbMaske();                       // Kennungen -> ***
+                            strcat(lbZ, "\n");
+                            fileWrite(ho, lbZ, strlen(lbZ));
+                            nz = nz + 1;
+                        }
+                        lbZeit[0] = 0; lbLev[0] = 0; lbId[0] = 0; lbSt[0] = 0; lbTxt[0] = 0;
+                    }
+                }
+            }
+        }
+        n = fileRead(h, T, 1000);
+    }
+    fileClose(h);
+    B[0] = 0; B2[0] = 0; T[0] = 0; X[0] = 0; lbZ[0] = 0; lbTxt[0] = 0;
+    return nz;
+}
+
+// Logbuch-Seite einmal aufrufen (wie im Browser vor der ersten Abfrage). 1 = ok
+int lbForm() {
+    flagsAus();
+    sprintf(post, "tkn=%s&action=logform", tkn);
+    int r = sendePost();
+    if (r == 0 || gotTkn == 0 || fLock == 1 || fUnerl == 1 || fParam == 1) { return 0; }
+    return 1;
+}
+
+// eine Logbuch-Anfrage fuer Tag d (Rohantwort nach /smgw_lbroh.secret). 1 = ok
+int lbHole(char d[]) {
+    flagsAus();
+    sprintf(post, "tkn=%s&action=log&from=%s&to=%s", tkn, d, d);
+    rohH = fileOpen("/smgw_lbroh.secret", 1); rohN = 0; rohMax = 400000;
+    int r = sendePost();
+    if (rohH >= 0) { fileClose(rohH); }
+    rohH = -1; rohMax = 150000;
+    // Woerter wie "gesperrt" / "Unerlaubter Zugriff" koennen im Logbuch als normale Eintraege stehen (03.02.2026: Fehlalarm)
+    // -> hier zaehlen nur Antwort + neuer Token; ob die Logbuch-Tabelle da ist, prueft lbParse (lbTab)
+    if (r == 0 || gotTkn == 0) { return 0; }
+    return 1;
+}
+
+// Tag d holen (bei Abriss einmal neu verbinden und anmelden) und als Zeilen nach ho. Rueckgabe Eintraege, -1 = Fehler
+int lbTag(char d[], int ho) {
+    int r = lbHole(d);
+    if (r == 0 && fLock == 1 && gotTkn == 0) { addLog("SMG: Logbuch %s: Gateway meldet Sperre - Abbruch", d); return -1; }   // echte Sperre: nicht neu anmelden
+    if (r == 0) {
+        addLog("SMG: Logbuch %s erneut mit neuer Anmeldung", d);
+        trenne();
+        delay(3000);
+        if (anmeldenSicher() == 1 && lbForm() == 1) { r = lbHole(d); }
+    }
+    if (r == 0) { return -1; }
+    int n = lbParse(ho);
+    if (lbTab == 0) { addLog("SMG: Logbuch %s: Antwort ohne Logbuch-Tabelle", d); return -1; }
+    if (lbRows >= 100) { addLog("SMG: Logbuch %s: %d Zeilen - Gateway liefert hoechstens 100, evtl. unvollstaendig", d, lbRows); }
+    return n;
+}
+
+void logbuchLauf() {
+    busy = 1; lbAktiv = 1; lbFehler[0] = 0;
+    scopy(errAlt, errText); scopy(errZAlt, errZeit); backoffAlt = backoff;
+    certLaden();
+    datumHeute();
+    if (lbModus == 3) { fileDelete("/smgw_logbuch_bis.txt"); }
+    lbLeseBis();
+    if (lbBis[0] == 0) {                         // erstes Mal (oder neu): ab dem ersten Tag mit Messwerten
+        fileDelete("/smgw_logbuch.txt");
+        fileDelete("/smgw_logbuch.secret");      // Rohfassung aus dem ersten Test (21.11.) nicht liegen lassen
+        leseErsterTag();
+        if (ersterTag[0] != 0) { scopy(tagLauf, ersterTag); } else { scopy(tagLauf, gestern); }
+    } else {
+        tagPlus(tagLauf, lbBis, 1);
+    }
+    schreibeStatus();
+    sprintf(X, "SMG: Logbuch herunterladen ab %s", tagLauf);
+    addLog(X);
+    int neu = 0; int tage = 0;
+    if (anmeldenSicher() == 1 && lbForm() == 1) {
+        int ok = 1;
+        int ho = fileOpen("/smgw_logbuch.txt", 2);
+        if (ho < 0) { ok = 0; scopy(lbFehler, "SD: Logbuch-Datei nicht beschreibbar"); }
+        while (ok == 1 && strcmp(tagLauf, gestern) <= 0) {
+            if (datumOk(tagLauf) == 0) { ok = 0; scopy(lbFehler, "Datum ungueltig"); break; }
+            int n = lbTag(tagLauf, ho);
+            if (n < 0) { ok = 0; sprintf(lbFehler, "Tag %s nicht gelesen", tagLauf); break; }
+            neu = neu + n; tage = tage + 1;
+            scopy(lbBis, tagLauf); lbSchreibeBis();
+            tagPlus(tagLauf, tagLauf, 1);
+            if (tage % 20 == 0) { schreibeStatus(); }
+        }
+        if (ho >= 0) { fileClose(ho); }
+        if (ok == 1) {                               // heute immer neu
+            int hh = fileOpen("/smgw_logbuch_heute.txt", 1);
+            if (hh >= 0) {
+                int nh = lbTag(heute, hh);
+                fileClose(hh);
+                if (nh < 0) { scopy(lbFehler, "heute nicht gelesen"); } else { neu = neu + nh; }
+            }
+        }
+    } else {
+        scopy(lbFehler, "Anmeldung oder Logbuch-Seite nicht gelungen");
+    }
+    abmelden();
+    trenne();
+    fileDelete("/smgw_lbroh.secret");            // Rohantwort nicht liegen lassen
+    timeStamp(lbZeitL);
+    lbN = neu;
+    sprintf(X, "SMG: Logbuch: %d Tag(e), %d Eintraege, gespeichert bis %s %s", tage, neu, lbBis, lbFehler);
+    addLog(X);
+    busy = 0; lbAktiv = 0;
+    scopy(errText, errAlt); scopy(errZeit, errZAlt); backoff = backoffAlt;
+    schreibeStatus();
+}
+
+// v027: /smgw_zugang2.secret -> s2u, s2p, z2Name (nur aufrufen, solange zn == 1). 1 = vollstaendig
+int leseZugang2() {
+    s2u[0] = 0; s2p[0] = 0; z2Name[0] = 0;
+    if (fileExists("/smgw_zugang2.secret") == 0) { return 0; }
+    int h = fileOpen("/smgw_zugang2.secret", 0);
+    if (h < 0) { return 0; }
+    int n = fileRead(h, B, 400);
+    fileClose(h);
+    if (n <= 0) { B[0] = 0; return 0; }
+    B[n] = 0;
+    strToken(X, B, '\n', 1); strTrim(X); scopy(s2u, X);
+    strToken(X, B, '\n', 2); strTrim(X); scopy(s2p, X);
+    strToken(X, B, '\n', 3); strTrim(X); strSub(z2Name, X, 0, 40);
+    X[0] = 0; B[0] = 0;
+    if (z2Name[0] == 0) { scopy(z2Name, "Zaehler 2"); }
+    if (s2u[0] == 0 || s2p[0] == 0) { return 0; }
+    return 1;
+}
+
+// v027: Stand von Zaehler 2 aus seinen Dateien lesen (smgw2_tage.txt / smgw2_leer.txt); nur bei zn == 1
+void z2Init() {
+    sichern(1);
+    laden(2);
+    leseLetzterTag();
+    leseLeer();
+    sichern(2);
+    laden(1);
+    sprintf(X, "SMG2: Zugang 2 (%s) %d, gespeichert bis '%s'", z2Name, z2Da, s2lt);
+    addLog(X);
+}
+
+// v027: Abrufentscheidung fuer den Zaehler in den Arbeitsvariablen (frueher Rest der TaskLoop).
+// -1 = Wartezeit/kein Zugang (Abruf-Wunsch bleibt), 0 = nichts zu tun, 1 = Sitzung gelaufen
+int zaehlerLauf(int f) {
+    if (tasm_uptime < nextTry) { return -1; }    // Wartezeit nach Fehler / zwischen Nachhol-Sitzungen
+    if (zugangOk == 0) { return -1; }
+    int mitTagen = 0; int mitHeute = 0;
+    int nachMitternacht = (tasm_hour * 60 + tasm_minute >= 20);
+    if (strcmp(letzterTag, gestern) < 0 && (nachMitternacht == 1 || f == 1)) { mitTagen = 1; }
+    int slot = -1;                               // v007: aktueller Takt-Zeitpunkt (Minuten ab Mitternacht)
+    if (takt > 0) {
+        int m = tasm_hour * 60 + tasm_minute;
+        if (m >= versatz) { slot = versatz + ((m - versatz) / takt) * takt; }
+        if (slot >= 0 && (slot != slotMin || strcmp(slotTag, heute) != 0)) { mitHeute = 1; }
+    }
+    if (f == 1) { mitHeute = (takt > 0); if (strcmp(letzterTag, gestern) < 0) { mitTagen = 1; } }
+    if (mitTagen == 0 && mitHeute == 0) { return 0; }
+    int ok = sitzung(mitTagen, mitHeute);
+    if (mitHeute == 1 && slot >= 0) { slotMin = slot; scopy(slotTag, heute); }   // v007: auch bei Fehler (dann greift backoff)
+    if (ok == 0) {
+        nextTry = tasm_uptime + backoff;
+        if (backoff < 86400) { backoff = backoff * 2; }
+        if (backoff > 86400) { backoff = 86400; }
+        schreibeStatus();
+        return 1;
+    }
+    // 1.1.1: frueher hier 10 min Pause zwischen Nachhol-Sitzungen - entfernt, die naechste Sitzung startet sofort
+    schreibeStatus();
+    return 1;
 }
 
 void TaskLoop() {
@@ -1339,33 +1910,43 @@ void TaskLoop() {
         }
         zAltP[0] = 0;
         if (z != zugangOk) { zugangOk = z; schreibeStatus(); }
+        scopy(zAltU, s2u); scopy(zAltP, s2p);   // v027: Zugang 2 genauso
+        scopy(z2NameAlt, z2Name);                // v028
+        int z2 = leseZugang2();
+        if (strcmp(zAltU, s2u) != 0 || strcmp(zAltP, s2p) != 0) {
+            s2ao = 0;
+            if (z2 == 1 && zAltU[0] != 0) {
+                s2nt = 0; s2bo = 3600; s2er[0] = 0; s2ez[0] = 0;
+                addLog("SMG2: neue Zugangsdaten - Wartezeit aufgehoben");
+            }
+        }
+        zAltP[0] = 0;
+        if (z2 != z2Da) {
+            z2Da = z2; s2zo = z2;
+            if (z2 == 1) { s2nt = 0; s2bo = 3600; s2er[0] = 0; s2ez[0] = 0; s2sm = -1; z2Init(); }
+            schreibeStatus();
+        } else {
+            if (z2 == 1 && strcmp(z2NameAlt, z2Name) != 0) { schreibeStatus(); addLog("SMG2: neue Bezeichnung"); }   // v028
+        }
     }
-    if (tasm_uptime < nextTry) { return; }       // Wartezeit nach Fehler / zwischen Nachhol-Sitzungen
-    if (zugangOk == 0) { return; }               // v009: hierher verschoben, die FTP-Sicherung geht auch ohne Gateway-Zugang
-    if (testWunsch == 1) { testWunsch = 0; testSitzung(); return; }   // v023
-    int mitTagen = 0; int mitHeute = 0;
-    int nachMitternacht = (tasm_hour * 60 + tasm_minute >= 20);
-    if (strcmp(letzterTag, gestern) < 0 && (nachMitternacht == 1 || force == 1)) { mitTagen = 1; }
-    int slot = -1;                               // v007: aktueller Takt-Zeitpunkt (Minuten ab Mitternacht)
-    if (takt > 0) {
-        int m = tasm_hour * 60 + tasm_minute;
-        if (m >= versatz) { slot = versatz + ((m - versatz) / takt) * takt; }
-        if (slot >= 0 && (slot != slotMin || strcmp(slotTag, heute) != 0)) { mitHeute = 1; }
-    }
-    if (force == 1) { mitHeute = (takt > 0); if (strcmp(letzterTag, gestern) < 0) { mitTagen = 1; } }
-    if (mitTagen == 0 && mitHeute == 0) { force = 0; return; }
-    force = 0;
-    int ok = sitzung(mitTagen, mitHeute);
-    if (mitHeute == 1 && slot >= 0) { slotMin = slot; scopy(slotTag, heute); }   // v007: auch bei Fehler (dann greift backoff)
-    if (ok == 0) {
-        nextTry = tasm_uptime + backoff;
-        if (backoff < 86400) { backoff = backoff * 2; }
-        if (backoff > 86400) { backoff = 86400; }
-        schreibeStatus();
+    if (testWunsch == 1 && tasm_uptime >= nextTry && zugangOk == 1) { testWunsch = 0; testSitzung(); return; }   // v023 (nur Zugang 1)
+    if (lbWunsch == 1 && tasm_uptime >= nextTry && zugangOk == 1) {   // 1.1.5 (nur Zugang 1)
+        lbWunsch = 0;
+        if (lbModus == 2) { logbuchSitzung(); } else { logbuchLauf(); }
         return;
     }
-    if (strcmp(letzterTag, gestern) < 0) { nextTry = tasm_uptime + 600; }   // Nachholen: 10 min Pause
-    schreibeStatus();
+    int r1 = zaehlerLauf(force);                 // v027: Zaehler 1
+    if (r1 >= 0) { force = 0; }
+    if (z2Da == 1) {                             // v027: danach Zaehler 2, nie gleichzeitig
+        if (r1 == 1) { delay(5000); }
+        sichern(1);
+        laden(2);
+        int r2 = zaehlerLauf(force2);
+        sichern(2);
+        laden(1);
+        if (r2 >= 0) { force2 = 0; }
+    } else { force2 = 0; }
+    if (kette == 1) { kette = 0; schreibeStatus(); }
 }
 
 // ── Konsole ─────────────────────────────────────────────────────────────────
@@ -1373,7 +1954,7 @@ void TaskLoop() {
 void Command(char cmd[]) {
     char r[300];
     if (strFind(cmd, "ABRUF") == 0) {
-        force = 1;
+        force = 1; force2 = 1;                   // v027: beide Zaehler
         if (tasm_uptime < nextTry) {
             sprintf(r, "{\"SMGW\":\"Abruf vorgemerkt, Wartezeit nach Fehler noch %d s\"}", nextTry - tasm_uptime);
         } else { scopy(r, "{\"SMGW\":\"Abruf vorgemerkt\"}"); }
@@ -1395,6 +1976,27 @@ void Command(char cmd[]) {
         testWunsch = 1;
         sprintf(r, "{\"SMGWTestTag\":\"%s vorgemerkt, Ergebnis im Log\"}", testTag);
         responseCmnd(r);
+        return;
+    }
+    if (strFind(cmd, "LOGBUCH") == 0) {          // 1.1.5: SMGWLogbuch [neu | action=..log..&..]
+        strSub(cIn, cmd, 7, 0); strTrim(cIn);
+        lbModus = 1;
+        if (strcmp(cIn, "neu") == 0 || strcmp(cIn, "NEU") == 0) { lbModus = 3; cIn[0] = 0; }
+        if (cIn[0] != 0) {
+            if (lbZusOk() == 0) {
+                responseCmnd("{\"SMGWLogbuch\":\"ohne Zusatz = herunterladen, neu = alles neu, sonst nur action=...log...&feld=wert\"}"); return;
+            }
+            lbModus = 2;
+        }
+        if (busy == 1) { responseCmnd("{\"SMGWLogbuch\":\"Abruf laeuft - spaeter erneut\"}"); return; }
+        if (anmeldungOk == 0) { responseCmnd("{\"SMGWLogbuch\":\"erst nach einem gelungenen Abruf mit den aktuellen Zugangsdaten\"}"); return; }
+        if (tasm_uptime < nextTry) {
+            sprintf(r, "{\"SMGWLogbuch\":\"Wartezeit nach Fehler noch %d s - nicht gelesen\"}", nextTry - tasm_uptime);
+            responseCmnd(r); return;
+        }
+        scopy(lbZus, cIn);
+        lbWunsch = 1;
+        responseCmnd("{\"SMGWLogbuch\":\"vorgemerkt, Ergebnis im Log\"}");
         return;
     }
     if (strFind(cmd, "FTPZEIT") == 0) {          // v010: SMGWFtpZeit [HH:MM] (vor "FTP", das prueft nur den Anfang)
@@ -1427,7 +2029,7 @@ void Command(char cmd[]) {
             if (ipOk(1) == 0) { responseCmnd("{\"SMGWHost\":\"ungueltig - erwartet a.b.c.d\"}"); return; }
             if (busy == 1) { responseCmnd("{\"SMGWHost\":\"Abruf laeuft - spaeter erneut\"}"); return; }
             scopy(gwHost, cIn);
-            anmeldungOk = 0;                 // v020: anderes Gateway -> erst wieder anmelden
+            anmeldungOk = 0; s1ao = 0; s2ao = 0;   // v020/v027: anderes Gateway -> erst wieder anmelden
             schreibeCfg();
             schreibeStatus();
             addLog("SMG: Gateway-Adresse jetzt %s", gwHost);
@@ -1443,7 +2045,7 @@ void Command(char cmd[]) {
             if (pt < 1 || pt > 65535) { responseCmnd("{\"SMGWPort\":\"ungueltig - 1..65535\"}"); return; }
             if (busy == 1) { responseCmnd("{\"SMGWPort\":\"Abruf laeuft - spaeter erneut\"}"); return; }
             gwPort = pt;
-            anmeldungOk = 0;                 // v020: anderes Gateway -> erst wieder anmelden
+            anmeldungOk = 0; s1ao = 0; s2ao = 0;   // v020/v027
             schreibeCfg();
             schreibeStatus();
             addLog("SMG: Gateway-Port jetzt %d", gwPort);
@@ -1458,7 +2060,7 @@ void Command(char cmd[]) {
             if (pfadOk(1) == 0) { responseCmnd("{\"SMGWPfad\":\"ungueltig - beginnt mit /, nur a-z A-Z 0-9 / . _ - ? = &\"}"); return; }
             if (busy == 1) { responseCmnd("{\"SMGWPfad\":\"Abruf laeuft - spaeter erneut\"}"); return; }
             scopy(gwPfad, cIn);
-            anmeldungOk = 0;                 // v020: anderes Gateway -> erst wieder anmelden
+            anmeldungOk = 0; s1ao = 0; s2ao = 0;   // v020/v027
             schreibeCfg();
             schreibeStatus();
             addLog("SMG: Gateway-Pfad jetzt %s", gwPfad);
@@ -1508,16 +2110,23 @@ void Command(char cmd[]) {
         return;
     }
     if (strFind(cmd, "FREI") == 0) {
-        nextTry = 0; backoff = 3600;
+        nextTry = 0; backoff = 3600; s1nt = 0; s1bo = 3600; s2nt = 0; s2bo = 3600;   // v027: beide Zaehler
         schreibeStatus();
         responseCmnd("{\"SMGW\":\"Wartezeit aufgehoben\"}");
         return;
     }
-    sprintf(r, "{\"SMGW\":{\"Zugang\":%d,\"bis\":\"%s\",\"ok\":\"%s\",", zugangOk, letzterTag, okZeit);
-    sprintfAppend(r, "\"Fehler\":\"%s\",\"FehlerZeit\":\"%s\",", errText, errZeit);
-    int warte = nextTry - tasm_uptime; if (warte < 0) { warte = 0; }
-    sprintfAppend(r, "\"Warte\":%d,\"Takt\":%d,\"Versatz\":%d,\"FtpZeit\":\"%02d:%02d\",\"aktiv\":%d}}", warte, takt, versatz, ftpUm / 60, ftpUm % 60, busy);
-    responseCmnd(r);
+    if (zn == 1) { sichern(1); }                 // v027: Zaehler 1 aus seinem Satz (laeuft gerade Zaehler 2, ist der Satz aktuell)
+    sprintf(cR, "{\"SMGW\":{\"Zugang\":%d,\"bis\":\"%s\",\"ok\":\"%s\",", s1zo, s1lt, s1ok);
+    sprintfAppend(cR, "\"Fehler\":\"%s\",\"FehlerZeit\":\"%s\",", s1er, s1ez);
+    int warte = s1nt - tasm_uptime; if (warte < 0) { warte = 0; }
+    sprintfAppend(cR, "\"Warte\":%d,\"Takt\":%d,\"Versatz\":%d,\"FtpZeit\":\"%02d:%02d\",\"aktiv\":%d", warte, takt, versatz, ftpUm / 60, ftpUm % 60, busy);
+    if (z2Da == 1) {
+        if (zn == 2) { sichern(2); }
+        int w2 = s2nt - tasm_uptime; if (w2 < 0) { w2 = 0; }
+        sprintfAppend(cR, ",\"Zaehler2\":{\"Zugang\":%d,\"bis\":\"%s\",\"ok\":\"%s\",\"Fehler\":\"%s\",\"Warte\":%d}", s2zo, s2lt, s2ok, s2er, w2);
+    }
+    strcat(cR, "}}");
+    responseCmnd(cR);
 }
 
 // ── Weboberflaeche: in Slot 1 (slot1-smgwweb), liest /smgw_status.txt ─────────
@@ -1527,14 +2136,21 @@ int main() {
     fwBoot[0] = 0; fwSvc[0] = 0; fwTag[0] = 0;
     gCertVon[0] = 0; gCertBis[0] = 0; gCertSnr[0] = 0; gCertFuer4[0] = 0;   // v021
     ftpTag[0] = 0; ftpZeit[0] = 0; ftpText[0] = 0;
+    lbZeitL[0] = 0; lbFehler[0] = 0; lbZus[0] = 0; fwVL[0] = 0;   // 1.1.5
+    lbLeseBis();                                 // 1.1.5: Stand des Logbuchs fuer den Status
+    scopy(pre, "smgw"); zTag[0] = 0; zn = 1;     // v027
+    s2lt[0] = 0; s2et[0] = 0; s2ok[0] = 0; s2er[0] = 0; s2ez[0] = 0; s2st[0] = 0;
     ftpUmzug();
+    if (fileExists("/smgw_testtag.html") != 0) { fileDelete("/smgw_testtag.html"); addLog("SMG: alte /smgw_testtag.html geloescht (enthielt die Zaehlerkennung, jetzt /smgw_testtag.secret)"); }   // 1.1.4
     zugangOk = leseZugang();
     leseCfg();
     leseLetzterTag();
     leseLeer();                                  // v024
+    z2Da = leseZugang2(); s2zo = z2Da;           // v027: Zugang 2
+    z2Init();
     addCommand("SMGW");
     if (zugangOk == 0) { addLog("SMG: /smgw_zugang.secret fehlt oder unvollstaendig - kein Abruf"); }
-    sprintf(X, "SMG: SMGW-Leser 1.0.0 startet, gespeichert bis '%s', Takt %d min, Versatz %d min, FTP %02d:%02d", letzterTag, takt, versatz, ftpUm / 60, ftpUm % 60);
+    sprintf(X, "SMG: SMGW-Leser 1.1.5 startet, gespeichert bis '%s', Takt %d min, Versatz %d min, FTP %02d:%02d", letzterTag, takt, versatz, ftpUm / 60, ftpUm % 60);
     addLog(X);
     sprintf(X, "SMG: Gateway https://%s:%d%s", gwHost, gwPort, gwPfad);   // v018: eigene Zeile (Logzeilen max. 127 Zeichen)
     addLog(X);
