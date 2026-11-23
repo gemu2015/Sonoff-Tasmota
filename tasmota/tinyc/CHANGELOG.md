@@ -59,6 +59,12 @@ with total size and `abi_rev`) arrived in 1.6.35; v2–v5 files still load.
 
 ---
 
+## Unreleased — IDE only (23.11.2026, already on `universal`; run `TinyCIde`, no firmware flash needed)
+
+- **⚠️ IDE compiler: `OnMqttData` was missing from the callback list** (mi-hol, discussion #144, 23.11.2026): the firmware looks callbacks up by NAME in the function table, but the compiler only wrote the names in `CALLBACK_NAMES`. A function `OnMqttData(char topic[], char payload[])` was compiled as a normal function and never called: `mqttSubscribe()` ran, messages arrived, nothing happened and no error was shown. Programs that use `OnMqttData` must be recompiled with the new IDE; the four SML examples that use it (`sml_ct002`, `sml_eco_shelly` and both chart versions) are rebuilt. Workaround with the old IDE: name the function in `taskRunning("OnMqttData")`.
+- **IDE compiler warns about callbacks that are never called** (mi-hol, 23.11.2026): a function whose name starts with `On` or `Every` but is not a known callback gets a warning with the list of known names. Catches typos and a forgotten `CALLBACK_NAMES` entry. A helper function that happens to be called `OnFoo` gets the warning too and can ignore it.
+- **Two examples fixed** that the new warning found: `guiton_display.tc` defined `OnUDP()` (the callback is `UdpCall`), `webui_watchdog.tc` defined `EveryMinute()` (there is no such callback, it now counts in `EverySecond`), so its heap and WebUI check never ran.
+
 ## 1.6.81 — 2026-11-22
 
 - **⚠️ ESP32-S3: Matter is now a plugin in `tinyc32s3.bin`; `tinyc32s3-matter.bin` keeps it built in** (22.11.2026): the built-in Matter engine costs every S3 about 33 KB of static RAM, used or not. Measured on the same S3 build: static RAM 140,700 → 107,172 bytes (−33.5 KB, 42.9 % → 32.7 % of the 320 KB), flash −48 KB. `tinyc32s3.bin` is built with `-DUSE_MATTER_C_PLUGIN_ONLY` and the partition table `app3904k_fs11328k` (it has the 256 KB `custom` partition the plugin lives in); `MATTERF_32.bin` is the plugin, see `MATTER_PLUGIN.md`. ⚠️ **If you already run Matter on an S3 and update over the air, flash `tinyc32s3-matter.bin`** (Matter stays built in), or create the plugin partition once with `TinyCChkpt a` (formats the file system) and load the plugin.
