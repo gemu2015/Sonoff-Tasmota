@@ -5704,6 +5704,15 @@ export class CodeGenerator {
         const callbacks = [];
         for (const [name, info] of this.functions) {
             if (info.address < 0) continue;
+            // Guard against a forgotten CALLBACK_NAMES entry: the firmware looks callbacks up
+            // by name, so a function that is not in the table is silently never called.
+            // Warn about names that look like a callback (On*/Every*) but are not known ones.
+            if (/^(On[A-Z]|Every)/.test(name) && !CALLBACK_NAMES.includes(name) && !this.spawnTargets.has(name)) {
+                this.warnings.push(
+                    `function '${name}' looks like a callback, but the firmware does not call a function of that name ` +
+                    `(known: ${CALLBACK_NAMES.filter(n => /^(On[A-Z]|Every)/.test(n)).join(', ')}). ` +
+                    `If it is a normal function, ignore this; if it should be a callback, check the spelling.`);
+            }
             // Include if it's a known callback name OR was referenced by spawnTask/killTask/taskRunning
             if (CALLBACK_NAMES.includes(name) || this.spawnTargets.has(name)) {
                 callbacks.push({ name, address: info.address });
