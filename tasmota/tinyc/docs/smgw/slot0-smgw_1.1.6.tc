@@ -1,6 +1,9 @@
 // @name: SMGW-Leser
 // ============================================================================
-// slot0-smgw_1.1.5.tc - Smart Meter Gateway ueber die HAN-Schnittstelle auslesen
+// slot0-smgw_1.1.6.tc - Smart Meter Gateway ueber die HAN-Schnittstelle auslesen
+// Version 1.1.6 (23.11.2026): Logbuch-Nachricht nicht mehr nach 230 Zeichen abgeschnitten (Andreas: Meldung 10165 endete bei
+//                             "an den Marktteilnehmer m"). Nachricht jetzt bis 470 Zeichen (lbTxt 480, Auszug X 520, Zeile lbZ 620).
+//                             Bereits gespeicherte Tage bleiben gekuerzt; nur neu geladene Tage sind vollstaendig.
 // Version 1.1.5 (21.11.2026): Firmware-Verlauf /smgw_fw_verlauf.txt (je Versionswechsel Datum + Version). Logbuch des Gateways (Andreas: Luecke 20.11. 18:30 klaeren - war ein Neustart des Gateways).
 //                             SMGWLogbuch laedt es NUR bei Bedarf Tag fuer Tag (Gateway liefert je Abfrage hoechstens 100 Eintraege)
 //                             nach /smgw_logbuch.txt (+ _heute), ohne die Anmeldungen des Lesers; Stand in /smgw_logbuch_bis.txt,
@@ -97,7 +100,7 @@ char B[3400];          // Lesefenster fuer die Auswertung
 char B2[3400];         // Hilfspuffer zum Abschneiden
 char T[1100];          // ein gelesener Block
 char W[1100];          // Web-Ausgabe (eigener Puffer, TaskLoop kann parallel lesen)
-char X[300];           // Auszug
+char X[520];           // Auszug (1.1.6: 300 -> 520 fuer lange Logbuch-Nachrichten)
 char line[640];        // Kopfzeile
 char req[900];         // Anfrage
 char post[480];        // POST-Inhalt
@@ -192,8 +195,8 @@ char lbZeit[24];      // 1.1.5: Felder eines Logbuch-Eintrags
 char lbLev[16];
 char lbId[16];
 char lbSt[24];
-char lbTxt[240];
-char lbZ[420];        // 1.1.5: eine Ausgabezeile
+char lbTxt[480];      // 1.1.6: 240 -> 480
+char lbZ[620];        // 1.1.5: eine Ausgabezeile (1.1.6: 420 -> 620)
 char errAlt[120];     // v023: Fehlertext vor dem Test
 char errZAlt[24];
 int  backoffAlt = 0;  // v023
@@ -1618,12 +1621,12 @@ void lbMaske() {
     int o = strlen(lbZ);
     int i = 0; int w0 = 0; int nb = 0; int nd = 0;
     int fertig = 0;
-    while (fertig == 0 && i < 240 && o < 400) {
+    while (fertig == 0 && i < 480 && o < 600) {
         int c = lbTxt[i];
         if (c == ' ' || c == 0) {
             if (i > w0) {
                 if (nb > 0 && nd >= 4) { lbZ[o] = '*'; lbZ[o + 1] = '*'; lbZ[o + 2] = '*'; o = o + 3; }
-                else { for (int k = w0; k < i; k++) { if (o < 400) { lbZ[o] = lbTxt[k]; o = o + 1; } } }
+                else { for (int k = w0; k < i; k++) { if (o < 600) { lbZ[o] = lbTxt[k]; o = o + 1; } } }
             }
             if (c == 0) { fertig = 1; }
             else { lbZ[o] = ' '; o = o + 1; }
@@ -1657,7 +1660,7 @@ void lbSchreibeBis() {
 // Wert einer Spalte aus X (X beginnt hinter "table_logs_col_"): a = Position von '>', e = von '<'
 void lbFeld(int sp, int a, int e) {
     X[e] = 0;
-    if (sp == 4) { strSub(lbTxt, X, a + 1, 230); }
+    if (sp == 4) { strSub(lbTxt, X, a + 1, 470); }
     else {
         strSub(lbTmp, X, a + 1, 22);
         if (sp == 1) { scopy(lbZeit, lbTmp); }
@@ -1688,15 +1691,15 @@ int lbParse(int ho) {
                 if (lb > 40) { strSub(B2, B, lb - 40, 0); strcpy(B, B2); }
                 weiter = 0;
             } else {
-                strSub(X, B, p + 15, 280);
+                strSub(X, B, p + 15, 500);
                 int a = strFind(X, ">");
                 int e = -1;
                 if (a >= 0) { e = strFind(X, "</td>"); }
-                if (a < 0 || (e < 0 && strlen(X) < 280)) {
+                if (a < 0 || (e < 0 && strlen(X) < 500)) {
                     strSub(B2, B, p, 0); strcpy(B, B2);      // Wert noch nicht ganz da -> naechsten Block lesen
                     weiter = 0;
                 } else {
-                    if (e < 0) { e = 279; }                  // ueberlanger Text: abschneiden
+                    if (e < 0) { e = 499; }                  // ueberlanger Text: abschneiden
                     int sp = 0;
                     if (strFind(X, "zeit") == 0) { sp = 1; }
                     if (strFind(X, "loglevel") == 0) { sp = 2; }
@@ -2150,7 +2153,7 @@ int main() {
     z2Init();
     addCommand("SMGW");
     if (zugangOk == 0) { addLog("SMG: /smgw_zugang.secret fehlt oder unvollstaendig - kein Abruf"); }
-    sprintf(X, "SMG: SMGW-Leser 1.1.5 startet, gespeichert bis '%s', Takt %d min, Versatz %d min, FTP %02d:%02d", letzterTag, takt, versatz, ftpUm / 60, ftpUm % 60);
+    sprintf(X, "SMG: SMGW-Leser 1.1.6 startet, gespeichert bis '%s', Takt %d min, Versatz %d min, FTP %02d:%02d", letzterTag, takt, versatz, ftpUm / 60, ftpUm % 60);
     addLog(X);
     sprintf(X, "SMG: Gateway https://%s:%d%s", gwHost, gwPort, gwPfad);   // v018: eigene Zeile (Logzeilen max. 127 Zeichen)
     addLog(X);

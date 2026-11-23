@@ -4,18 +4,18 @@ By Andreas (forum name meierchen006), taken over into the repository with his co
 readings (consumption 1.8.0, feed-in 2.8.0) from a PPC smart meter gateway over its HAN interface, keeps them as text on the SD card, shows day / month / year
 and offers CSV and an Excel query. Optional daily FTP backup. Optional electricity cost calculation from the same readings (slot 2 and `smgw_kosten.html`).
 
-**Version 1.2.0 (23.11.2026)** – replaces 1.0.0. The parts carry their own versions: slot 0 **1.1.5**, slot 1 **1.1.0**, slot 2 **1.1.1**, both pages and the guide **1.2.0**.
+**Version 1.2.0 (23.11.2026)** – replaces 1.0.0. The parts carry their own versions: slot 0 **1.1.6**, slot 1 **1.1.0**, slot 2 **1.1.1**, both pages and the guide **1.2.0**.
 The scripts and the guide have the version in their file names, the two pages keep their names (the firmware serves them as `/smgw.html.gz` and `/smgw_kosten.html.gz`) and show it inside.
 `VERSION-1.2.0.txt` lists what goes where on the device and the md5 sums of all files.
 
 New since 1.0.0 (details in `VERSION-1.2.0.txt`):
-- **Gateway logbook** (slot 0 1.1.5, tab "Logbuch" on the reader page): fetches the consumer logbook of the gateway only on a button press (`SMGWLogbuch`), day by day, into `/smgw_logbuch.txt`;
+- **Gateway logbook** (slot 0 1.1.6, tab "Logbuch" on the reader page): fetches the consumer logbook of the gateway only on a button press (`SMGWLogbuch`), day by day, into `/smgw_logbuch.txt`;
   identifiers are masked, the reader's own logins are left out. The page shows the last 12 errors and the days with fewer than 96 quarter hours.
 - **Login / logout switch** on the reader and the cost page (only when a web password is set), so commands such as "download logbook" no longer seem to do nothing without a login.
 - **Tariff variants** for the tariff comparison, **monthly advance payment per tariff sheet**, charts with a **scale** (kW per quarter hour, kWh or EUR per month / billing year).
 - `SMGWTestTag` stores the raw answer as `/smgw_testtag.secret` (it contains the meter number; port 82 blocks `.secret` files).
 
-- `slot0-smgw_1.1.5.tc`: the reader (TLS, digest login or client certificate, evaluation in 1 KB pieces, files, clock-driven schedule, FTP backup, console `SMGW...`).
+- `slot0-smgw_1.1.6.tc`: the reader (TLS, digest login or client certificate, evaluation in 1 KB pieces, files, clock-driven schedule, FTP backup, console `SMGW...`).
   The first fetch starts at 01.01.2024 (§14a EnWG) and takes everything the gateway has: days for which the gateway answers "Keine Zählerdaten vorhanden"
   before the first reading are skipped and not stored; any other answer without values stops the fetch with an error instead of skipping silently.
   Once a day it stores the validity of the gateway's TLS certificate in `/smgw_gateway.json` (needs the firmware command `TinyCTlsGueltig`, see below).

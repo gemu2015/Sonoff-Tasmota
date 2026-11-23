@@ -6,7 +6,7 @@ Auf die SD-Karte (Hauptverzeichnis, GENAU diese Namen, ohne Versionsnummer):
   tinyc_ide.html.gz      TinyC-IDE (mit Webpasswort-Abfrage) Pflicht   (unveraendert, aus 1.1.3)
 
 In die TinyC-IDE laden (bleiben auf dem PC):
-  slot0-smgw_1.1.5.tc         Slot 0, Autostart  (NEU 1.1.5: Logbuch)
+  slot0-smgw_1.1.6.tc         Slot 0, Autostart  (NEU 1.1.5: Logbuch; 1.1.6: Logbuch-Nachricht ungekuerzt)
   slot1-smgwweb_1.1.0.tc      Slot 1, Autostart  (unveraendert)
   slot2-smgwkosten_1.1.1.tc   Slot 2, Autostart  (unveraendert, nur mit Stromkosten)
 
@@ -21,12 +21,16 @@ Neu gegenueber 1.1.3:
               (+ _heute.txt); Kennungen (Benutzer, Zaehlernummer, Gateway) als ***, Anmeldungen des
               Lesers weggelassen. Seite: letzte 12 Fehler (Neustarts, Fehler) und Fehltage (Tage mit
               weniger als 96 Viertelstunden), alle Eintraege, als .csv.
-  Leserseite: Balken unter der Maus weiss (hell: schwarz) bzw. gruen markiert.
+  Leserseite: Balken unter der Maus weiss (hell: schwarz) bzw. gruen markiert. Reiter Logbuch: Liste
+              "Letzte 12 Fehler und Fehltage" ein-/ausklappbar (Knopf, beim Oeffnen offen; Nachtrag 23.11.).
   Anmelden  : Leser- und Kostenseite oben ein Umschalter "Anmelden" (offenes Schloss, orange) /
               "Abmelden" (geschlossenes Schloss) - nur wenn ein Webpasswort gesetzt ist. Anmelden zeigt die
               Anmeldeabfrage des Browsers direkt ueber der Seite; Abmelden beendet die Anmeldung des Browsers.
   Korrektur : Kostenseite Einspeiseverguetung - Namensfelder aller Abschnitte buendig (vorher versetzt,
               weil nur ab dem 2. Abschnitt ein Loeschknopf da war).
+  Slot 0 1.1.6: Logbuch-Nachricht bis 470 statt 230 Zeichen (vorher z. B. Meldung 10165 abgeschnitten
+              bei "...an den Marktteilnehmer m"). Schon gespeicherte Tage bleiben gekuerzt; ganz neu
+              holen mit Konsole "SMGWLogbuch neu" (Test 23.11.: 297 Tage in 7 min, fehlerfrei).
   Slot 0 1.1.4: Rohantwort von SMGWTestTag als /smgw_testtag.secret statt /smgw_testtag.html
               (enthaelt die Zaehlerkennung; Port 82 gab .html ohne Anmeldung heraus, .secret sperrt er).
               Alte /smgw_testtag.html wird beim Start geloescht.
@@ -53,11 +57,11 @@ Kostenseite (smgw_kosten.html 1.2.0):
               5 neue Bilder 12-16, Reitername "Tarife & 14a Module").
 
 md5:
-  1be9b23ff57c9fb07dc6cdc3a25b3ff3 *slot0-smgw_1.1.5.tc
+  a97cee6dd04158165ca4af08963461e5 *slot0-smgw_1.1.6.tc
   a1c82ca5160692ae4b84baf103764abe *slot1-smgwweb_1.1.0.tc
   eadffb021ac72046282fa94fda8cb3d6 *slot2-smgwkosten_1.1.1.tc
-  1e64749b414f03a41e4dd21be7a8239e *smgw.html
-  1d6fd65d246783f1825848f4e5fda4f5 *smgw.html.gz
+  1f158eaa3ab41996aee0e2eeec31c3f0 *smgw.html
+  e4e106313737057c15400ac621cf879d *smgw.html.gz
   261b8ee1fd3b8b9dd11f087b5ec0af2d *smgw_kosten.html
   68029f6258cdf0ebe4ec6a886fa4f2b9 *smgw_kosten.html.gz
   502ca6b9d9fbaa370d8c9f1a3b8a3193 *ANLEITUNG-SMGW-Leser_1.2.0.pdf

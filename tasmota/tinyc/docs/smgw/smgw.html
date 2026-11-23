@@ -548,8 +548,10 @@ footer a{color:var(--ink-2)}
   </section>
   <section class="card">
     <h2>Letzte 12 Fehler und Fehltage</h2>
+    <details open><summary class="btn">Tabelle der Fehler und Fehltage</summary>   <!-- 1.2.0 Nachtrag (Andreas 23.11.): ein-/ausklappbar -->
     <div class="tblwrap"><table id="lbFehl"></table></div>
     <div class="note" style="margin-top:6px">Fehltag = Tag mit weniger als 96 Viertelstunden vom Gateway (Zeitumstellung und erster Tag ausgenommen). Gateway = Neustart, Fehler oder „fehlgeschlagen“ im Logbuch. Zeile anklicken = Tag öffnen.</div>
+    </details>
   </section>
   <section class="card">
     <details><summary>Alle Einträge (<span id="lbAnz">0</span>)</summary>
