@@ -164,7 +164,7 @@ void drawStatic() {
 // ═══════════════════════════════════════════════════════════════════
 // UDP RECEIVE — parse energy values from collector
 // ═══════════════════════════════════════════════════════════════════
-void OnUDP() {
+void UdpCall() {
     udp_timer = 60;
 
     // TODO: Parse your UDP packet here.

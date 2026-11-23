@@ -33,8 +33,8 @@
 // dropping below 25 KB is a strong "leak in progress" indicator.
 int  HEAP_FLOOR_BYTES = 25000;
 
-// How often to run the WebUI probe (in WebUI ticks). EveryMinute fires
-// every 60 s; we probe every PROBE_EVERY_MIN minutes.
+// How often to run the WebUI probe. MinuteTick() runs once a minute
+// (counted in EverySecond); we probe every PROBE_EVERY_MIN minutes.
 int  PROBE_EVERY_MIN  = 5;
 
 // Consecutive WebUI-probe failures before we trigger reboot. Three
@@ -55,7 +55,8 @@ int  REBOOT_COOLDOWN_MIN = 60;
 int probe_minute_counter = 0;     // counts up to PROBE_EVERY_MIN
 int probe_fail_count     = 0;     // resets on success
 int last_reboot_min      = -9999; // monotonic minute counter; used for cooldown
-int monotonic_min        = 0;     // EveryMinute counter
+int monotonic_min        = 0;     // minute counter (MinuteTick)
+int second_counter       = 0;     // counts EverySecond ticks up to 60
 
 char self_ip[24];                 // own IP, looked up via tasmInfo
 char log_buf[128];
@@ -118,9 +119,10 @@ void trigger_reboot(char reason[]) {
 
 // ── Tasmota callback ────────────────────────────────────────────────
 //
-// EveryMinute is the natural cadence: low overhead, forgiving timing,
-// and Tasmota guarantees it fires regardless of HTTP traffic.
-void EveryMinute() {
+// A once-a-minute cadence is low overhead and forgiving. Tasmota has no
+// EveryMinute callback (a function of that name is never called), so
+// EverySecond() below counts to 60 and calls MinuteTick().
+void MinuteTick() {
     monotonic_min = monotonic_min + 1;
 
     // ── Heap watchdog: the cheapest, fastest signal of a leak ──
@@ -149,6 +151,13 @@ void EveryMinute() {
     if (probe_fail_count >= PROBE_FAIL_TRIGGER) {
         trigger_reboot("WebUI dead (probe failed N times)");
     }
+}
+
+void EverySecond() {
+    second_counter = second_counter + 1;
+    if (second_counter < 60) return;
+    second_counter = 0;
+    MinuteTick();
 }
 
 int main() {
