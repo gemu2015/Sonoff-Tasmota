@@ -59,7 +59,7 @@ with total size and `abi_rev`) arrived in 1.6.35; v2–v5 files still load.
 
 ---
 
-## Unreleased (23.11.2026)
+## 1.6.82 — 2026-11-23
 
 - **SMGW reader 1.2.0** (Andreas, 23.11.2026, replaces 1.0.0; `docs/smgw/`): slot 0 1.1.6, slot 1 1.1.0, slot 2 1.1.1, both pages and the guide (52 pages) 1.2.0. Slot 0 1.1.6: gateway logbook messages are no longer cut at 230 characters (now up to 470, e.g. message 10165 in full); `smgw.html`: the list of the last 12 errors in the tab "Logbuch" can be folded. New: gateway logbook on a button press (`SMGWLogbuch`, tab "Logbuch"), login / logout switch on the pages (only with a web password), tariff variants, monthly advance payment per tariff sheet, charts with a scale, `SMGWTestTag` raw answer as `/smgw_testtag.secret`. ⚠️ Build the firmware new from `universal` 18.11.2026 or later with `#define TC_MAX_FILE_HANDLES 8` in the device block. Tested by Andreas under load on ports 82/83 (150 s, no hang).
 
