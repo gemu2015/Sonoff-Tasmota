@@ -48,7 +48,7 @@
   .qrgrid figure{margin:0;text-align:center;width:200px}
   .qrgrid figcaption{font-size:11px;color:var(--muted);margin-top:6px}
   .qrgrid svg{display:block;margin:0 auto;border-radius:4px}
-  /* 23.10.: Farben wie HEMS und SteuVE (gleiche Werte), dazu "Hell / Dunkel" im Kopf (Andreas: einheitlich) */
+  /* 23.10.: Farben wie HEMS und SteuVE (gleiche Werte), dazu "Hell / Dunkel" im Kopf (meierchen006: einheitlich) */
   :root{
     color-scheme: dark;
     --bg:#0d0d0d; --panel:#1a1a19; --panel2:#232321; --line:#383835;
@@ -63,12 +63,12 @@
   button.thm{background:#FFEB9C;color:#9C5700;padding:6px 12px;font-size:13px}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.4 system-ui,Segoe UI,Roboto,sans-serif}
-  h1{font-size:20px;margin:0;padding:14px max(16px, calc((100% - 1180px) / 2 + 14px)) 0;background:transparent;border-bottom:0;   /* 06.11. (Andreas): kein grauer Balken - wie HEMS */
+  h1{font-size:20px;margin:0;padding:14px max(16px, calc((100% - 1180px) / 2 + 14px)) 0;background:transparent;border-bottom:0;   /* 06.11. (meierchen006): kein grauer Balken - wie HEMS */
      display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
-  /* 04.11. (Andreas): Datum/Uhrzeit des Geraets hinter dem Namen, Knoepfe rechts */
+  /* 04.11. (meierchen006): Datum/Uhrzeit des Geraets hinter dem Namen, Knoepfe rechts */
   h1 .uhr{font-size:14px;font-weight:normal;color:var(--muted,#9aabb5);font-variant-numeric:tabular-nums;white-space:nowrap}
   h1 .kopfrechts{margin-left:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-  /* 06.11. (Andreas): Kopf wie HEMS/SteuVE - Logo, Adresse darunter, Datum/Uhrzeit/Laufzeit daneben */
+  /* 06.11. (meierchen006): Kopf wie HEMS/SteuVE - Logo, Adresse darunter, Datum/Uhrzeit/Laufzeit daneben */
   h1 .kopflinks{display:grid;grid-template-columns:auto auto;column-gap:14px;align-items:center;justify-items:start}
   h1 .kopflinks > span:first-child{justify-self:center}
   h1 .kname{font-size:22px;font-weight:650}
@@ -78,7 +78,7 @@
   .kbtn.tas{background:#1fa3ec;color:#fff;border:0}
   h2{font-size:15px;margin:0 0 12px;color:var(--accent);letter-spacing:.02em}
   h3{font-size:12px;margin:0 0 10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
-  .wrap{max-width:1180px;margin:0 auto;padding:14px}   /* 06.11. (Andreas): Breite wie HEMS */
+  .wrap{max-width:1180px;margin:0 auto;padding:14px}   /* 06.11. (meierchen006): Breite wie HEMS */
   .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin:0 0 14px}
   footer{margin:22px 0 8px;color:var(--muted);font-size:12px;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center}   /* 08.11.2026: wie SMGW-Seite */
   .tabs{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 14px}
@@ -87,7 +87,7 @@
   /* Aktiver Reiter gelb wie der Steuerbox-Knopf auf der Tasmota-Seite — NICHT im Blau der Befehlsknoepfe,
      sonst wird der Reiter fuer "Begrenzung setzen" gehalten (08.10. so passiert). */
   .tab.active{background:#ffc107;color:#000;border-color:#ffc107}
-  /* 06.11. (Andreas): Name links, aktive Dimmung + Restzeit rechts in Rot */
+  /* 06.11. (meierchen006): Name links, aktive Dimmung + Restzeit rechts in Rot */
   .tab{display:flex;justify-content:space-between;align-items:center;gap:10px;text-align:left}
   .tab .tstat{color:#e53935;font-weight:700;white-space:nowrap}
   .tab.active .tstat{color:#b71c1c}
@@ -214,7 +214,7 @@
   @media(max-width:640px){.grid2{grid-template-columns:1fr}.row,.act{grid-template-columns:1fr}.ident{grid-template-columns:1fr}}
   .mono{font-family:ui-monospace,Consolas,monospace;font-size:12px;word-break:break-all}
   .hide{display:none}
-  /* 06.11. (Andreas): Statuszeile und Reiter wie HEMS/SteuVE */
+  /* 06.11. (meierchen006): Statuszeile und Reiter wie HEMS/SteuVE */
   .chips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 12px}
   .chip{display:inline-flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:12px;color:var(--muted)}
   .chip b{font-weight:600;color:var(--txt)}
@@ -223,31 +223,31 @@
   .rtabs{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 14px;border-bottom:1px solid var(--line);padding-bottom:8px}
   .rtabs button{background:var(--panel);color:var(--muted);border:1px solid var(--line);border-radius:8px;padding:6px 12px;font:inherit;font-size:13px;cursor:pointer}
   .rtabs button[aria-selected="true"]{background:#FFEB9C;color:#9C5700;border-color:#FFEB9C;font-weight:600}
-  .rtabs button.rechts{margin-left:auto}   /* 09.11. (Andreas): Reiter Status rechts wie beim SMGW-Leser und HEMS */
+  .rtabs button.rechts{margin-left:auto}   /* 09.11. (meierchen006): Reiter Status rechts wie beim SMGW-Leser und HEMS */
   .skv{display:grid;grid-template-columns:max-content 1fr;gap:3px 18px;font-size:13px} .skv span:nth-child(odd){color:var(--muted)} .skv .bad{color:var(--bad)}
   #log{white-space:pre-wrap;font-family:ui-monospace,Consolas,monospace;font-size:12px;color:var(--muted);
        max-height:140px;overflow:auto;background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:8px}
-  /* 31.10. (Andreas): eigene Rueckfrage statt Browserfenster - das sah wie eine Windows-Meldung aus */
+  /* 31.10. (meierchen006): eigene Rueckfrage statt Browserfenster - das sah wie eine Windows-Meldung aus */
   dialog.frage{background:var(--panel);color:var(--txt);border:2px solid var(--warn);border-radius:10px;padding:0;max-width:min(460px,calc(100vw - 32px))}
   dialog.frage::backdrop{background:rgba(0,0,0,.65)}
   .frage_kopf{background:var(--warn);color:#000;font-weight:700;padding:10px 14px}
   .frage_text{padding:14px;white-space:pre-line}
   .frage_knoepfe{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:8px;padding:0 14px 14px}
 </style>
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2234%22%20r%3D%2220%22%20fill%3D%22none%22%20stroke%3D%22%2337c871%22%20stroke-width%3D%226%22%2F%3E%3Cg%20transform%3D%22translate(32%2034)%20scale(1.5)%22%3E%3Cpath%20d%3D%22M2-9L-5%201H0L-2%209L6-2H1Z%22%20fill%3D%22%2337c871%22%2F%3E%3C%2Fg%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2213%22%20r%3D%2212%22%20fill%3D%22%23f5c518%22%2F%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2249%22%20r%3D%2212%22%20fill%3D%22%2342a5f5%22%2F%3E%3Ccircle%20cx%3D%2252%22%20cy%3D%2249%22%20r%3D%2212%22%20fill%3D%22%23ff9800%22%2F%3E%3C%2Fsvg%3E">   <!-- 06.11. (Andreas): Tab-Symbol wie HEMS -->
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2234%22%20r%3D%2220%22%20fill%3D%22none%22%20stroke%3D%22%2337c871%22%20stroke-width%3D%226%22%2F%3E%3Cg%20transform%3D%22translate(32%2034)%20scale(1.5)%22%3E%3Cpath%20d%3D%22M2-9L-5%201H0L-2%209L6-2H1Z%22%20fill%3D%22%2337c871%22%2F%3E%3C%2Fg%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2213%22%20r%3D%2212%22%20fill%3D%22%23f5c518%22%2F%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2249%22%20r%3D%2212%22%20fill%3D%22%2342a5f5%22%2F%3E%3Ccircle%20cx%3D%2252%22%20cy%3D%2249%22%20r%3D%2212%22%20fill%3D%22%23ff9800%22%2F%3E%3C%2Fsvg%3E">   <!-- 06.11. (meierchen006): Tab-Symbol wie HEMS -->
 </head>
 <body>
-<h1><span class="kopflinks">   <!-- 06.11. (Andreas): Kopf wie HEMS und SteuVE - alle Geräte gleich --><span style="justify-self:center;line-height:0"><svg width="36" height="36" role="img" aria-label="HEMS-Logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><circle cx="32" cy="32" r="22" fill="none" stroke="#37c871" stroke-width="3"/><g transform="translate(32 32) scale(1.1)"><path d="M2-9L-5 1H0L-2 9L6-2H1Z" fill="#37c871"/></g><circle cx="32" cy="11" r="10.500" fill="#2a2600"/><circle cx="32" cy="11" r="3.7" fill="#f5c518"/><line x1="37.6" y1="11" x2="40.1" y2="11" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><line x1="35.9" y1="14.9" x2="37.7" y2="16.7" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><line x1="32" y1="16.6" x2="32" y2="19.1" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><line x1="28.1" y1="14.9" x2="26.3" y2="16.7" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><line x1="26.4" y1="11" x2="23.9" y2="11" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><line x1="28.1" y1="7.1" x2="26.3" y2="5.3" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><line x1="32" y1="5.4" x2="32" y2="2.9" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><line x1="35.9" y1="7.1" x2="37.7" y2="5.3" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><circle cx="13" cy="44" r="10.500" fill="#0a1a2a"/><g transform="translate(13 43.5) scale(0.56)"><path d="M-14 5V1L-10-6Q-9-8-6-8H6Q9-8 10-6L14 1V5Q14 6 13 6H-13Q-14 6-14 5Z" fill="#42a5f5"/><path d="M-8-5Q-7.500-6-6-6H-1V-1H-10ZM1-6H6Q7.500-6 8-5L10-1H1Z" fill="#fff" opacity=".85"/><circle cx="-8" cy="6" r="3.600" fill="#16202b" stroke="#42a5f5" stroke-width="1.400"/><circle cx="8" cy="6" r="3.600" fill="#16202b" stroke="#42a5f5" stroke-width="1.400"/></g><circle cx="51" cy="44" r="10.500" fill="#241a08"/><g transform="translate(51 44) scale(0.62)"><circle r="13" fill="none" stroke="#ff9800" stroke-width="2.600"/><path d="M0 0C-5-3-5-9 0-10.500C3.500-9 3.500-4 0 0Z" fill="#ff9800" transform="rotate(0)"/><path d="M0 0C-5-3-5-9 0-10.500C3.500-9 3.500-4 0 0Z" fill="#ff9800" transform="rotate(120)"/><path d="M0 0C-5-3-5-9 0-10.500C3.500-9 3.500-4 0 0Z" fill="#ff9800" transform="rotate(240)"/><circle r="2" fill="#ff9800"/></g></svg></span><span class="kname">EEBUS-Steuerbox</span><span class="kip" id="kopf_ip">—</span><span class="uhr" id="uhr" title="Datum und Uhrzeit des Geräts, Laufzeit seit dem letzten Neustart">—</span></span><span class="kopfrechts"><a class="kbtn tas" href="/">&#8592; Tasmota</a><a class="kbtn" href="/tc" title="TinyC-Seite: Slots, Laden, IDE-Update">TinyC</a><a class="kbtn" href="/ide" target="_blank" title="TinyC-IDE auf Port 82" onclick="this.href='http://'+location.hostname+':82/ide'">TinyC-IDE</a><button class="thm" id="theme" type="button">Hell / Dunkel</button></span></h1>
+<h1><span class="kopflinks">   <!-- 06.11. (meierchen006): Kopf wie HEMS und SteuVE - alle Geräte gleich --><span style="justify-self:center;line-height:0"><svg width="36" height="36" role="img" aria-label="HEMS-Logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><circle cx="32" cy="32" r="22" fill="none" stroke="#37c871" stroke-width="3"/><g transform="translate(32 32) scale(1.1)"><path d="M2-9L-5 1H0L-2 9L6-2H1Z" fill="#37c871"/></g><circle cx="32" cy="11" r="10.500" fill="#2a2600"/><circle cx="32" cy="11" r="3.7" fill="#f5c518"/><line x1="37.6" y1="11" x2="40.1" y2="11" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><line x1="35.9" y1="14.9" x2="37.7" y2="16.7" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><line x1="32" y1="16.6" x2="32" y2="19.1" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><line x1="28.1" y1="14.9" x2="26.3" y2="16.7" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><line x1="26.4" y1="11" x2="23.9" y2="11" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><line x1="28.1" y1="7.1" x2="26.3" y2="5.3" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><line x1="32" y1="5.4" x2="32" y2="2.9" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><line x1="35.9" y1="7.1" x2="37.7" y2="5.3" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><circle cx="13" cy="44" r="10.500" fill="#0a1a2a"/><g transform="translate(13 43.5) scale(0.56)"><path d="M-14 5V1L-10-6Q-9-8-6-8H6Q9-8 10-6L14 1V5Q14 6 13 6H-13Q-14 6-14 5Z" fill="#42a5f5"/><path d="M-8-5Q-7.500-6-6-6H-1V-1H-10ZM1-6H6Q7.500-6 8-5L10-1H1Z" fill="#fff" opacity=".85"/><circle cx="-8" cy="6" r="3.600" fill="#16202b" stroke="#42a5f5" stroke-width="1.400"/><circle cx="8" cy="6" r="3.600" fill="#16202b" stroke="#42a5f5" stroke-width="1.400"/></g><circle cx="51" cy="44" r="10.500" fill="#241a08"/><g transform="translate(51 44) scale(0.62)"><circle r="13" fill="none" stroke="#ff9800" stroke-width="2.600"/><path d="M0 0C-5-3-5-9 0-10.500C3.500-9 3.500-4 0 0Z" fill="#ff9800" transform="rotate(0)"/><path d="M0 0C-5-3-5-9 0-10.500C3.500-9 3.500-4 0 0Z" fill="#ff9800" transform="rotate(120)"/><path d="M0 0C-5-3-5-9 0-10.500C3.500-9 3.500-4 0 0Z" fill="#ff9800" transform="rotate(240)"/><circle r="2" fill="#ff9800"/></g></svg></span><span class="kname">EEBUS-Steuerbox</span><span class="kip" id="kopf_ip">—</span><span class="uhr" id="uhr" title="Datum und Uhrzeit des Geräts, Laufzeit seit dem letzten Neustart">—</span></span><span class="kopfrechts"><a class="kbtn tas" href="/">&#8592; Tasmota</a><a class="kbtn" href="/tc" title="TinyC-Seite: Slots, Laden, IDE-Update">TinyC</a><a class="kbtn" href="/ide" target="_blank" title="TinyC-IDE auf Port 82" onclick="this.href='http://'+location.hostname+':82/ide'">TinyC-IDE</a><button class="thm" id="theme" type="button">Hell / Dunkel</button></span></h1>
 <div class="wrap">
-  <!-- 06.11. (Andreas): Statuszeile wie HEMS - Zustand, verbundene Anlagen, Herzschlag, Software -->
+  <!-- 06.11. (meierchen006): Statuszeile wie HEMS - Zustand, verbundene Anlagen, Herzschlag, Software -->
   <div class="chips" id="chips"><span class="chip"><span class="dot"></span><b>Zustand</b> …</span></div>
   <nav class="rtabs" id="rtabs" role="tablist">
     <button role="tab" data-r="start">Übersicht</button>
     <button role="tab" data-r="kennung">Eigene Steuerbox-Kennung</button>
-    <button role="tab" data-r="steuern">Steuern § 9 und § 14a</button>   <!-- 06.11. (Andreas): vor den Messwerten -->
+    <button role="tab" data-r="steuern">Steuern § 9 und § 14a</button>   <!-- 06.11. (meierchen006): vor den Messwerten -->
     <button role="tab" data-r="mgcp">Messwerte MGCP</button>
-    <button role="tab" data-r="lbuch">Betriebslogbuch</button>   <!-- 21.11.2026 (Andreas) -->
-    <button role="tab" data-r="status" class="rechts">Status</button>   <!-- 09.11. (Andreas) -->
+    <button role="tab" data-r="lbuch">Betriebslogbuch</button>   <!-- 21.11.2026 (meierchen006) -->
+    <button role="tab" data-r="status" class="rechts">Status</button>   <!-- 09.11. (meierchen006) -->
   </nav>
   <p class="warn hide" id="boxweg" role="alert"></p>
 
@@ -265,7 +265,7 @@
            Namen fuehrt eine Gegenstelle uns in ihrem Geraeteverzeichnis. -->
       <b>Kennung</b><span class="mono" id="own_id">—</span>
       <b>Seriennummer</b><span class="mono" id="own_serial">—</span>
-      <!-- 05.11.2026 (Andreas): eigene Netzadresse der Steuerbox, aus Status 5 (LAN und/oder WLAN). -->
+      <!-- 05.11.2026 (meierchen006): eigene Netzadresse der Steuerbox, aus Status 5 (LAN und/oder WLAN). -->
       <b>IP-Adresse</b><span class="mono" id="own_ip">—</span>
       <b>Gerätename</b><span class="mono" id="own_host">—</span>
     </div>
@@ -315,7 +315,7 @@
       bestehende Verbindungen laufen noch mit dem alten Zertifikat weiter.</p>
   </div>
 
-  <!-- ===== GERAET (25.10.: Name "Anlagen suchen und verbinden", Andreas) ===== -->
+  <!-- ===== GERAET (25.10.: Name "Anlagen suchen und verbinden", meierchen006) ===== -->
   <div data-r="start" class="card">
     <h2>Anlagen suchen und verbinden</h2>
     <div class="row">
@@ -338,7 +338,7 @@
       </span>
     </div>
     <p class="warn hide" id="peermodesrc"></p>
-    <!-- 25.10. (Andreas): rechts der Kopplungs-QR-Code der ausgewaehlten Anlage (Typschild-Format) -->
+    <!-- 25.10. (meierchen006): rechts der Kopplungs-QR-Code der ausgewaehlten Anlage (Typschild-Format) -->
     <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start">
     <div class="ident" style="flex:1 1 380px;min-width:0">
       <b>SKI</b><span class="mono"><span id="d_ski">—</span><button class="eye" id="skibtn"
@@ -374,7 +374,7 @@
     </div>
   </div>
 
-  <!-- 25.10. (Andreas): Messwerte und Struktur getrennt; Messwerte zuerst, die Auswahl der Struktur zeigt ihr
+  <!-- 25.10. (meierchen006): Messwerte und Struktur getrennt; Messwerte zuerst, die Auswahl der Struktur zeigt ihr
        Ergebnis rechts daneben statt darunter. -->
   <div data-r="mgcp" class="card">
     <h2>Messwerte · Netzanschlusspunkt (MGCP)</h2>
@@ -387,19 +387,19 @@
       <b>Frequenz</b><span id="m_freq">— Hz</span>
       <b>Begrenzungsfaktor</b><span id="m_plf">— %</span>
     </div>
-    <!-- 25.10. (Andreas): allgemein gueltig statt der fruehere Text zu EINER Gegenstelle (13 beschriebene Groessen,
+    <!-- 25.10. (meierchen006): allgemein gueltig statt der fruehere Text zu EINER Gegenstelle (13 beschriebene Groessen,
          3 gelieferte, gemessen im Sommer) - der stimmte fuer HEMS (liefert I/U/f) und SteuVE (MPC) nicht. -->
     <p class="hint">Die Werte kommen live von der ausgewählten Anlage, aus dem, was sie selbst meldet. Liefert sie
        eine Größe nicht, steht in der Zeile „wird nicht geliefert“. Das ist dann eine Eigenschaft der Anlage, kein
        Fehler dieses Werkzeugs.
-       <!-- 08.11.2026 (Andreas): Bezug/Einspeisung sind NICHT der Zaehler des Netzbetreibers -->
+       <!-- 08.11.2026 (meierchen006): Bezug/Einspeisung sind NICHT der Zaehler des Netzbetreibers -->
        Bezug und Einspeisung sind die Zählerstände, die die Anlage selbst führt (z. B. HEMS oder Wechselrichter),
        <b>nicht</b> die des Zählers vom Netzbetreiber; sie weichen davon ab und sind nicht zur Abrechnung gedacht.</p>
   </div>
 
   <div data-r="mgcp" class="card">
     <h2>Struktur</h2>
-    <!-- 25.10. (Andreas): die vier Auswahlfelder nebeneinander, Ueberschrift ueber dem Feld; darunter Auskunft und
+    <!-- 25.10. (meierchen006): die vier Auswahlfelder nebeneinander, Ueberschrift ueber dem Feld; darunter Auskunft und
          gelesener Inhalt in voller Breite (breite Tabellen rollen dort waagrecht). Die Auswahl bewirkt etwas:
          bei Features fragen wir die Selbstauskunft ab ("wo wird das angeboten?"), bei Entities steht die Nummer
          schon in der Reihenfolge. -->
@@ -618,7 +618,7 @@
       (Struktur → Features → Measurement → Adresse anklicken).</p>
   </div>
 
-  <!-- 21.11.2026 (Andreas): Betriebslogbuch anzeigen. Der Treiber schreibt es seit v215 auf die SD-Karte
+  <!-- 21.11.2026 (meierchen006): Betriebslogbuch anzeigen. Der Treiber schreibt es seit v215 auf die SD-Karte
        (/betriebslogbuch/JJJJ-MM.csv, 30 Monate; VDE FNN Empfehlung zu Tenorziffer 2a BK6-22-300 Kap. 4.1.2.2).
        Die Seite liest die Monatsdatei ueber Port 82 (nur lesen). -->
   <div data-r="lbuch" class="card">
@@ -649,7 +649,7 @@
     <h3>Antwort des Geräts</h3>
     <div id="log">bereit</div>
   </div>
-  <!-- 09.11.2026 (Andreas): Reiter Status rechts wie beim SMGW-Leser und HEMS - nur lesen, jede Minute neu -->
+  <!-- 09.11.2026 (meierchen006): Reiter Status rechts wie beim SMGW-Leser und HEMS - nur lesen, jede Minute neu -->
   <div data-r="status" class="card">
     <h2>Gerät (Steuerbox)</h2>
     <div class="skv" id="st_geraet"><span>Stand</span><span>wird gelesen …</span></div>
@@ -658,7 +658,7 @@
     <h2>Kopplungen (EEBUS)</h2>
     <div class="skv" id="st_kopp"><span>Stand</span><span>wird gelesen …</span></div>
   </div>
-  <!-- 08.11.2026 (Andreas): Fusszeile wie SMGW-Seite, unten rechts -->
+  <!-- 08.11.2026 (meierchen006): Fusszeile wie SMGW-Seite, unten rechts -->
   <footer><span class="design" style="margin-left:auto">Design by meierchen006</span></footer>
 </div>
 
@@ -669,7 +669,7 @@
 
   function el(id){ return document.getElementById(id); }
 
-  // ===== 21.11.2026 (Andreas): Betriebslogbuch =====
+  // ===== 21.11.2026 (meierchen006): Betriebslogbuch =====
   // Datei: Zeit_UTC;Ereignis;Anlage;Adresse;Richtung;Wert;Dauer_s;Ergebnis (Kopfzeile wird uebersprungen)
   function lbEsc(t){ return String(t == null ? '' : t).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
   function lbUrl(m){ return 'http://' + location.hostname + ':82/ufs/sdfs/betriebslogbuch/' + m + '.csv'; }
@@ -1131,7 +1131,7 @@
   var VERB_N = 0, VERB_ALLE_GESETZT = false, VERB_VG = {};   // VERB_VG: letzte Vorgabe je SKI (ohne Failsafe-Meldungen)
   function vLim(l){
     if(!l) return '—';
-    // 04.11. (Andreas): Restzeit 0 = die Grenze ist abgelaufen. Die Box haelt den zuletzt gelesenen Stand, liest danach aber nicht neu.
+    // 04.11. (meierchen006): Restzeit 0 = die Grenze ist abgelaufen. Die Box haelt den zuletzt gelesenen Stand, liest danach aber nicht neu.
     if(l.Aktiv && l.RestS === 0) return '<span class="ok">frei (abgelaufen)</span>';
     return l.Aktiv ? '<span class="bad">begrenzt ' + fmt(l.Wert, 'W') + '</span>' : '<span class="ok">frei</span>';
   }
@@ -1158,7 +1158,7 @@
         var erg = s.LpcResult ? s.LpcResult : (s.Lpc && s.Lpc !== 'idle' ? s.Lpc : '—');
         // Failsafe-Einstellungen (LPC/LPP Szenario 2) sind keine Vorgabe: klein und grau unter die letzte Vorgabe
         var fs = '';
-        // 26.10. (Andreas): nur BESTAETIGTE Ergebnisse merken - Zwischenschritte ("geschrieben - Read-Back verzoegert",
+        // 26.10. (meierchen006): nur BESTAETIGTE Ergebnisse merken - Zwischenschritte ("geschrieben - Read-Back verzoegert",
         // "Ist-LimitData angefragt") nie oben zeigen, sonst den Stand aus den Spalten (frei / begrenzt)
         var ausSpalten = (d && d.Lim0) ? (d.Lim0.Aktiv ? 'begrenzt ' + fmt(d.Lim0.Wert, 'W') : 'freigegeben') : '—';
         if(/^Failsafe/i.test(erg)){
@@ -1278,7 +1278,7 @@
   // wird es erst, wenn EEBusConnect die SKI selbst versteht (wie EEBusLpc/EEBusLpp/EEBusRelease).
   // Ab Treiber-v133 nimmt EEBusConnect die SKI direkt entgegen — es gibt hier keine Listennummer
   // mehr, weder gespeichert noch gesendet. Damit kann kein Scan mehr dazwischenfunken.
-  // 26.10. (Andreas): Rueckmeldung direkt im Knopf - sofort "verbindet …", dann was wirklich passiert ist
+  // 26.10. (meierchen006): Rueckmeldung direkt im Knopf - sofort "verbindet …", dann was wirklich passiert ist
   function knopfZeig(id, txt, farbe, ms){
     var b = el(id); if(!b) return;
     if(!b.dataset.txt) b.dataset.txt = b.textContent;
@@ -1324,7 +1324,7 @@
       setTimeout(refresh, 5000);
     });
   }
-  // 31.10. (Andreas): Rueckfrage als Fenster der Seite. Abbrechen ist vorgewaehlt, Eingabetaste und Esc trennen also nichts.
+  // 31.10. (meierchen006): Rueckfrage als Fenster der Seite. Abbrechen ist vorgewaehlt, Eingabetaste und Esc trennen also nichts.
   function frage(kopf, text, ja){
     return new Promise(function(fertig){
       var d = document.createElement('dialog');
@@ -1347,7 +1347,7 @@
   function doDisconnect(){
     if(needDevice()) return;
     var p = peers[selIdx];
-    // 30.10. (Andreas): Trennen heisst „bleib weg“ - nur dieses Gerät aus der Wiederaufbau-Liste nehmen (nie -1, das löscht alle).
+    // 30.10. (meierchen006): Trennen heisst „bleib weg“ - nur dieses Gerät aus der Wiederaufbau-Liste nehmen (nie -1, das löscht alle).
     frage('Steuerbox ' + location.hostname + ': Gerät trennen',
       'Gerät …' + String(p.Ski).slice(-4) + ' trennen?\n\nDie Steuerbox ruft es nicht mehr von selbst an, auch nicht nach einem Neustart. Ruft das Gerät selbst an, ist es wieder verbunden. § 14a-Befehle erreichen es sonst nicht mehr.',
       'Trennen').then(function(ja){
@@ -1942,7 +1942,7 @@
       nennAnzeigen();
       if(Date.now() - fsZuletzt > 60000 || fsFuer !== p.Ip){ fsLaden(false); }   // v196: Failsafe Einspeisung dieser Anlage; 06.11.: Einstellwerte nur jede Minute oder bei anderer Anlage (vorher alle ~3 s)
       limStand = { l0: d.Lim0, l1: d.Lim1 }; limAm = Date.now();   // 07.11.: Grundlage fuer den Sekunden-Countdown
-      limZeigen();   // Ist-Zustand + Knoepfe (06.11. Andreas: Dimmung + Restzeit im Knopf)
+      limZeigen();   // Ist-Zustand + Knoepfe (06.11. meierchen006: Dimmung + Restzeit im Knopf)
       warnung('lpc_warn', d.Lim0);
       warnung('lpp_warn', d.Lim1);
     });
@@ -1973,7 +1973,7 @@
     }
   }
 
-  // 06.11. (Andreas): Knopf-Anzeige - nur bei aktiver Grenze: Betrag in W und Restzeit aus der ISO-Dauer (PT1M43S)
+  // 06.11. (meierchen006): Knopf-Anzeige - nur bei aktiver Grenze: Betrag in W und Restzeit aus der ISO-Dauer (PT1M43S)
   function isoTxt(d){
     var m = /^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/.exec(d || ''); if(!m) return '';
     var s = (+(m[1] || 0)) * 86400 + (+(m[2] || 0)) * 3600 + (+(m[3] || 0)) * 60 + (+(m[4] || 0));
@@ -1992,7 +1992,7 @@
            (v === null ? '' : ' · ' + v.toLocaleString('de-DE') + ' W') +
            ((l.Aktiv && l.RestS > 0) ? ' · noch ' + isoTxt('PT' + l.RestS + 'S') : (l.Dauer ? ' · ' + l.Dauer : ''));   // 07.11.: Restzeit lesbar
   }
-  // 07.11. (Andreas): Die Box liefert die Restzeit nur alle 5 s (loadData). Dazwischen zaehlt die Seite selbst jede
+  // 07.11. (meierchen006): Die Box liefert die Restzeit nur alle 5 s (loadData). Dazwischen zaehlt die Seite selbst jede
   // Sekunde herunter und gleicht bei jedem Abruf wieder mit dem Wert der Box ab - wie die Uhr oben.
   var limStand = null, limAm = 0;
   function limJetzt(l){
@@ -2132,7 +2132,7 @@
       : bz.toLocaleString('de-DE') + ' W (n = ' + f.N + ', GZF = ' + (f.Gzf / 100).toLocaleString('de-DE') + ')'
         + (bz < f.Pmin ? ' – gedeckelt auf die Höchstleistung (Pmin ' + f.Pmin.toLocaleString('de-DE') + ' W)' : '');
     var ag = a ? a.AnschlussGemeldet : 0;
-    // v197 (Andreas): meldet die Anlage ihre Hoechstleistung (LPC [LPC-042], die Anlage ist die Quelle),
+    // v197 (meierchen006): meldet die Anlage ihre Hoechstleistung (LPC [LPC-042], die Anlage ist die Quelle),
     // steht DIESER Wert im SLS-Feld und das Feld ist gesperrt. Eintragen nur, wenn die Anlage nichts meldet.
     if(ag){
       el('fs_sls').value = Math.round(ag / 690); el('fs_sls').readOnly = true;
@@ -2269,7 +2269,7 @@
     taktLaeuft = true;
     Promise.all([refresh(), ladeVerb()]).catch(function(){}).then(function(){ taktLaeuft = false; });
   }, 10000);   // 02.11.: beide Anzeigen im selben Takt
-  // 04.11. (Andreas): Datum und Uhrzeit aus dem ESP (Status 7, Ortszeit), jede Minute geholt und dazwischen im Browser
+  // 04.11. (meierchen006): Datum und Uhrzeit aus dem ESP (Status 7, Ortszeit), jede Minute geholt und dazwischen im Browser
   // weitergezaehlt. Antwortet das Geraet 3 Minuten nicht, steht dort "—" statt einer Zeit, die es nicht bestaetigt hat.
   var uhrWert = 0, uhrAm = 0, upS = -1;   // 06.11.: dazu Laufzeit (Status 11 statt Status 7, gleiche Zahl Abfragen)
   function uhrZeigen(){
@@ -2288,7 +2288,7 @@
     }).catch(function(){});
   }
 
-  // ===== 06.11. (Andreas): Hauptreiter und Statuszeile wie HEMS/SteuVE =====
+  // ===== 06.11. (meierchen006): Hauptreiter und Statuszeile wie HEMS/SteuVE =====
   // Reiter blenden Kacheln nur per style.display ein/aus (data-r); die innere LPC/LPP-Umschaltung (class "hide") bleibt.
   function reiter(r){
     document.querySelectorAll('#rtabs button').forEach(function(b){ b.setAttribute('aria-selected', b.dataset.r === r ? 'true' : 'false'); });
@@ -2298,7 +2298,7 @@
     if(r === 'lbuch' && window.lbLaden){ lbLaden(); }   // 21.11.2026: Betriebslogbuch erst beim Oeffnen lesen
   }
 
-  // ===== 09.11.2026 (Andreas): Reiter Status wie SMGW-Leser/HEMS. Nur lesen (Status 1/2/4/5/11, UfsSize/UfsFree, EEBusStatus),
+  // ===== 09.11.2026 (meierchen006): Reiter Status wie SMGW-Leser/HEMS. Nur lesen (Status 1/2/4/5/11, UfsSize/UfsFree, EEBusStatus),
   // ueber holen() nacheinander. Bewusst NICHT: WLAN-Name, MAC, Hostname, SKI.
   var ST_SEITE = 'Stand 09.11.2026', stLaeuft = false;
   function stEsc(t){ return String(t == null ? '' : t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -2373,7 +2373,7 @@
     var z, zc;
     if(!an.length){ z = '—'; zc = ''; }
     else if(an.length > 1 && (b14.length || b9.length)){ z = 'begrenzt (Details unter Verbindungen)'; zc = 'wa'; }
-    else if(b14.length && b9.length){ z = '§ 14a ' + wTxt(b14[0]) + ' · § 9 ' + wTxt(b9[0]); zc = 'wa'; }   // 06.11. (Andreas): beide zeigen
+    else if(b14.length && b9.length){ z = '§ 14a ' + wTxt(b14[0]) + ' · § 9 ' + wTxt(b9[0]); zc = 'wa'; }   // 06.11. (meierchen006): beide zeigen
     else if(b14.length){ z = '§ 14a begrenzt auf ' + wTxt(b14[0]); zc = 'wa'; }
     else if(b9.length){ z = '§ 9 begrenzt auf ' + wTxt(b9[0]); zc = 'wa'; }
     else { z = 'frei'; zc = 'ok'; }
@@ -2383,7 +2383,7 @@
     else { v = chip('ok', '<b>Verbunden</b> ' + an.length + ' Anlagen'); }
     // Herzschlag: nur EMPFANGEN liefert der Treiber (PeerHerzschlagS je Platz); Wert des Geraets, nicht hochgezaehlt
     var hb = -1; an.forEach(function(x){ var h = (x.PeerHerzschlagS === undefined) ? -1 : +x.PeerHerzschlagS; if(h >= 0 && (hb < 0 || h > hb)){ hb = h; } });
-    // 06.11. (Andreas): dazu GESENDET (HerzschlagGesendetS, ab Box-Firmware v231; aeltere Firmware liefert es nicht)
+    // 06.11. (meierchen006): dazu GESENDET (HerzschlagGesendetS, ab Box-Firmware v231; aeltere Firmware liefert es nicht)
     var hs = -1; an.forEach(function(x){ var g = (x.HerzschlagGesendetS === undefined) ? -1 : +x.HerzschlagGesendetS; if(g >= 0 && (hs < 0 || g > hs)){ hs = g; } });
     var hc = (hb < 0) ? '' : (hb < 20 ? 'ok' : (hb < 120 ? 'wa' : 'cr'));
     var h = chip(hc, '<b>Herzschlag</b> ' + (hs >= 0 ? 'gesendet vor ' + hs + ' s · ' : '') +

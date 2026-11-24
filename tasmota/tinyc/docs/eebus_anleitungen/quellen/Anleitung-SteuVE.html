@@ -3,347 +3,633 @@
 <head>
 <meta charset="utf-8">
 <meta name="author" content="meierchen006 mit Hilfe von Claude">
-<title>Anleitung SteuVE</title>
+<title>Anleitung SteuVE-Gateway</title>
 <style>
-  @page { size: A4; margin: 16mm 15mm 16mm 15mm; }
+  @page {
+    size: A4; margin: 16mm 15mm 18mm 15mm;
+    @bottom-center { content: "Seite " counter(page) " von " counter(pages); font-family: "Segoe UI", Arial, sans-serif; font-size: 8.5pt; color: #777; }
+    @bottom-right { content: "EEBUS-SteuVE-Gateway · Firmware v040 · Skript v022"; font-family: "Segoe UI", Arial, sans-serif; font-size: 7.5pt; color: #999; }
+  }
   body { font-family: "Segoe UI", Arial, sans-serif; font-size: 10.5pt; line-height: 1.45; color: #1d1d1d; }
   h1 { font-size: 20pt; margin: 0 0 4mm; color: #1d3f6e; }
   h2 { font-size: 13.5pt; margin: 7mm 0 2mm; color: #1d3f6e; border-bottom: 1px solid #c9d3e0; padding-bottom: 1mm; page-break-after: avoid; }
   h3 { font-size: 11pt; margin: 4mm 0 1mm; page-break-after: avoid; }
   p, li { margin: 1mm 0; }
-  .hinweis { background: #fff6dc; border-left: 4px solid #e0a800; padding: 2mm 3mm; margin: 3mm 0; }
-  .warn { background: #fde7e7; border-left: 4px solid #c43c3c; padding: 2mm 3mm; margin: 3mm 0; }
-  .info { background: #eaf2fb; border-left: 4px solid #3c7cc4; padding: 2mm 3mm; margin: 3mm 0; }
+  .hinweis { background: #fff6dc; border-left: 4px solid #e0a800; padding: 2mm 3mm; margin: 3mm 0; page-break-inside: avoid; }
+  .warn { background: #fde7e7; border-left: 4px solid #c43c3c; padding: 2mm 3mm; margin: 3mm 0; page-break-inside: avoid; }
+  .info { background: #eaf2fb; border-left: 4px solid #3c7cc4; padding: 2mm 3mm; margin: 3mm 0; page-break-inside: avoid; }
   .neu { background: #e7f6ea; border-left: 4px solid #2e9a48; padding: 2mm 3mm; margin: 3mm 0; }
-  figure { margin: 3mm 0 4mm; page-break-inside: avoid; }
-  figure { text-align: center; }
+  figure { margin: 3mm 0 4mm; page-break-inside: avoid; text-align: center; }
   figure img { width: 80%; border: 1px solid #b9c2cf; border-radius: 2mm; }
   figcaption { font-size: 9pt; color: #555; margin-top: 1mm; text-align: left; }
-  table { border-collapse: collapse; width: 100%; margin: 2mm 0; font-size: 9.5pt; page-break-inside: avoid; }
-  th, td { border: 1px solid #c9d3e0; padding: 1.2mm 2mm; line-height: 1.6; text-align: left; vertical-align: top; }
+  table { border-collapse: collapse; width: 100%; margin: 2mm 0; font-size: 9.5pt; page-break-inside: auto; }
+  tr { page-break-inside: avoid; }
+  th, td { border: 1px solid #c9d3e0; padding: 1.2mm 2mm; line-height: 1.5; text-align: left; vertical-align: top; }
   th { background: #eef2f7; }
   code { font-family: Consolas, monospace; font-size: 9.5pt; background: #f1f3f5; padding: 0 1mm; border-radius: 1mm; }
+  pre { font-family: Consolas, monospace; font-size: 8.8pt; background: #f1f3f5; padding: 2mm 3mm; border-radius: 1mm; white-space: pre-wrap; page-break-inside: avoid; margin: 2mm 0; }
   .kopf { font-size: 9pt; color: #777; margin-bottom: 6mm; }
   .seite { page-break-before: always; }
+  .inhalt { columns: 2; column-gap: 8mm; font-size: 9.5pt; margin: 2mm 0 4mm; }
+  .inhalt ol { margin: 0; padding-left: 6mm; }
+  .inhalt li { margin: 0.4mm 0; }
+  .ok { color: #2e7d32; font-weight: bold; }
+  .offen { color: #b26a00; font-weight: bold; }
+  .ab { color: #b23a3a; font-weight: bold; }
+  .toc a, .inhalt a { color: inherit; text-decoration: none; }
+  ol.unter { list-style: none; padding-left: 4mm; margin: 0.5mm 0; font-size: 92%; }
 </style>
 </head>
 <body>
 
-<h1>SteuVE auf Tasmota</h1>
-<div class="kopf">Bedienungsanleitung · Stand 21.11.2026 · Treiber <code>xdrv_128</code> v033 + TinyC-Skript <code>steuve</code> v021 (<code>@version 20261121_1900</code>) · Persönliche Daten in den Bildern unkenntlich gemacht (Adressen auf 192.168.1.x umgeschrieben, Kennungen verdeckt)<br>Erstellt von <b>meierchen006</b> mit Hilfe von Claude</div>
+<h1>EEBUS-SteuVE-Gateway auf Tasmota</h1>
+<div class="kopf">Bedienungsanleitung · Stand 23.11.2026 · <b>Firmware v040</b> (Treiber <code>xdrv_128</code> v039) + TinyC-Skript <code>steuve</code> v022 (<code>@version 20261122_2000</code>) · Persönliche Daten in den Bildern unkenntlich gemacht (Adressen auf 192.168.1.x umgeschrieben, Kennungen verdeckt)<br>Erstellt von <b>meierchen006</b> mit Hilfe von Claude</div>
 
-<div class="warn"><b>Testgerät, nicht zertifiziert.</b> Die SteuVE dient dazu, die EEBUS-Steuerung nach § 14a EnWG an einem HEMS (Energiemanagementsystem im Haus) zu prüfen und auszuprobieren. Sie ist keine geprüfte steuerbare Verbrauchseinrichtung im Sinne von § 14a Abs. 1 EnWG mit BNetzA-Festlegung BK6-22-300 und nicht für den regulären Betrieb gedacht.</div>
+<div class="warn"><b>Testgerät, nicht zertifiziert.</b> Das Gateway dient dazu, die EEBUS-Steuerung nach § 14a EnWG an einem HEMS (Energiemanagementsystem im Haus) oder einer Steuerbox zu prüfen und auszuprobieren. Es ist keine geprüfte steuerbare Verbrauchseinrichtung im Sinne von § 14a Abs. 1 EnWG mit BNetzA-Festlegung BK6-22-300, hat keine EEBUS-Zertifizierung und ist nicht für den regulären Betrieb beim Netzbetreiber gedacht. Was nach Norm umgesetzt ist und wo es Grenzen gibt, steht ehrlich in Abschnitt 14.</div>
 
-<div class="neu"><b>Neu seit der Fassung vom 07.11.2026</b> (Treiber v030 → v033, Skript v011 → v021):
+<div class="hinweis"><b>Stand Firmware v040:</b> Firmware v038, v039 und v040 wurden am 23.11.2026 im Testnetz geprüft (Abschnitt 15). Firmware v040 ändert nur das Verbindungsende (siehe unten); dieses Verbindungsende selbst wurde beim Test nicht gezielt ausgelöst. Nicht alles ist am Gerät nachgewiesen; was nur laut Programmcode beschrieben ist, steht dort ebenfalls.</div>
+
+<div class="info"><b>Versionsnummern:</b> Diese Anleitung nennt ab jetzt die <b>Firmware-Nummer</b> (wie sie beim Bauen ausgegeben wird). Die Nummer im Kopf des Treibers <code>xdrv_128</code> ist um eins kleiner: Firmware v037 = Treiber v036, Firmware v038 = Treiber v037, Firmware v039 = Treiber v038, Firmware v040 = Treiber v039. Wo bei älteren Ständen „Treiber v0xx“ steht, ist die Treiber-Nummer gemeint.</div>
+
+<div class="neu"><b>Neu seit der Fassung vom 23.11.2026 14:25</b> (Firmware v037 → v040, Skript unverändert v022):
 <ul>
-  <li><b>Steuerkontakt NC/NO</b> – ein Shelly 1 legt bei einer Begrenzung einen potentialfreien Kontakt um, z. B. am Steuereingang einer Wärmepumpe oder Wallbox (Abschnitt 5).</li>
-  <li><b>Zusage statt bloßer Empfangsbestätigung</b> – die SteuVE nimmt eine Grenze nur an (ACK), wenn sie sie einhalten kann, sonst lehnt sie ab (NACK). Kann sie eine angenommene Grenze nicht mehr halten, bricht sie ab und meldet das (Abschnitt 6).</li>
-  <li><b>Kontakt-Protokoll</b> <code>/steuve_kontakt.csv</code> als Nachweis jedes Schaltvorgangs (Abschnitt 8).</li>
-  <li>Eingehende Verbindungen setzen zerstückelte EEBUS-Nachrichten wieder zusammen (große Nachrichten gingen bisher verloren).</li>
-  <li><b>Beim Wechsel von Skript v011 oder älter ist die Verbraucherliste danach leer</b> – vorher notieren (Abschnitt 10).</li>
+  <li><b>Firmware v038 – SHIP nach Norm</b> (wie Steuerbox v242): Fristen beim Verbindungsaufbau (CMI, Hello, Protokoll-Handshake, PIN-Zustand), Prüfung der SKI-Erweiterung im Zertifikat, Servername (SNI), WebSocket-Regeln, <code>txtvers</code> im mDNS-Eintrag, <code>dnsSd_mDns</code> (Abschnitt 14.3).</li>
+  <li><b>Wichtig für jedes neue Gateway (ab Firmware v038):</b> Das Gateway nimmt Anrufe nur noch vom <b>vertrauten Energy Guard</b> an – mit Zertifikat. Ein neues Gateway braucht deshalb <b>zuerst</b> <code>EEBusCsTrust &lt;SKI&gt;</code> (oder „Vertrauen“ im Reiter EEBus), sonst kann das HEMS es nicht anrufen (Abschnitt 4). Notweg <code>EEBusCsStreng 0</code> nur zum Testen.</li>
+  <li><b>Firmware v039 – Binding-Pflicht eingeschaltet:</b> Grenze und Failsafe-Werte nimmt das Gateway nur noch an, wenn der Energy Guard die Funktion vorher gebunden hat; sonst Fehler 9. Braucht ein <b>HEMS ab Firmware v039</b>, das LoadControl <b>und</b> DeviceConfiguration bindet (Abschnitte 9, 12, 14).</li>
+  <li><b>Firmware v039 – eigener Wiederaufbau:</b> Beendet der Energy Guard eine Verbindung, die <b>er</b> aufgebaut hatte (z. B. HEMS-Neustart), ruft das Gateway nach 10 s selbst an (Abschnitt 4).</li>
+  <li><b>Firmware v040 – Verbindungsende nach Norm:</b> eigenes Verbindungsende mit Grund „unspecific“; kündigt die Gegenstelle das Ende an, antwortet das Gateway mit „confirm“ und schließt dann.</li>
+  <li>Abschnitte <b>14 „Norm und Gesetz“</b> und <b>15 „Geprüft“</b> nachgezogen.</li>
 </ul></div>
 
-<h2>1. Was die SteuVE macht</h2>
-<p>„SteuVE“ steht für <b>steuerbare Verbrauchseinrichtung</b>. Sie stellt sich per EEBUS wie eine Wärmepumpe oder Wallbox vor und nimmt eine § 14a-Bezugsgrenze (LPC) entgegen. Dahinter hängen bis zu <b>vier Shelly- oder Tasmota-Geräte</b>:</p>
+<h3>Inhalt</h3>
+<div class="inhalt"><ol>
+  <li><a href="#k1">Was das Gateway macht</a></li>
+  <li><a href="#k2">Voraussetzungen und Seite aufrufen</a></li>
+  <li><a href="#k3">Reiter „Übersicht“</a></li>
+  <li><a href="#k4">Reiter „EEBus“</a></li>
+  <li><a href="#k5">Reiter „Verbraucher“ – Geräte eintragen</a></li>
+  <li><a href="#k6"><b>Steuerkontakt mit Shelly 1</b></a></li>
+  <li><a href="#k7">Wie das Gateway schaltet und zusagt</a></li>
+  <li><a href="#k8"><b>Skript läuft nicht – erkennen und beheben</b></a></li>
+  <li><a href="#k9">Reiter „Meldungen“</a></li>
+  <li><a href="#k10">Reiter „Protokoll“</a></li>
+  <li><a href="#k11">Reiter „Test &amp; Einstellungen“</a></li>
+  <li><a href="#k12">Skript und Bedienseite aktualisieren</a></li>
+  <li><a href="#k13">Befehle in der Tasmota-Konsole</a></li>
+  <li><a href="#k14"><b>Norm und Gesetz: was umgesetzt ist</b></a></li>
+  <li><a href="#k15"><b>Geprüft</b></a></li>
+  <li><a href="#k16">Häufige Fragen</a></li>
+</ol></div>
+
+<h2 id="k1">1. Was das Gateway macht</h2>
+<p>„SteuVE“ steht für <b>steuerbare Verbrauchseinrichtung</b>. Das Gerät heißt auf seiner Seite <b>„EEBUS-SteuVE-Gateway“</b>, weil es für beliebige Verbraucher dahinter spricht; in dieser Anleitung kurz „Gateway“ oder „SteuVE“. Es stellt sich per EEBUS wie eine Wärmepumpe oder Wallbox vor und nimmt eine § 14a-Bezugsgrenze (Use Case LPC) entgegen. Dahinter hängen bis zu <b>vier Shelly- oder Tasmota-Geräte</b>:</p>
 <ul>
-  <li><b>Verbraucher an Steckdose oder Schalter</b> – die SteuVE misst ihre Leistung und schaltet sie nach Priorität ab, wenn die Summe über der Grenze liegt.</li>
-  <li><b>Steuerkontakt</b> (Shelly 1) – die SteuVE legt bei einer Begrenzung einen Kontakt um, der an den Steuereingang eines Geräts geht. Wie stark das Gerät dann herunterregelt, legt das Gerät selbst fest.</li>
+  <li><b>Verbraucher an Steckdose oder Schalter</b> – das Gateway misst ihre Leistung und schaltet sie nach Priorität ab, wenn die Summe über der Grenze liegt.</li>
+  <li><b>Steuerkontakt</b> (Shelly 1) – das Gateway legt bei einer Begrenzung einen potentialfreien Kontakt um, der an den Steuereingang eines Geräts geht (Abschnitt 6). Wie stark das Gerät dann herunterregelt, legt das Gerät selbst fest.</li>
 </ul>
 <p>Die Teile:</p>
 <ul>
   <li><b>Treiber <code>xdrv_128</code></b> – spricht EEBUS mit dem Energy Guard (HEMS oder Steuerbox), empfängt Grenze und Failsafe-Werte, meldet Leistung und Nennleistung und sagt Grenzen zu oder lehnt sie ab.</li>
-  <li><b>TinyC-Skript <code>steuve</code></b> – fragt die Verbraucher ab, meldet die Summe an den Treiber, schaltet nach Priorität und stellt die Steuerkontakte.</li>
-  <li><b>Bedienseite</b> – <code>steuve.html</code> auf der SD-Karte; das Gerät liefert zuerst die gepackte <code>steuve.html.gz</code> aus (Abschnitt 10).</li>
+  <li><b>TinyC-Skript <code>steuve</code></b> (Slot 0) – fragt die Verbraucher ab, meldet die Summe an den Treiber, schaltet nach Priorität, stellt die Steuerkontakte und sagt dem Treiber in jeder Runde, wie weit es herunterkommt. <b>Ohne laufendes Skript nimmt das Gateway keine Grenze an</b> (Abschnitt 8).</li>
+  <li><b>Bedienseite</b> – <code>steuve.html</code> auf der SD-Karte; das Gerät liefert zuerst die gepackte <code>steuve.html.gz</code> aus (Abschnitt 12).</li>
 </ul>
-<p><b>Kette:</b> Netzbetreiber → Steuerbox → HEMS (teilt auf) → SteuVE → Verbraucher. Ohne HEMS kann die Steuerbox die SteuVE auch direkt steuern (Direktsteuerung). Nach BK6-22-300 Anlage 1 Ziff. 4.4 gilt für jede SteuVE <b>entweder</b> das eine <b>oder</b> das andere: Sie vertraut entweder dem HEMS oder der Steuerbox, nie beiden.</p>
+<p><b>Kette:</b> Netzbetreiber → Steuerbox → HEMS (teilt auf) → Gateway → Verbraucher. Ohne HEMS kann die Steuerbox das Gateway auch direkt steuern (Direktsteuerung). Nach BK6-22-300 Anlage 1 Ziff. 4.4 gilt für jede SteuVE <b>entweder</b> das eine <b>oder</b> das andere: Sie vertraut entweder dem HEMS oder der Steuerbox, nie beiden.</p>
 
-<h2>2. Voraussetzungen und Seite aufrufen</h2>
+<h2 id="k2">2. Voraussetzungen und Seite aufrufen</h2>
 <h3>Einstellungen am Gerät</h3>
 <table>
   <tr><th>Was</th><th>Wo / Wert</th><th>Warum</th></tr>
   <tr><td><b>Vorlage</b></td><td><code>Waveshare ESP32-S3-ETH SDIO</code><br>(Einstellungen → Vorlage)</td><td>Die SD-Karte hängt per <b>SDIO 1-Bit</b> am ESP32-S3: GPIO5 = D0, GPIO6 = CMD, GPIO7 = CLK. Beim Start steht im Log <code>UFS: SDCard mounted (SDIO 1-bit)</code>. Auf der SD-Karte liegen Bedienseite, Protokolle und Verbraucherliste.</td></tr>
-  <tr><td><b>HTTP API aktivieren</b></td><td>Haken setzen<br>(Einstellungen → Weitere Einstellungen; entspricht <code>SetOption128 1</code>)</td><td>Ohne den Haken weist Tasmota Abrufe ohne Herkunftsangabe ab (im Log <code>HTP: Referer '' denied</code>): Die SteuVE-Seite bleibt beim direkten Aufruf leer, und Befehle von außen (<code>/cm?cmnd=…</code>) werden abgewiesen.</td></tr>
-  <tr><td><b>Firmware</b></td><td>gebaut mit<br><code>CONFIG_FREERTOS_IDLE_TASK_STACKSIZE=3072</code></td><td>Mit dem Vorgabewert 1024 Byte kann der ESP32-S3 mit LAN-Chip W5500 unter Last abstürzen (<code>DebugException</code> beim Taskwechsel). Gemessen auf einer Steuerbox: unter Last blieben von 1024 nur 80 Byte frei, mit 3072 sind es über 2200. Beim Bauen in der Bauvariante (<code>custom_sdkconfig</code>) eintragen.</td></tr>
+  <tr><td><b>HTTP API aktivieren</b></td><td>Haken setzen<br>(Einstellungen → Weitere Einstellungen; entspricht <code>SetOption128 1</code>)</td><td>Ohne den Haken weist Tasmota Abrufe ohne Herkunftsangabe ab (im Log <code>HTP: Referer '' denied</code>): Die Seite bleibt beim direkten Aufruf leer, und Befehle von außen (<code>/cm?cmnd=…</code>) werden abgewiesen.</td></tr>
+  <tr><td><b>Firmware</b></td><td>gebaut mit<br><code>CONFIG_FREERTOS_IDLE_TASK_STACKSIZE=3072</code></td><td>Mit dem Vorgabewert 1024 Byte kann der ESP32-S3 mit LAN-Chip W5500 unter Last abstürzen (<code>DebugException</code> beim Taskwechsel). Gemessen auf einer Steuerbox: unter Last blieben von 1024 nur 80 Byte frei, mit 3072 über 2200. Beim Bauen in der Bauvariante (<code>custom_sdkconfig</code>) eintragen.</td></tr>
+  <tr><td><b>Skript mit Autostart</b></td><td>TinyC → Slot 0: Skript <code>steuve</code> geladen, Knopf <b>A</b> grün</td><td>Das Skript muss nach jedem Start von selbst laufen. Läuft es nicht, lehnt das Gateway (seit Firmware v037) jede Grenze ab (Abschnitt 8).</td></tr>
 </table>
 <div class="hinweis">Mit eingeschalteter HTTP API nimmt das Gerät Befehle von jedem Rechner im Netz an. Ein <b>Passwort für die Weboberfläche</b> (gleiche Seite) schützt davor.</div>
 <h3>Seite aufrufen</h3>
-<p>Auf der Tasmota-Hauptseite auf <b>„SteuVE“</b> klicken. Darüber zeigt das Skript einen Kurzstand: Zustand, Summe und die Leistung je Verbraucher, bei einem Steuerkontakt seine Stellung.</p>
+<p>Auf der Tasmota-Hauptseite auf <b>„SteuVE“</b> klicken. Darüber zeigt das Skript einen Kurzstand: Zustand, Summe und die Leistung je Verbraucher, bei einem Steuerkontakt seine Stellung. <b>Fehlt dieser Kurzstand, läuft das Skript nicht</b> (Abschnitt 8).</p>
 <figure><img src="bilder-SteuVE/01-tasmota-hauptseite.png" style="width:45%"><figcaption>Bild 1 – Tasmota-Hauptseite mit Kurzstand des Skripts und dem Knopf „SteuVE“.</figcaption></figure>
-<p>Oben rechts auf der SteuVE-Seite:</p>
+<p>Oben rechts auf der Seite:</p>
 <ul>
   <li><b>← Tasmota</b> – zurück zur Hauptseite.</li>
-  <li><b>TinyC</b> – Skriptverwaltung (Slots starten/stoppen, Skript laden).</li>
+  <li><b>TinyC</b> – Skriptverwaltung (Slots starten/stoppen, Autostart, Skript laden).</li>
   <li><b>TinyC-IDE</b> – öffnet die Entwicklungsumgebung in einem neuen Tab (Port 82 desselben Geräts).</li>
   <li><b>Hell / Dunkel</b> – Farbschema umschalten.</li>
-  <li><b>Status</b> (rechts in der Reiterzeile) – Gerätedaten und Kopplungen, nur lesend.</li>
+  <li><b>Status</b> (rechts in der Reiterzeile) – Gerätedaten, Kopplungen und Zustand der Skript-Slots, nur lesend.</li>
 </ul>
-<p>Die Statuszeile darunter zeigt immer: <b>Zustand</b>, <b>HEMS</b> bzw. <b>Energy Guard</b> (verbunden/getrennt), <b>Herzschlag</b> (wann zuletzt) und <b>Verbraucher</b> (erreichbar/belegt), sobald es Protokollzeilen gibt zusätzlich <b>Protokoll</b> mit der Zeit der letzten Zeile.</p>
+<p>Die Statuszeile darunter zeigt immer: <b>Zustand</b>, <b>HEMS</b> bzw. <b>Energy Guard</b> (verbunden/getrennt), <b>Herzschlag</b> (wann zuletzt) und <b>Verbraucher</b> (erreichbar/belegt; „Skript fehlt“, wenn das Skript nicht antwortet), sobald es Protokollzeilen gibt zusätzlich <b>Protokoll</b> mit der Zeit der letzten Zeile.</p>
 
-<h2>3. Reiter „Übersicht“</h2>
+<h2 id="k3">3. Reiter „Übersicht“</h2>
 <p>Eine SteuVE wird auf <b>einem</b> von zwei Wegen gesteuert (BK6-22-300 Anlage 1 Ziff. 4.4): <b>über ein HEMS</b> (Ziff. 4.4 b – die Steuerbox gibt dem HEMS einen Gesamtwert, das HEMS teilt ihn auf) oder <b>direkt von der Steuerbox</b> (Ziff. 4.4 a). Die Übersicht zeigt, welcher Weg gerade gilt.</p>
-<figure><img src="bilder-SteuVE/02a-uebersicht-hems.png"><figcaption>Bild 2 – Steuerung über ein HEMS: Steuerbox → HEMS → SteuVE. Hier ohne Begrenzung. Auf Prio 3 hängt ein Steuerkontakt (NO): Die Kachel zeigt statt einer Leistung die Kontaktstellung „Kont. OPEN“.</figcaption></figure>
+<figure><img src="bilder-SteuVE/02a-uebersicht-hems.png"><figcaption>Bild 2 – Steuerung über ein HEMS: Steuerbox → HEMS → Gateway. Hier ohne Begrenzung. Auf Prio 3 hängt ein Steuerkontakt (NO): Die Kachel zeigt statt einer Leistung die Kontaktstellung „Kont. OPEN“.</figcaption></figure>
 <ul>
   <li><b>Grenze für SteuVE</b> (oben links) – die wirksame Grenze mit Restzeit, oder „keine“.</li>
   <li><b>Verbraucher gesamt</b> (oben rechts) – aktuelle Summe und Nennleistung, die an das HEMS bzw. die Steuerbox gemeldet wird.</li>
-  <li><b>Kette</b> – Steuerbox, HEMS und der Anteil, den das HEMS der SteuVE zuteilt („Anteil SteuVE: …“). Die Kachel <b>HEMS</b> erscheint nur, wenn wirklich ein HEMS der Energy Guard ist. Bei <b>Direktsteuerung</b> fehlt sie: Der Pfeil führt von der Steuerbox direkt zur SteuVE, unten steht „Kette: … → SteuVE (Direktsteuerung) → …“.</li>
+  <li><b>Kette</b> – Steuerbox, HEMS und der Anteil, den das HEMS dem Gateway zuteilt („Anteil SteuVE: …“). Die Kachel <b>HEMS</b> erscheint nur, wenn wirklich ein HEMS der Energy Guard ist. Bei <b>Direktsteuerung</b> fehlt sie: Der Pfeil führt von der Steuerbox direkt zum Gateway.</li>
   <li><b>genutzt</b> – wie viel der zugeteilten Leistung die Verbraucher gerade ziehen (in % der Grenze; ohne Grenze „kein Limit“).</li>
-  <li><b>Linien:</b> farbig = Verbraucher läuft, grau gestrichelt = aus, <b>rot gestrichelt umrandet = von der SteuVE abgeschaltet</b>.</li>
+  <li><b>Linien:</b> farbig = Verbraucher läuft, grau gestrichelt = aus, <b>rot gestrichelt umrandet = vom Gateway abgeschaltet</b>.</li>
 </ul>
-<div class="hinweis">Der Heizstab ist in seiner eigenen Farbe ohnehin rot. Ob die SteuVE ihn abgeschaltet hat, erkennt man nur an der <b>gestrichelten</b> Umrandung und am Zustand in der Liste darunter.</div>
+<div class="hinweis">Der Heizstab ist in seiner eigenen Farbe ohnehin rot. Ob das Gateway ihn abgeschaltet hat, erkennt man nur an der <b>gestrichelten</b> Umrandung und am Zustand in der Liste darunter.</div>
 <figure><img src="bilder-SteuVE/03-verbraucherliste.png"><figcaption>Bild 3 – Die Verbraucherliste unter der Übersicht: Farbe wie im Bild darüber, Geräteart M/S/K, Gerät, Adresse, Nennleistung, Priorität, Leistung bzw. Kontaktstellung, Zustand und Erreichbarkeit.</figcaption></figure>
 <table>
   <tr><th>Spalte</th><th>Bedeutung</th></tr>
-  <tr><td><b>Messgerät (M)<br>Schalter (S)<br>Steuerkontakt (K)</b></td><td>Was das Gerät <b>kann</b> bzw. wofür es eingetragen ist:<br><b>M</b> = Messgerät ohne Relais (z. B. PM Mini, EM, 3EM, Tasmota ohne Relais) – kann nie abschalten<br><b>S</b> = Gerät mit Relais – kann abschalten<br><b>K</b> = Steuerkontakt (Shelly 1, Abschnitt 5) – darunter steht NC oder NO<br><b>?</b> = noch nicht erkannt · ein Fake-Platz zählt als S<br>Ob ein Schalter wirklich abgeschaltet werden <b>darf</b>, legt der Haken „abschaltbar“ im Reiter Verbraucher fest.</td></tr>
+  <tr><td><b>Messgerät (M)<br>Schalter (S)<br>Steuerkontakt (K)</b></td><td>Was das Gerät <b>kann</b> bzw. wofür es eingetragen ist:<br><b>M</b> = Messgerät ohne Relais (z. B. PM Mini, EM, 3EM, Tasmota ohne Relais) – kann nie abschalten<br><b>S</b> = Gerät mit Relais – kann abschalten<br><b>K</b> = Steuerkontakt (Shelly 1, Abschnitt 6) – darunter steht NC oder NO<br><b>?</b> = noch nicht erkannt · ein Fake-Platz zählt als S<br>Ob ein Schalter wirklich abgeschaltet werden <b>darf</b>, legt der Haken „abschaltbar“ im Reiter Verbraucher fest.</td></tr>
   <tr><td><b>jetzt</b></td><td>aktuelle Leistung; „?“ = Gerät antwortet nicht<br>beim Steuerkontakt die zurückgelesene Stellung:<br><b>grün</b> OPEN/CLOSE = Normalstellung, <b>gelb</b> = Begrenzungsstellung</td></tr>
   <tr><td><b>Zustand</b></td><td>an / aus, oder rot „von SteuVE aus“<br>beim Steuerkontakt „normal“ oder „begrenzt · von SteuVE“</td></tr>
   <tr><td><b>erreichbar</b></td><td>ja · „Aussetzer n“ (einzelne Antworten fehlten) · nein (3 Runden in Folge keine Antwort)</td></tr>
 </table>
 <p>Wird die Seite schmal (Handy), lässt sich die Liste seitlich schieben; die Zeilen brechen nicht um.</p>
 
-<h2 class="seite">4. Reiter „EEBus“ – HEMS / Energy Guard und eigene Kennung</h2>
+<h2 id="k4" class="seite">4. Reiter „EEBus“ – HEMS / Energy Guard und eigene Kennung</h2>
 <p>Der Reiter hat zwei Unterreiter. Vorne steht <b>„HEMS / Energy Guard (Steuerbox)“</b> – das braucht man im Alltag. <b>„Eigene Kennung“</b> braucht man nur beim Koppeln und beim Sichern.</p>
 <h3>Unterreiter „HEMS / Energy Guard (Steuerbox)“</h3>
 <figure><img src="bilder-SteuVE/04a-eebus-hems.png"><figcaption>Bild 4a – Das vertraute HEMS (Steuerweg „über HEMS“) und die gefundenen EEBUS-Geräte. Im Netz sind hier zwei HEMS gleichen Namens – deshalb immer nach der SKI wählen.</figcaption></figure>
 <ol>
   <li><b>neu suchen</b> – sucht per mDNS alle EEBUS-Geräte im Netz.</li>
   <li>In der Liste beim gewünschten Gerät <b>Vertrauen</b> klicken (Normalfall: das HEMS). <b>Immer nach SKI wählen</b> – Namen können doppelt vorkommen (Bild 4a) und die Reihenfolge ändert sich bei jedem Scan.</li>
-  <li>Im HEMS die SteuVE koppeln bzw. ihre SKI bestätigen. Steht oben „verbunden“ und „vertraut“, ist es fertig.</li>
+  <li>Im HEMS das Gateway koppeln bzw. seine SKI bestätigen. Steht oben „verbunden“ und „vertraut“, ist es fertig.</li>
 </ol>
-<p>Nur <b>ein</b> Energy Guard kann vertraut sein. Nur er darf Grenzen und Failsafe-Werte schreiben; fremde Schreibversuche werden abgewiesen (Zähler „Abgewiesen“). <b>Vertrauen entziehen</b> trennt sofort; die SteuVE läuft dann autonom ohne Begrenzung und ruft die alte Gegenstelle auch nicht von selbst wieder an (wieder angerufen wird nur ein vertrauter Energy Guard). Ein <b>neues Vertrauen</b> wirkt ebenfalls sofort: Die SteuVE sucht den Energy Guard und verbindet sich mit ihm, ein Neustart ist nicht nötig.</p>
+<div class="warn"><b>Reihenfolge ab Firmware v038: zuerst Vertrauen, dann koppeln.</b> Das Gateway lässt nur noch den <b>vertrauten</b> Energy Guard herein, und nur, wenn er sich mit seinem <b>Zertifikat</b> ausweist (SHIP: Anrufer nur mit Zertifikat und nur, wenn vertraut). Jeden anderen Anrufer weist es schon beim Verbindungsaufbau ab (SHIP-Hello „aborted“). Bei einem <b>neuen</b> Gateway also zuerst Schritt 2 (oder in der Konsole <code>EEBusCsTrust &lt;SKI&gt;</code> bzw. <code>EEBusCsTrust hm</code>), sonst kann das HEMS es nicht anrufen. Bis Firmware v037 durfte jeder Anrufer verbinden; schreiben durfte auch dort nur der vertraute.<br>
+<b>Notweg nur zum Testen:</b> <code>EEBusCsStreng 0</code> lässt jeden Anrufer zu und vertraut auch ohne Zertifikat. Der Schalter wird nicht gespeichert; nach einem Neustart gilt wieder die strenge Prüfung.</div>
+<p>Nur <b>ein</b> Energy Guard kann vertraut sein. Nur er darf Grenzen und Failsafe-Werte schreiben; fremde Schreibversuche werden abgewiesen (Zähler „Abgewiesen“). <b>Vertrauen entziehen</b> trennt sofort; das Gateway läuft dann autonom ohne Begrenzung und ruft die alte Gegenstelle auch nicht von selbst wieder an. Ein <b>neues Vertrauen</b> wirkt ebenfalls sofort, ein Neustart ist nicht nötig.</p>
 <p><b>Steuerweg</b> zeigt „über HEMS“ oder „Direktsteuerung (Energy Guard = Steuerbox)“. Steht dort „unbekannt — Gerät nicht in der Fundliste“, ist der vertraute Energy Guard nur noch nicht in der Liste (z. B. nach dem Einschalten): <b>neu suchen</b> klicken. Die Steuerung selbst läuft trotzdem.</p>
-<div class="info"><b>Direkt an der Steuerbox (ohne HEMS):</b> Vertraut die SteuVE einer Steuerbox, verbindet sie sich direkt mit ihr – über IPv4 oder IPv6. Die Steuerbox schickt nach dem Verbinden von selbst eine Vorgabe (Freigabe oder ihre letzte Grenze); danach steht „gesteuert“. Bei Direktsteuerung dimmt die Steuerbox immer genau auf die Mindestleistung von 4.200 W (BK6-22-300 Anlage 1 Ziff. 4.5.1) und schreibt denselben Wert als Failsafe.</div>
-<div class="info"><b>Erkennung über das Zertifikat:</b> Der Energy Guard wird an der SKI aus <b>seinem Zertifikat</b> erkannt, nicht an seiner Adresse. Er kann also über IPv4 oder IPv6 und von jeder Adresse aus anrufen. Groß-/Kleinschreibung der SKI spielt keine Rolle. Die SteuVE kündigt sich im Netz mit IPv4 <b>und</b> IPv6 an, damit sie auch Geräte ohne IPv6 finden und anrufen können.</div>
+<div class="info"><b>Direkt an der Steuerbox (ohne HEMS):</b> Vertraut das Gateway einer Steuerbox, verbindet es sich direkt mit ihr – über IPv4 oder IPv6. Die Steuerbox schickt nach dem Verbinden von selbst eine Vorgabe (Freigabe oder ihre letzte Grenze); danach steht „gesteuert“. Bei Direktsteuerung dimmt die Steuerbox immer genau auf die Mindestleistung von 4.200 W (BK6-22-300 Anlage 1 Ziff. 4.5.1) und schreibt denselben Wert als Failsafe.</div>
+<div class="info"><b>Erkennung über das Zertifikat:</b> Der Energy Guard wird an der SKI aus <b>seinem Zertifikat</b> erkannt, nicht an seiner Adresse. Er kann also über IPv4 oder IPv6 und von jeder Adresse aus anrufen. Groß-/Kleinschreibung der SKI spielt keine Rolle.</div>
+<div class="info"><b>Herzschlag-Abo (seit Firmware v037):</b> Das Gateway abonniert den Herzschlag seines Energy Guard und prüft dessen Antwort. Lehnt der Energy Guard das Abo ab, liest das Gateway den Herzschlag alle 30 s selbst. Nach einer geänderten Geräteliste des Energy Guard (Discovery) und nach einem Herzschlag-Ausfall abonniert es neu.</div>
+<div class="info"><b>Wiederverbinden (ab Firmware v039):</b> Eine Verbindung baut mal das Gateway auf (es ruft an), mal der Energy Guard (das Gateway nimmt an). Beendet der Energy Guard eine Verbindung, die <b>er</b> aufgebaut hatte – z. B. bei einem Neustart des HEMS –, ruft das Gateway nach <b>10 s</b> selbst beim gemerkten Partner an. Ruft der Energy Guard vorher selbst an, entfällt das. Im Log steht <code>EBG: SteuVE: Energy Guard hat getrennt - eigener Wiederaufbau zu … in 10 s</code>. Bis Firmware v038 wartete das Gateway in diesem Fall, bis der Energy Guard wieder anrief (Abschnitt 15).</div>
 
 <h3>Unterreiter „Eigene Kennung“</h3>
-<figure><img src="bilder-SteuVE/04b-eebus-kennung.png"><figcaption>Bild 4b – Eigene Kennung der SteuVE mit Sichern, Neue Identität, Neu ankündigen und Zurückspielen.</figcaption></figure>
+<figure><img src="bilder-SteuVE/04b-eebus-kennung.png"><figcaption>Bild 4b – Eigene Kennung mit Sichern, Neue Identität, Neu ankündigen und Zurückspielen.</figcaption></figure>
 <ul>
   <li><b>SHIP-ID</b> und <b>SKI</b> – verdeckt; „anzeigen“ blendet sie nur in diesem Browser ein, „kopieren“ legt sie in die Zwischenablage. Die SKI zeigt das HEMS beim Koppeln an.</li>
-  <li><b>Kennung im Netz</b> – als was sich die SteuVE vorstellt (Wärmepumpen-Gateway, Wallbox oder Steuerbox), einstellbar mit <code>EEBusCsTyp</code>.</li>
-  <li><b>QR-Codes anzeigen</b> – Kopplungs-Code (SHIP-Format wie auf dem Typschild einer Steuerbox), SHIP-ID und SKI als QR-Code, z. B. zum Abscannen mit der App des HEMS.</li>
+  <li><b>Kennung im Netz</b> – als was sich das Gateway vorstellt (Wärmepumpen-Gateway, Wallbox oder Steuerbox), einstellbar mit <code>EEBusCsTyp</code>.</li>
+  <li><b>QR-Codes anzeigen</b> – Kopplungs-Code (SHIP-Format wie auf dem Typschild einer Steuerbox), SHIP-ID und SKI als QR-Code.</li>
   <li><b>Sichern</b> – lädt Zertifikat und Schlüssel als zwei Dateien herunter (<code>eebus_cert.der</code>, <code>eebus_key.der</code>). Die Schlüsseldatei ist geheim – sicher ablegen.</li>
   <li><b>Neue Identität …</b> – erzeugt ein neues Zertifikat (mit Sicherheitsabfrage).</li>
-  <li><b>Neu ankündigen</b> – gibt die eigene Kennung im Netz neu bekannt (mDNS), z. B. wenn ein anderes Gerät noch eine alte SKI zeigt.</li>
-  <li><b>Zurückspielen …</b> – spielt ein gesichertes Zertifikat mit Schlüssel wieder ein (Geräteumzug, Wiederherstellung). Beide Dateien wählen; vorher lädt die Seite die <b>jetzige</b> Identität automatisch herunter. Passen die Dateien nicht zusammen, lehnt das Gerät ab und behält seine Identität. Danach startet das Gerät neu, die Seite lädt nach 40 s neu.</li>
+  <li><b>Neu ankündigen</b> – gibt die eigene Kennung im Netz neu bekannt (mDNS).</li>
+  <li><b>Zurückspielen …</b> – spielt ein gesichertes Zertifikat mit Schlüssel wieder ein (Geräteumzug, Wiederherstellung). Vorher lädt die Seite die <b>jetzige</b> Identität automatisch herunter. Passen die Dateien nicht zusammen, lehnt das Gerät ab. Danach startet das Gerät neu, die Seite lädt nach 40 s neu.</li>
 </ul>
-<p>Sichern und Zurückspielen laufen über die Tasmota-Seite (Port 80) und sind durch das Web-Passwort geschützt, falls eines gesetzt ist.</p>
-<div class="warn"><b>Neue Identität = neue SKI.</b> Das HEMS sieht danach ein neues Gerät. Manche HEMS begrenzen die Zahl der angelegten Geräte – vorher sichern und nur erneuern, wenn es nötig ist. Nie zwei Geräte mit derselben Identität gleichzeitig betreiben.</div>
+<div class="warn"><b>Neue Identität = neue SKI.</b> Das HEMS sieht danach ein neues Gerät. Vorher sichern und nur erneuern, wenn es nötig ist. Nie zwei Geräte mit derselben Identität gleichzeitig betreiben.</div>
 
-<h2 class="seite">5. Reiter „Verbraucher“ – Geräte eintragen</h2>
+<h2 id="k5" class="seite">5. Reiter „Verbraucher“ – Geräte eintragen</h2>
 <figure><img src="bilder-SteuVE/05-reiter-verbraucher.png"><figcaption>Bild 5 – Vier Verbraucherplätze, Melder und Fake-Test. Prio 1 ist ein Messgerät (Haken „abschaltbar“ gesperrt). Prio 3 ist ein Shelly 1 Mini als Steuerkontakt NO, darunter die zurückgelesene Stellung OPEN (Normalstellung).</figcaption></figure>
 <table>
   <tr><th>Spalte</th><th>Bedeutung</th></tr>
-  <tr><td><b>Prio 1 … 4</b></td><td>Abschaltreihenfolge:<br>Prio 4 wird zuerst abgeschaltet,<br>Prio 1 zuletzt</td></tr>
-  <tr><td><b>Fake</b></td><td>Platz wird simuliert (Testprofil), es geht nichts ins Netz.<br>Die Seite trägt dann selbst eine Schein-Adresse 10.0.0.x ein.</td></tr>
-  <tr><td><b>IP</b></td><td>Adresse des Shelly- oder Tasmota-Geräts.<br>Leer oder erstes Oktett 0 = Platz frei<br>(wird nicht abgefragt, nicht geschaltet, zählt nicht)</td></tr>
-  <tr><td><b>Verbraucher</b></td><td>Name, erscheint in Übersicht, Kurzstand und Protokoll</td></tr>
-  <tr><td><b>max. Nennleistung</b></td><td>höchste Leistung des tatsächlichen Verbrauchers (Typenschild).<br>Leer = 3.680 W (16 A).<br>Die Summe meldet die SteuVE dem HEMS als Nennleistung.</td></tr>
+  <tr><td><b>Prio 1 … 4</b></td><td>Abschaltreihenfolge: Prio 4 wird zuerst abgeschaltet, Prio 1 zuletzt</td></tr>
+  <tr><td><b>Fake</b></td><td>Platz wird simuliert (Testprofil), es geht nichts ins Netz. Die Seite trägt dann selbst eine Schein-Adresse 10.0.0.x ein.</td></tr>
+  <tr><td><b>IP</b></td><td>Adresse des Shelly- oder Tasmota-Geräts. Leer oder erstes Oktett 0 = Platz frei (wird nicht abgefragt, nicht geschaltet, zählt nicht)</td></tr>
+  <tr><td><b>Verbraucher</b></td><td>Name (höchstens 15 Zeichen), erscheint in Übersicht, Kurzstand und Protokoll</td></tr>
+  <tr><td><b>max. Nennleistung</b></td><td>höchste Leistung des tatsächlichen Verbrauchers (Typenschild). Leer = 3.680 W (16 A). Die Summe aller belegten Plätze meldet das Gateway dem HEMS als Nennleistung.</td></tr>
   <tr><td><b>abschaltbar</b></td><td>an = darf bei einer Begrenzung abgeschaltet bzw. umgelegt werden<br>aus = wird nur gemessen und mitgemeldet<br><b>gesperrt</b> mit „Messgerät“ darunter = das Gerät hat kein Relais und kann nicht abschalten</td></tr>
-  <tr><td><b>Steuerkontakt</b></td><td><b>– kein</b> = normaler Verbraucher<br><b>NC</b> / <b>NO</b> = Steuerkontakt (siehe unten)<br>Nur beim Shelly 1 wählbar, sonst steht dort „nur Shelly 1“.<br>Wer NC oder NO wählt, bekommt den Haken „abschaltbar“ automatisch gesetzt.</td></tr>
-  <tr><td><b>Gerät / Testprofil</b></td><td>erkanntes Gerät: Shelly-Modell und Generation<br>oder „Tasmota 1 Relais“, „Tasmota Messung“ usw.<br><b>prüfen</b> fragt das Gerät in der nächsten Runde neu ab.</td></tr>
+  <tr><td><b>Steuerkontakt</b></td><td><b>– kein</b> = normaler Verbraucher · <b>NC</b> / <b>NO</b> = Steuerkontakt (Abschnitt 6)<br>Nur beim Shelly 1 wählbar, sonst steht dort „nur Shelly 1“.</td></tr>
+  <tr><td><b>Gerät / Testprofil</b></td><td>erkanntes Gerät (Shelly-Modell und Generation oder „Tasmota 1 Relais“, „Tasmota Messung“ usw.). <b>prüfen</b> fragt das Gerät in der nächsten Runde neu ab.</td></tr>
 </table>
-<p>Nach dem Ändern <b>Speichern</b> klicken – es erscheint „✓ gespeichert“. Etwa eine Sekunde später meldet die SteuVE die neue Nennleistung an das HEMS.</p>
+<p>Nach dem Ändern <b>Speichern</b> klicken – es erscheint „✓ gespeichert“. Etwa eine Sekunde später meldet das Gateway die neue Nennleistung an das HEMS.</p>
 <div class="hinweis">Waschmaschine, Trockner und Geschirrspüler können beim Abschalten ihr Programm abbrechen. Den Haken „abschaltbar“ nur setzen, wenn das in Kauf genommen wird.</div>
 
 <h3>Unterstützte Shelly-Arten</h3>
 <table>
   <tr><th>Art</th><th>Beispiele</th><th>M/S/K</th><th>Funktion</th></tr>
-  <tr><td>Gen2+ mit Schalter</td><td>Plus 1PM, Plus Plug S,<br>Pro 1PM, Gen3/Gen4-Schalter</td><td>S</td><td>messen<br>und schalten</td></tr>
-  <tr><td>Gen1 Relais mit Messung</td><td>Shelly 1PM, Plug S (Gen1)</td><td>S</td><td>messen<br>und schalten</td></tr>
-  <tr><td>Shelly-1-Familie<br>(potentialfrei, ohne Messung)</td><td>Shelly 1 (Gen1), Plus 1, Plus 1 Mini,<br>1 Gen3, 1 Gen4, 1 Mini Gen3, 1 Mini Gen4</td><td>K</td><td>Steuerkontakt<br>umlegen und zurücklesen</td></tr>
+  <tr><td>Gen2+ mit Schalter</td><td>Plus 1PM, Plus Plug S, Pro 1PM, Gen3/Gen4-Schalter</td><td>S</td><td>messen und schalten</td></tr>
+  <tr><td>Gen1 Relais mit Messung</td><td>Shelly 1PM, Plug S (Gen1)</td><td>S</td><td>messen und schalten</td></tr>
+  <tr><td>Shelly-1-Familie (potentialfrei, ohne Messung)</td><td>Shelly 1 (Gen1), Plus 1, Plus 1 Mini, 1 Gen3, 1 Gen4, 1 Mini Gen3, 1 Mini Gen4</td><td>K</td><td>Steuerkontakt umlegen und zurücklesen (Abschnitt 6)</td></tr>
   <tr><td>Gen2+ PM1</td><td>PM Mini Gen3</td><td>M</td><td>nur messen</td></tr>
   <tr><td>Gen2+ EM1</td><td>Pro EM, EM Gen3</td><td>M</td><td>nur messen</td></tr>
-  <tr><td>Gen2+ EM (3 Phasen)</td><td>Pro 3EM</td><td>M</td><td>nur messen<br>(Summe aller Phasen)</td></tr>
-  <tr><td>Gen1 EM / 3EM</td><td>Shelly EM, Shelly 3EM</td><td>M</td><td>nur messen<br>(Summe aller Kanäle)</td></tr>
+  <tr><td>Gen2+ EM (3 Phasen)</td><td>Pro 3EM</td><td>M</td><td>nur messen (Summe aller Phasen)</td></tr>
+  <tr><td>Gen1 EM / 3EM</td><td>Shelly EM, Shelly 3EM</td><td>M</td><td>nur messen (Summe aller Kanäle)</td></tr>
 </table>
-<p>Reine Messgeräte werden nie geschaltet; beim Erkennen nimmt das Skript den Haken „abschaltbar“ selbst heraus, und die Seite sperrt ihn. Meldet ein als Schalter geführtes Gerät keinen Schaltausgang, fragt das Skript es neu ab. Am Gerät erprobt ist von der Shelly-1-Familie der <b>1 Mini Gen3</b>; die Kennungen der anderen stammen aus der Shelly-Dokumentation.</p>
-
-<h3>Steuerkontakt (NC / NO)</h3>
-<p>Manche Geräte haben einen eigenen <b>Steuereingang</b> für die § 14a-Steuerung (Wärmepumpe: EVU-/SG-Ready-Eingang, Wallbox: Freigabe- oder Begrenzungseingang). Dort wird ein Shelly 1 mit seinem potentialfreien Kontakt angeschlossen. Die SteuVE legt den Kontakt bei einer Begrenzung um; wie weit das Gerät dann herunterregelt, legt das <b>Gerät selbst</b> fest.</p>
-<table>
-  <tr><th>Einstellung</th><th>Normalstellung (frei)</th><th>bei Begrenzung</th></tr>
-  <tr><td><b>NC</b> – normally closed<br>(Eingang des Geräts ist normal geschlossen)</td><td>Relais <b>ein</b> = CLOSE</td><td>Relais <b>aus</b> = OPEN</td></tr>
-  <tr><td><b>NO</b> – normally open<br>(Eingang des Geräts ist normal offen)</td><td>Relais <b>aus</b> = OPEN</td><td>Relais <b>ein</b> = CLOSE</td></tr>
-</table>
-<ul>
-  <li><b>Bestätigung:</b> Nach jedem Umlegen liest die SteuVE die Relaisstellung zurück (nicht der Schaltantwort trauen). Erst wenn die Stellung stimmt, gilt der Kontakt als „bestätigt“.</li>
-  <li><b>Normalstellung:</b> Ohne Begrenzung bringt die SteuVE <b>jeden</b> Steuerkontakt in die Normalstellung, auch wenn sie ihn nicht selbst umgelegt hat – etwa nach dem Umstellen von NO auf NC oder nach einem Neustart des Shelly. Im Protokoll steht dann „Normalstellung wiederhergestellt“.</li>
-  <li><b>Leistung:</b> Für einen Steuerkontakt schätzt die SteuVE keine Leistung. Er zählt in Summe und Zusage mit 0 W; angezeigt wird nur die Kontaktstellung. Die Nennleistung des Geräts trägt man trotzdem ein – sie geht in die gemeldete Nennleistung ein.</li>
-  <li><b>Gerät nicht erreichbar oder Stellung nicht bestätigt:</b> Die SteuVE kann dann keine Grenze zusagen (Abschnitt 6) und meldet einer laufenden Begrenzung den Abbruch.</li>
-</ul>
-<div class="hinweis"><b>Einstellungen am Shelly 1 (Shelly-App oder Weboberfläche des Shelly):</b>
-<ul>
-  <li><b>Einschaltzustand nach Stromausfall:</b> „letzten Modus wiederherstellen“ (<code>restore_last</code>).</li>
-  <li><b>Relaistyp / Eingang:</b> „Getrennter Schalter“ (<code>detached</code>) – sonst legt ein Taster oder Schalter am SW-Eingang den Steuerkontakt mit um.</li>
-  <li>Keine Zeitschaltung (Auto-Ein/Auto-Aus) und keine Szenen, die das Relais schalten.</li>
-</ul></div>
-<div class="warn">Der Shelly 1 schaltet nur den Steuereingang, <b>nie die Last</b> des Geräts. Anschluss an Wärmepumpe oder Wallbox nur nach deren Anleitung und durch eine Elektrofachkraft.</div>
+<p>Reine Messgeräte werden nie geschaltet; beim Erkennen nimmt das Skript den Haken „abschaltbar“ selbst heraus, und die Seite sperrt ihn.</p>
 
 <h3>Tasmota-Geräte</h3>
-<p>Antwortet ein Gerät nicht wie ein Shelly, fragt das Skript es als Tasmota-Gerät ab (Befehl <code>Status</code>, danach <code>Status 10</code> für die Energiemessung). So lassen sich z. B. umgeflashte Steckdosen und Steckdosenleisten mit Messung verwenden.</p>
+<p>Antwortet ein Gerät nicht wie ein Shelly, fragt das Skript es als Tasmota-Gerät ab (Befehl <code>Status</code>, danach <code>Status 10</code> für die Energiemessung).</p>
 <table>
   <tr><th>Anzeige</th><th>Gerät</th><th>M/S</th><th>Funktion</th></tr>
-  <tr><td>Tasmota 1 Relais<br>(bzw. 2, 3 … Relais)</td><td>Steckdose oder Leiste<br>mit Energiemessung</td><td>S</td><td>messen<br>und schalten</td></tr>
+  <tr><td>Tasmota 1 Relais (bzw. 2, 3 … Relais)</td><td>Steckdose oder Leiste mit Energiemessung</td><td>S</td><td>messen und schalten</td></tr>
   <tr><td>Tasmota Messung</td><td>Messgerät ohne Relais</td><td>M</td><td>nur messen</td></tr>
-  <tr><td>Tasmota ohne Messung</td><td>Gerät ohne Energiemessung</td><td>M</td><td>nicht nutzbar<br>(liefert keine Leistung)</td></tr>
-  <tr><td>Tasmota: Passwort?</td><td>Gerät mit Web-Passwort</td><td>?</td><td>nicht nutzbar,<br>siehe Voraussetzungen</td></tr>
+  <tr><td>Tasmota ohne Messung</td><td>Gerät ohne Energiemessung</td><td>M</td><td>nicht nutzbar (liefert keine Leistung)</td></tr>
+  <tr><td>Tasmota: Passwort?</td><td>Gerät mit Web-Passwort</td><td>?</td><td>nicht nutzbar, siehe unten</td></tr>
 </table>
 <ul>
-  <li><b>Voraussetzungen:</b> Am Tasmota-<b>Verbraucher</b> muss „HTTP API aktivieren“ eingeschaltet sein (Schnittstelle <code>/cm?cmnd=…</code>), und es darf <b>kein Web-Passwort</b> gesetzt sein.</li>
-  <li><b>Leisten mit mehreren Relais:</b> Geschaltet werden immer <b>alle Relais zusammen</b> (<code>Power0</code>), weil eine Leiste meist nur einen Messkreis für alle Steckplätze hat.</li>
-  <li>Gemessen wird der Wert <code>ENERGY → Power</code> aus <code>Status 10</code>, alle 10 s wie bei den Shellys.</li>
+  <li><b>Voraussetzungen:</b> Am Tasmota-<b>Verbraucher</b> muss „HTTP API aktivieren“ eingeschaltet sein, und es darf <b>kein Web-Passwort</b> gesetzt sein.</li>
+  <li><b>Leisten mit mehreren Relais:</b> Geschaltet werden immer <b>alle Relais zusammen</b> (<code>Power0</code>), weil eine Leiste meist nur einen Messkreis hat.</li>
   <li>Tasmota-Geräte können kein Steuerkontakt sein.</li>
 </ul>
 
 <h3>Melder und Fake-Test</h3>
 <ul>
-  <li><b>Melder</b> – ein fünfter Shelly (kein Tasmota-Gerät) (Plus Plug S oder Plug PM) zeigt den Zustand am LED-Ring: <b>grün</b> = frei, <b>gelb</b> = § 14a begrenzt, <b>rot</b> = Failsafe, <b>blau</b> = ohne HEMS / Energy Guard. Er schaltet nichts ab.</li>
+  <li><b>Melder</b> – ein fünfter Shelly (Plus Plug S oder Plug PM, kein Tasmota-Gerät) zeigt den Zustand am LED-Ring: <b>grün</b> = frei, <b>gelb</b> = § 14a begrenzt, <b>rot</b> = Failsafe, <b>blau</b> = ohne HEMS / Energy Guard. Er schaltet nichts ab.</li>
   <li><b>Simulierte Abschaltung</b> (nur für Fake-Plätze): Programm hält an und läuft danach weiter / startet von vorn / Gerät bleibt aus.</li>
 </ul>
 
-<h2 class="seite">6. Wie die SteuVE schaltet</h2>
-<ol>
-  <li>Alle 10 s liest das Skript die Leistung aller belegten Plätze (beim Steuerkontakt die Relaisstellung) und meldet die Summe an das HEMS.</li>
-  <li>Antwortet ein Verbraucher <b>3 Runden in Folge</b> nicht, ist die Summe nicht bekannt. Die SteuVE meldet dann „Verbrauch unbekannt“ an das HEMS statt einer erfundenen Zahl (Kurzstand: „Summe unbekannt“), bis wieder alle antworten.</li>
-  <li>Liegt eine Grenze vor, legt die SteuVE zuerst alle <b>Steuerkontakte</b> in die Begrenzungsstellung und liest sie zurück.</li>
-  <li>Liegt die Summe über der Grenze, schaltet sie abschaltbare Verbraucher ab, <b>die gerade ziehen</b> – höchste Prio-Zahl zuerst, bis die Summe unter der Grenze liegt. Kann ein Gerät nicht stufenlos reduzieren, ist der nächste technisch mögliche Wert „aus“ (BK6-22-300, Anlage 1, Ziff. 4.6).</li>
-  <li>Nach dem Ende der Begrenzung gehen die Steuerkontakte <b>sofort</b> in die Normalstellung. Abgeschaltete Verbraucher werden <b>gestaffelt</b> wieder eingeschaltet, einer je 60 s (schrittweise Rückkehr, BK6-22-300, Anlage 1, Ziff. 4.3), und nur, was die SteuVE selbst abgeschaltet hat.</li>
-  <li>Während einer laufenden Begrenzung schaltet sie einen Verbraucher frühestens nach 5 min wieder ein und nur, wenn er mit seiner <b>Nennleistung plus 200 W Reserve</b> unter die Grenze passt (nicht mit dem Momentanwert – eine Waschmaschine heizt später wieder).</li>
-</ol>
-<h3>Zusage, Ablehnung und Abbruch</h3>
-<p>Eine Grenze anzunehmen (ACK) heißt nach dem Use Case LPC, sie <b>einhalten zu können</b> – nicht nur, sie empfangen zu haben ([LPC-002], [LPC-003]). Deshalb meldet das Skript dem Treiber in jeder Runde, auf welche Leistung die SteuVE gerade herunterkommt (<b>Zusage</b>):</p>
+<h2 id="k6" class="seite">6. Steuerkontakt mit Shelly 1</h2>
+<h3>6.1 Wofür</h3>
+<p>Viele Wärmepumpen und Wallboxen haben einen eigenen <b>Steuereingang</b> für die Steuerung durch den Netzbetreiber, z. B. einen EVU-Sperr- oder SG-Ready-Eingang an der Wärmepumpe oder einen Freigabe- bzw. Begrenzungseingang an der Wallbox. An diesen Eingang wird der <b>potentialfreie Kontakt</b> eines Shelly 1 angeschlossen. Bei einer § 14a-Begrenzung legt das Gateway den Kontakt um; das Gerät erkennt das an seinem Eingang und regelt selbst herunter.</p>
 <ul>
-  <li>Plätze, die abschaltbar sind und antworten, zählen mit 0 W; nicht abschaltbare mit ihrer aktuellen Leistung; Plätze, die nicht antworten, mit ihrer Nennleistung; Steuerkontakte mit 0 W.</li>
-  <li>Ist ein Steuerkontakt nicht erreichbar oder nicht bestätigt, ist die Zusage <b>unbekannt</b>.</li>
+  <li>Der Shelly 1 schaltet <b>nur den Steuereingang</b>, nie die Last des Geräts.</li>
+  <li><b>Wie weit</b> das Gerät herunterregelt (ganz aus, Mindestleistung, gedrosselt), legt <b>das Gerät</b> fest – nach seiner Anleitung und seinen Einstellungen. Das Gateway kennt diese Leistung nicht und prüft sie nicht.</li>
+  <li>Das Gateway legt den Kontakt um, <b>sobald eine Grenze aktiv ist</b> – unabhängig davon, wie viel Leistung gerade fließt. Nach dem Ende der Begrenzung geht er <b>sofort</b> zurück.</li>
+</ul>
+
+<h3>6.2 Welche Geräte</h3>
+<p>Steuerkontakt kann nur ein Gerät der <b>Shelly-1-Familie</b> sein – Relais mit potentialfreiem Kontakt, ohne Messung: Shelly 1 (Gen1), Plus 1, Plus 1 Mini, 1 Gen3, 1 Gen4, 1 Mini Gen3, 1 Mini Gen4. Das Skript erkennt sie an der Kennung, die der Shelly über <code>/shelly</code> meldet. Am Gerät erprobt ist der <b>Shelly 1 Mini Gen3</b>; die Kennungen der anderen stammen aus der Shelly-Dokumentation.</p>
+<p>Steckdosen und Schalter mit Messung (Plus Plug S, Plus 1PM usw.) schalten die Last selbst und sind normale Verbraucher (S). Tasmota-Geräte können kein Steuerkontakt sein.</p>
+
+<h3>6.3 Verdrahtung und Sicherheit</h3>
+<div class="warn"><b>Arbeiten an 230 V nur durch eine Elektrofachkraft.</b> Das gilt für die Versorgung des Shelly und für jeden Anschluss an Wärmepumpe oder Wallbox. Den Steuereingang nur nach der Anleitung des Geräteherstellers belegen.</div>
+<ul>
+  <li><b>Versorgung</b> des Shelly 1 und <b>Kontakt</b> sind getrennt: Der Kontakt (beim Shelly 1 die Relaisklemmen, je nach Modell im Shelly-Handbuch nachsehen) wird wie ein Taster/Schalter an die beiden Klemmen des Steuereingangs gelegt.</li>
+  <li>Das Relais des Shelly 1 ist ein Schließer: <b>Relais ein = Kontakt geschlossen (CLOSE)</b>, <b>Relais aus = Kontakt offen (OPEN)</b>. So zeigt es auch das Gateway an.</li>
+  <li>Führt der Steuereingang Kleinspannung, darf an den Kontakt keine Netzspannung gelangen. Ob der Eingang einen potentialfreien Kontakt erwartet und welche Spannung dort anliegt, steht in der Anleitung des Geräts.</li>
+  <li>Ob der Eingang bei <b>geschlossenem</b> oder bei <b>offenem</b> Kontakt begrenzt, ist je nach Gerät verschieden. Danach richtet sich die Einstellung NC oder NO (6.5).</li>
+</ul>
+
+<h3>6.4 Einstellungen am Shelly 1</h3>
+<p>In der Shelly-App oder auf der Weboberfläche des Shelly:</p>
+<ul>
+  <li><b>Einschaltzustand nach Stromausfall:</b> „letzten Modus wiederherstellen“ (<code>restore_last</code>).</li>
+  <li><b>Relaistyp / Eingang:</b> „Getrennter Schalter“ (<code>detached</code>). Sonst legt ein Taster oder Schalter am SW-Eingang den Steuerkontakt mit um – der SW-Eingang schaltet beim Shelly 1 das eigene Relais und ist <b>keine</b> Rückmeldung.</li>
+  <li>Keine Zeitschaltung (Auto-Ein/Auto-Aus) und keine Szenen, die das Relais schalten.</li>
+  <li>Feste IP-Adresse (z. B. im Router), damit der Platz im Gateway gültig bleibt.</li>
+</ul>
+
+<h3>6.5 NC oder NO – was wählen?</h3>
+<p>NC/NO beschreibt den <b>Steuereingang des Geräts</b>: wie der Kontakt im <b>Normalbetrieb</b> (ohne Begrenzung) steht.</p>
+<table>
+  <tr><th>Einstellung</th><th>Normalstellung (frei)</th><th>bei Begrenzung</th><th>passt, wenn das Gerät …</th></tr>
+  <tr><td><b>NC</b> – normally closed<br>„normal geschlossen“</td><td>Relais <b>ein</b> = CLOSE</td><td>Relais <b>aus</b> = OPEN</td><td>… bei <b>offenem</b> Kontakt begrenzt</td></tr>
+  <tr><td><b>NO</b> – normally open<br>„normal offen“</td><td>Relais <b>aus</b> = OPEN</td><td>Relais <b>ein</b> = CLOSE</td><td>… bei <b>geschlossenem</b> Kontakt begrenzt</td></tr>
+</table>
+<div class="info"><b>Folge bei Stromausfall des Shelly:</b> Ohne Strom fällt das Relais ab, der Kontakt ist offen. Bei <b>NC</b> sieht das Gerät dann „Begrenzung“, bei <b>NO</b> „normal“. Nach der Rückkehr stellt der Shelly seinen letzten Zustand her (<code>restore_last</code>), und das Gateway korrigiert die Stellung in der nächsten Runde (6.7).</div>
+
+<h3>6.6 Einrichten im Reiter „Verbraucher“</h3>
+<ol>
+  <li>Freien Platz wählen (Prio 1–4; die Prio spielt für den Steuerkontakt keine Rolle, er wird immer umgelegt).</li>
+  <li><b>IP</b> des Shelly 1 und einen <b>Namen</b> eintragen (z. B. „Wärmepumpe“).</li>
+  <li><b>max. Nennleistung</b> des Geräts hinter dem Kontakt eintragen (Typenschild). Sie zählt zur gemeldeten Nennleistung des Gateways.</li>
+  <li><b>Speichern</b> und eine Runde (10 s) warten oder <b>prüfen</b> klicken, bis bei „Gerät“ das Shelly-Modell steht. Erst dann bietet die Spalte <b>Steuerkontakt</b> die Auswahl an; bei anderen Geräten steht dort „nur Shelly 1“.</li>
+  <li>Bei <b>Steuerkontakt</b> <b>NC</b> oder <b>NO</b> wählen. Die Seite setzt den Haken <b>abschaltbar</b> dabei automatisch – ohne ihn wirkt der Kontakt nicht.</li>
+  <li><b>Speichern</b>. Darunter erscheint die zurückgelesene Stellung (grün = Normalstellung, gelb = Begrenzungsstellung).</li>
+</ol>
+<p><b>Über die Konsole</b> geht dasselbe in zwei Schritten (Beispiel Platz 3, Adresse 192.168.1.80, 11.000 W):</p>
+<pre>STVSET 3,0,1,192.168.1.80,11000,4,Waermepumpe
+STVKONT 3,NC</pre>
+<p><code>STVSET</code> (Platz, Fake 0, abschaltbar 1, IP, Nennleistung, Testprofil, Name) zuerst: Eine <b>neue Adresse</b> setzt den Steuerkontakt des Platzes zurück. <code>STVKONT p,-</code> macht den Platz wieder zum normalen Verbraucher. Während einer Begrenzung lässt sich ein Kontakt, den das Gateway umgelegt hat, nicht ändern („erst nach der Begrenzung ändern“).</p>
+<div class="hinweis"><b>Felder W und Eingang bei <code>STVKONT</code>:</b> Der Befehl nimmt weiterhin <code>STVKONT p,NC,W,Eingang</code> an (ältere Seiten schicken das). Seit Skript v014 wird die <b>Leistung W</b> nicht mehr verwendet und seit v015 der <b>Rückmeldeeingang</b> nicht mehr – bestätigt wird nur über das Zurücklesen des Relais. Bei „abschaltbar“ hilft <code>STVKONT</code> nicht: Der Haken kommt aus <code>STVSET</code> (3. Feld = 1) bzw. von der Seite.</div>
+
+<h3>6.7 Wann gilt ein Platz als Steuerkontakt?</h3>
+<p>Nur wenn <b>alle drei</b> Bedingungen erfüllt sind (Skript v019, im Skript <code>kontaktAktiv</code>):</p>
+<ol>
+  <li>Steuerkontakt <b>NC oder NO</b> eingetragen,</li>
+  <li>Haken <b>abschaltbar</b> gesetzt,</li>
+  <li>das Gerät ist ein <b>Shelly der Shelly-1-Familie</b> (oder ein Fake-Platz zum Testen).</li>
+</ol>
+<p>Fehlt eine Bedingung, ist der Platz ein <b>normaler Verbraucher</b>: Er wird gemessen und zählt mit seiner Leistung in Summe und Zusage. Ein Gerät, das kein Shelly 1 ist, aber noch NC/NO eingetragen hat, erzeugt im Log einmal <code>STV Prio n … ist kein Shelly 1 - nicht als Steuerkontakt zugelassen</code>. In der Antwort von <code>STVKONT</code> zeigt das letzte Feld <b>aktiv</b> (1/0), ob der Platz wirklich als Steuerkontakt arbeitet.</p>
+
+<h3>6.8 Ablauf: Begrenzung, Rücklesen, Normalstellung</h3>
+<ol>
+  <li><b>Grenze aktiv:</b> In der nächsten Runde (alle 10 s) stellt das Gateway jeden aktiven Steuerkontakt in die <b>Begrenzungsstellung</b> (NC → OPEN, NO → CLOSE).</li>
+  <li><b>Zurücklesen:</b> Danach liest es die Relaisstellung zurück (Gen1 <code>/relay/0</code>, Gen2+ <code>Switch.GetStatus</code>) und traut nicht der Schaltantwort. Stimmt die Stellung, ist der Kontakt <b>„bestätigt“</b>, sonst <b>„NICHT bestätigt“</b>. Steht ein Kontakt schon richtig, gilt er ebenfalls als bestätigt und „von SteuVE“.</li>
+  <li><b>Grenze aufgehoben:</b> Der Kontakt geht <b>sofort</b> in die Normalstellung zurück (nicht gestaffelt wie abgeschaltete Verbraucher) und wird wieder zurückgelesen.</li>
+  <li><b>Ohne Begrenzung</b> bringt das Gateway <b>jeden</b> Steuerkontakt in die Normalstellung, auch wenn es ihn nicht selbst umgelegt hat – etwa nach dem Umstellen von NO auf NC, nach einem Stromausfall des Shelly oder wenn ihn jemand von Hand geschaltet hat. Im Protokoll steht dann „Normalstellung wiederhergestellt“.</li>
+</ol>
+
+<h3>6.9 Leistung, Nennleistung und Zusage</h3>
+<ul>
+  <li>Der Shelly 1 misst nichts. Für einen Steuerkontakt <b>schätzt das Gateway keine Leistung</b>: Er zählt in Summe und Zusage mit <b>0 W</b>; angezeigt wird nur die Kontaktstellung.</li>
+  <li>Die eingetragene <b>Nennleistung</b> zählt aber zur Nennleistung, die das Gateway meldet.</li>
+  <li>Ist der Kontakt erreichbar und bestätigt, rechnet das Gateway damit, dass das Gerät bei Begrenzung herunterregelt. Ob es das tut und wie weit, verantwortet das Gerät.</li>
+</ul>
+<div class="hinweis"><b>Zusätzliches Messgerät für dasselbe Gerät?</b> Ein Messgerät (z. B. Pro 3EM) auf einem eigenen Platz ist ein nicht abschaltbarer Verbraucher und zählt mit seiner <b>aktuellen</b> Leistung in die Zusage. Dann lehnt das Gateway Grenzen unter dieser Leistung ab, obwohl der Steuerkontakt das Gerät herunterregeln würde. Das ist eine Folge der Rechnung in 7.2 – vorher abwägen.</div>
+
+<h3>6.10 Wenn der Kontakt nicht antwortet</h3>
+<table>
+  <tr><th>Lage</th><th>Was das Gateway tut</th></tr>
+  <tr><td>Eine Antwort des Shelly fehlt (eine Runde)</td><td>Die <b>Zusage ist unbekannt</b> (<code>EEBusCsReady -1</code>). Jede <b>neue</b> aktive Grenze wird abgelehnt (NACK), bis der Kontakt wieder antwortet und bestätigt ist.</td></tr>
+  <tr><td>Stellung nach dem Umlegen nicht bestätigt</td><td>wie oben: Zusage unbekannt; im Kontakt-Protokoll „NICHT bestaetigt“.</td></tr>
+  <tr><td>3 Runden in Folge keine Antwort (rund 30 s)</td><td>Platz „antwortet nicht“, das Gateway meldet dem HEMS <b>„Verbrauch unbekannt“</b> statt einer Zahl. Es versucht nicht mehr zu schalten, bis der Shelly wieder antwortet.</td></tr>
+  <tr><td>Während einer <b>angenommenen</b> Grenze</td><td>Die Grenze <b>bleibt aktiv</b> (Skript v022, siehe 7.3). Nach 2 Runden steht im Kontakt-Protokoll „nicht eingehalten - Grenze bleibt aktiv“. Der Energy Guard sieht die Lage am gemeldeten Verbrauch („unbekannt“) und kann neu verteilen.</td></tr>
+  <tr><td>Shelly wieder da</td><td>Das Gateway stellt die passende Stellung her (Begrenzung oder Normalstellung), liest zurück und sagt wieder zu.</td></tr>
+</table>
+<div class="info">Bis Skript v021 hat das Gateway in diesem Fall die Grenze <b>abgebrochen</b> (<code>EEBusCsFail</code>). Das ist nach dem Use Case LPC einer Einrichtung, die nicht selbst Energiemanager ist, nur aus Selbstschutz, Sicherheit oder rechtlichen Gründen erlaubt ([LPC-923]); deshalb seit v022 nicht mehr (Abschnitt 14).</div>
+
+<h3>6.11 Kontakt-Protokoll <code>/steuve_kontakt.csv</code> (Nachweis)</h3>
+<p>Für die Steuerkontakte schreibt das Skript <b>jedes Ereignis</b> in eine eigene Datei – nur anhängen, nie überschreiben, bei SD-Karte dort. Sie ist der Nachweis, wann welcher Kontakt wie stand (BNetzA BK6-22-300 Anlage 1 Ziff. 7.2–7.4; nach dem LPC-Leitfaden IG 4.1.5 protokolliert, wer sein ACK auf eigene Informationen stützt, diese Informationen). Abrufbar über die TinyC-IDE (Port 82) oder die Dateiverwaltung von Tasmota.</p>
+<table>
+  <tr><th>Spalte</th><th>Inhalt</th></tr>
+  <tr><td>Zeit</td><td>Ortszeit, z. B. <code>2026-11-21T13:27:06</code></td></tr>
+  <tr><td>Ereignis</td><td>Begrenzung Beginn · Begrenzung Ende · umgelegt (Begrenzung) · zurueck (normal) · bestaetigt · NICHT bestaetigt · nicht eingehalten - Grenze bleibt aktiv (ab v022; bis v021 „nicht eingehalten -&gt; EEBusCsFail“) · Normalstellung wiederhergestellt</td></tr>
+  <tr><td>Prio, Name</td><td>Platz und Name (bei Beginn/Ende/nicht eingehalten „-“)</td></tr>
+  <tr><td>Kontakt, Relais</td><td>NC/NO und die Stellung OPEN/CLOSE</td></tr>
+  <tr><td>Grenze W, Zustand</td><td>Grenze zu diesem Zeitpunkt, Zustand des Gateways</td></tr>
+</table>
+<p>Beispiel aus dem Testnetz (21.11.2026, ein Kontakt NC, Begrenzung und Ende):</p>
+<pre>2026-11-21T13:27:06;Begrenzung Beginn;-;-;-;-;14252;gesteuert
+2026-11-21T13:27:06;umgelegt (Begrenzung);3;Test Steuern;NC;OPEN;14252;gesteuert
+2026-11-21T13:27:06;bestaetigt;3;Test Steuern;NC;OPEN;14252;gesteuert
+2026-11-21T13:27:38;Begrenzung Ende;-;-;-;-;0;gesteuert
+2026-11-21T13:27:38;zurueck (normal);3;Test Steuern;NC;CLOSE;0;gesteuert
+2026-11-21T13:27:38;bestaetigt;3;Test Steuern;NC;CLOSE;0;gesteuert</pre>
+
+<h3>6.12 Wo man den Kontakt sieht</h3>
+<ul>
+  <li><b>Tasmota-Hauptseite</b> (Kurzstand): „Prio 3 Name (Kontakt NC) · offen · Begrenzung · bestaetigt“.</li>
+  <li><b>Übersicht:</b> Kachel „Kont. OPEN/CLOSE“ statt einer Leistung (Bild 2); in der Liste Art „K“, Stellung grün/gelb, Zustand „normal“ oder „begrenzt · von SteuVE“.</li>
+  <li><b>Reiter Verbraucher:</b> zurückgelesene Stellung unter der Auswahl NC/NO.</li>
+  <li><b>Konsole:</b> <code>STVKONT</code> → je Platz <code>[Platz,"NC|NO|-",W,"-",Bestätigung,Relais,aktiv]</code>; Bestätigung 1 = bestätigt, −1 = nicht bestätigt, 0 = (noch) keine Aussage; Relais 1 = CLOSE, 0 = OPEN, −1 = unbekannt.</li>
+  <li><b>HEMS</b> (wenn es ein Tasmota-HEMS ist): zeigt während einer Dimmung die Kontakte der Gateways an.</li>
+</ul>
+
+<h2 id="k7" class="seite">7. Wie das Gateway schaltet und zusagt</h2>
+<h3>7.1 Ablauf je Runde (alle 10 s)</h3>
+<ol>
+  <li>Das Skript liest die Leistung aller belegten Plätze (beim Steuerkontakt die Relaisstellung).</li>
+  <li>Antwortet ein Verbraucher <b>3 Runden in Folge</b> nicht, ist die Summe nicht bekannt. Das Gateway meldet dann „Verbrauch unbekannt“ an das HEMS statt einer erfundenen Zahl, bis wieder alle antworten.</li>
+  <li>Liegt eine Grenze vor, stellt es zuerst alle <b>Steuerkontakte</b> in die Begrenzungsstellung und liest sie zurück (Abschnitt 6).</li>
+  <li>Liegt die Summe über der Grenze, schaltet es abschaltbare Verbraucher ab, <b>die gerade ziehen</b> – höchste Prio-Zahl zuerst, bis die Summe unter der Grenze liegt. Kann ein Gerät nicht stufenlos reduzieren, ist der nächste technisch mögliche Wert „aus“ (BK6-22-300 Anlage 1 Ziff. 4.6).</li>
+  <li>Nach dem Ende der Begrenzung gehen Steuerkontakte <b>sofort</b> zurück. Abgeschaltete Verbraucher werden <b>gestaffelt</b> wieder eingeschaltet, einer je 60 s (schrittweise Rückkehr, BK6-22-300 Anlage 1 Ziff. 4.3), und nur, was das Gateway selbst abgeschaltet hat.</li>
+  <li>Während einer laufenden Begrenzung schaltet es einen Verbraucher frühestens nach 5 min wieder ein und nur, wenn er mit seiner <b>Nennleistung plus 200 W Reserve</b> unter die Grenze passt.</li>
+  <li>Zum Schluss meldet das Skript dem Treiber die <b>Zusage</b> (7.2).</li>
+</ol>
+<h3>7.2 Zusage und Ablehnung</h3>
+<p>Eine Grenze anzunehmen (ACK) heißt nach dem Use Case LPC, sie <b>einhalten zu wollen und zu können</b> – nicht nur, sie empfangen zu haben ([LPC-002], [LPC-003]; LPC-Leitfaden IG Abschn. 2.4: „ein ACK ist keine bloße Empfangsbestätigung“). Deshalb meldet das Skript dem Treiber in jeder Runde mit <code>EEBusCsReady</code>, auf welche Leistung das Gateway gerade herunterkommt:</p>
+<ul>
+  <li>abschaltbare Plätze, die antworten: 0 W · nicht abschaltbare: ihre aktuelle Leistung · Plätze, die nicht antworten: ihre Nennleistung · bestätigte Steuerkontakte: 0 W</li>
+  <li>Steuerkontakt nicht erreichbar oder nicht bestätigt: Zusage <b>unbekannt</b>.</li>
 </ul>
 <table>
-  <tr><th>Fall</th><th>Antwort an den Energy Guard</th></tr>
-  <tr><td>Grenze ≥ Zusage</td><td><b>ACK</b> – Grenze angenommen</td></tr>
-  <tr><td>Grenze &lt; Zusage, Zusage unbekannt oder älter als 60 s</td><td><b>NACK</b> (Fehlernummer 7) – Grenze abgelehnt, der bisherige Zustand bleibt</td></tr>
-  <tr><td>angenommene Grenze 2 Runden lang nicht eingehalten (Summe darüber oder Steuerkontakt nicht bestätigt)</td><td><b>Abbruch</b> – die SteuVE hebt die Grenze auf und meldet dem Energy Guard „Grenze nicht aktiv“ ([LPC-923]); im Kontakt-Protokoll „nicht eingehalten“</td></tr>
+  <tr><th>Fall (Grenze aktiv)</th><th>Antwort an den Energy Guard</th></tr>
+  <tr><td>Grenze ≥ Zusage, Zusage jünger als 60 s</td><td><b>ACK</b> – Grenze angenommen</td></tr>
+  <tr><td>Grenze &lt; Zusage oder Zusage unbekannt</td><td><b>NACK</b> (Fehlernummer 7) – „Grenze nicht erreichbar“, der bisherige Zustand bleibt ([LPC-907])</td></tr>
+  <tr><td><b>Skript läuft nicht</b> (keine Zusage in den letzten 60 s, oder noch nie eine) – <b>seit Firmware v037</b> (Treiber v036)</td><td><b>NACK</b> – „Skript laeuft nicht“ (Abschnitt 8). Bis v035 sagte der Treiber in diesem Fall zu („altes Skript“).</td></tr>
+  <tr><td>Freigabe (Grenze aufheben), auch Dauer 0 mit „aktiv“</td><td>immer <b>ACK</b></td></tr>
+  <tr><td>Energy Guard hat die Funktion <b>nicht gebunden</b> (Grenze: LoadControl, Failsafe-Werte: DeviceConfiguration) – <b>ab Firmware v039</b></td><td><b>Fehler 9</b> („Binding nötig“), der Wert wird nicht übernommen (Abschnitt 9)</td></tr>
 </table>
-<p>Ein HEMS kann darauf reagieren und den Anteil neu verteilen. Die Freigabe (Grenze aufheben) wird immer angenommen.</p>
-<div class="info"><b>Zustände:</b> <b>Anlauf</b> = nach einem Neustart, noch keine Vorgabe – <b>begrenzt auf den Failsafe-Wert</b> (EEBUS-Use-Case LPC, Regel LPC-901) · <b>gesteuert</b> = Energy Guard hat nach seinem Herzschlag eine Vorgabe geschickt, die SteuVE folgt ihr · <b>Failsafe</b> = 120 s seit dem <b>letzten Herzschlag</b> nichts mehr gekommen, es gilt die Failsafe-Grenze für die Failsafe-Mindestdauer · <b>autonom</b> = ohne Energy Guard, frei (nach 120 s Anlauf ohne Vorgabe oder nach Ablauf der Failsafe-Mindestdauer). Aus „autonom“ und „Failsafe“ kommt die SteuVE erst mit der nächsten Vorgabe wieder auf „gesteuert“. Auch im Failsafe werden die Steuerkontakte umgelegt.</div>
-<div class="info"><b>Was die SteuVE außerdem ablehnt</b> (Use Case LPC; der Energy Guard bekommt eine Ablehnung, die alten Werte bleiben): eine negative Grenze, einen Schreibversuch auf eine andere Grenze als ihre eigene, einen Failsafe-Wert mit negativer Leistung oder mit einer Mindestdauer unter 2 Stunden. Ein Failsafe-Wert von 0 W ist gültig. In „Anlauf“, „Failsafe“ und „autonom“ meldet die SteuVE die vom Energy Guard geschriebene Grenze als <b>nicht aktiv</b>.</div>
+<h3>7.3 Angenommene Grenze kann nicht mehr gehalten werden</h3>
+<p>Liegt die Summe 2 Runden lang über der Grenze (nichts mehr abschaltbar) oder ist ein Steuerkontakt nicht bestätigt, <b>bleibt die Grenze aktiv</b> (seit Skript v022). Das Gateway meldet weiter den echten Verbrauch bzw. „unbekannt“; so sieht der Energy Guard die Überschreitung. Ins Log und ins Kontakt-Protokoll kommt „Grenze … nicht eingehalten … – Grenze bleibt aktiv“. Neue Grenzen sagt es nur so weit zu, wie es sie erreicht.</p>
+<div class="info"><b>Warum lehnt ein Gateway ab, wenn ein anderes Gerät ausfällt?</b> Hängen mehrere Geräte an einem HEMS und fällt eines aus, rechnet das HEMS für das stumme Gerät mit dessen Nennleistung. Für die übrigen bleibt dann oft nur ein sehr kleiner Anteil (im Test 0 W). Ein Gateway, dessen nicht abschaltbare Verbraucher mehr ziehen (im Test 1 W), lehnt diesen Anteil ab – richtig, denn es sagt nur zu, was es halten kann ([LPC-002]/[LPC-003], [LPC-907]). Wie das HEMS dann reagiert, legt das HEMS fest.</div>
+<h3>7.4 Zustände</h3>
+<div class="info"><b>Anlauf</b> = nach einem Neustart, noch keine Vorgabe – <b>begrenzt auf den Failsafe-Wert</b> ([LPC-901]) · <b>gesteuert</b> = der Energy Guard hat nach seinem Herzschlag eine Vorgabe geschickt · <b>Failsafe</b> = 120 s seit dem <b>letzten Herzschlag</b> nichts mehr gekommen ([LPC-911]/[LPC-912]); es gilt die Failsafe-Grenze für die Failsafe-Mindestdauer · <b>autonom</b> = ohne Energy Guard, frei (nach 120 s Anlauf ohne Vorgabe oder nach Ablauf der Failsafe-Mindestdauer). Auch im Failsafe werden die Steuerkontakte umgelegt.</div>
+<div class="info"><b>Regeln für Vorgaben in Anlauf, Failsafe und autonom</b> (v035/v036):
+<ul>
+  <li>Eine Grenze zählt dort nur, wenn <b>binnen 60 s davor ein Herzschlag</b> des Energy Guard kam (LPC Z. 372–375); sonst NACK, der Zustand bleibt.</li>
+  <li>Failsafe-Werte nimmt das Gateway dort erst nach Herzschlag und Grenze an.</li>
+  <li>Kann es eine Grenze nicht einhalten, oder ist sie negativ, antwortet es NACK <b>und</b> wechselt nach „gesteuert“ ohne Begrenzung ([LPC-902]/[LPC-918]).</li>
+  <li>In Anlauf, Failsafe und autonom meldet es die vom Energy Guard geschriebene Grenze als <b>nicht aktiv</b> ([LPC-009]).</li>
+</ul></div>
+<div class="info"><b>Was das Gateway außerdem ablehnt</b> (der Energy Guard bekommt NACK, die alten Werte bleiben): eine negative Grenze; einen Schreibversuch auf eine andere Grenze als die eigene; einen Failsafe-Wert mit negativer Leistung oder mit einer Mindestdauer unter 2 Stunden. Eine Mindestdauer <b>über 24 Stunden</b> wird abgelehnt, auf 24 h gesetzt und gemeldet ([LPC-022]). Ein Failsafe-Wert von 0 W ist gültig. Ein Teil-Schreiben ohne Endzeit lässt die alte Endzeit stehen.</div>
 
-<h2>7. Reiter „Meldungen“</h2>
+<h2 id="k8" class="seite">8. Skript läuft nicht – erkennen und beheben</h2>
+<p>Ohne laufendes Skript kann das Gateway nichts abschalten und keinen Kontakt umlegen. Deshalb gilt seit Firmware v037 (Treiber v036):</p>
+<ul>
+  <li><b>Jede aktive Grenze wird abgelehnt</b> (NACK), solange das Skript nicht innerhalb der letzten 60 s seine Zusage gemeldet hat. Eine Freigabe wird weiter angenommen.</li>
+  <li><b>Messwert älter als 60 s = unbekannt:</b> Hat das Skript die Leistung 60 s nicht erneuert, meldet das Gateway dem Energy Guard „Leistung unbekannt“ statt des letzten Werts.</li>
+  <li><b>Nennleistung aus dem Flash:</b> Die zuletzt bekannte Nennleistung steht in <code>/eebus_cs_max.txt</code> im Flash. Nach einem Neustart meldet das Gateway sie, auch bevor (oder ohne dass) das Skript läuft – statt 0 W. War noch nie eine bekannt, bleibt es bei 0 W.</li>
+  <li>Eine Grenze, die <b>vor</b> dem Ausfall angenommen wurde, bleibt aktiv; der Energy Guard sieht die Lage an „Leistung unbekannt“.</li>
+</ul>
+<h3>8.1 Woran man es erkennt</h3>
+<table>
+  <tr><th>Wo</th><th>Anzeichen</th></tr>
+  <tr><td>Konsole <code>EEBusCs</code></td><td><code>"Skript":"laeuft nicht"</code> (normal: <code>"laeuft"</code>); <code>ZusageAlterS</code> größer als 60 oder −1</td></tr>
+  <tr><td>Tasmota-Hauptseite</td><td>der Kurzstand des Skripts (SteuVE · Zustand · Summe) fehlt</td></tr>
+  <tr><td>SteuVE-Seite</td><td>Statuszeile „Verbraucher – Skript fehlt“; Übersicht und Reiter Verbraucher „Skript steuve_verbraucher nicht geladen“; Reiter <b>Status</b> „Skript Slot 0 … geladen, gestoppt“ oder „leer“</td></tr>
+  <tr><td>Reiter Meldungen</td><td>„abgelehnt - Skript laeuft nicht“ bzw. „Skript meldet nicht - Leistung unbekannt“</td></tr>
+  <tr><td>Log</td><td><code>EBG: SteuVE: Grenze … ABGELEHNT - Skript laeuft nicht (nie gemeldet | Meldung zu alt)</code><br><code>EBG: SteuVE: Messwert seit … s nicht erneuert - Skript laeuft nicht? Leistung jetzt unbekannt</code></td></tr>
+  <tr><td>Log beim Start (Boot-Schutz)</td><td><code>TCC: Boot loop … — /tinyc.cfg rewritten with autoexec=0 for all slots</code> (einmal) und danach bei jedem Start<br><code>TCC: autoexec is OFF for every slot because a boot loop was detected … Enable a slot to clear this.</code></td></tr>
+</table>
+<h3>8.2 Häufigste Ursache: Boot-Schutz von TinyC</h3>
+<p>TinyC schützt sich gegen Startschleifen: Vor dem Start der Skripte legt es eine Markierungsdatei an und löscht sie, wenn das Gerät <b>30 s</b> gelaufen ist. Findet es die Markierung beim nächsten Start noch vor, nimmt es an, der letzte Start sei abgestürzt, und <b>schaltet den Autostart aller Slots ab</b>. Das passiert auch, wenn einfach <b>der Strom zweimal kurz hintereinander ausfällt</b> – der zweite Ausfall innerhalb von 30 s nach dem Wiederanlauf genügt. Auch mehrere schnelle Aus-/Einschaltungen oder Abstürze kurz nach dem Start lösen ihn aus. Ein Neustart per Befehl (<code>Restart 1</code>) und das erste Starten nach einem Firmware-Update lösen ihn nicht aus.</p>
+<p>Im Testnetz ist genau das am 23.11.2026 an beiden Gateways passiert: Nach einem Stromlos-Start zeigten beide „Skript steuve_verbraucher nicht geladen“. Mit Treiber v035 hätte das Gateway trotzdem Grenzen zugesagt – das ist der Grund für die Änderung in v036.</p>
+<h3>8.3 So behebt man es</h3>
+<ol>
+  <li>Auf der SteuVE-Seite oben <b>TinyC</b> klicken (oder Tasmota-Hauptseite → TinyC).</li>
+  <li>Bei <b>Slot 0</b> den Knopf <b>A</b> (Autostart) drücken, bis er <b>grün</b> ist. Im Log steht dann <code>TCC: autoexec re-enabled — boot-loop notice cleared</code>.</li>
+  <li>Mit <b>▶</b> das Skript starten. Ist der Slot <b>leer</b>, zuerst das Skript laden (Abschnitt 12).</li>
+  <li>Etwa 10–20 s warten und in der Konsole <code>EEBusCs</code> prüfen: <code>"Skript":"laeuft"</code>. Der Kurzstand auf der Hauptseite ist wieder da.</li>
+</ol>
+<p>Ohne Browser geht es auch per Konsole: <code>TinyCRun 0</code> startet Slot 0; den Autostart setzt die Schnittstelle <code>/tc_api?cmd=autoexec&amp;slot=0&amp;value=1</code>.</p>
+<div class="hinweis">Nach einem Stromausfall am Standort lohnt ein kurzer Blick auf <code>EEBusCs</code> → <code>"Skript"</code>. Wer das automatisch überwachen will, kann den Wert z. B. per MQTT oder Regel abfragen; das Gateway selbst schaltet den Autostart nicht wieder ein.</div>
+
+<h2 id="k9" class="seite">9. Reiter „Meldungen“</h2>
 <figure><img src="bilder-SteuVE/06-reiter-meldungen.png"><figcaption>Bild 6 – Verbindung, Herzschlag-Zähler, Vorgaben vom HEMS und die Meldungsliste (hier ohne Filter: das HEMS fragt alle paar Sekunden die Messwerte ab).</figcaption></figure>
 <ul>
   <li><b>Verbindung</b> – welcher Energy Guard, wie lange verbunden, Zahl der Verbindungen seit dem Start.</li>
-  <li><b>Herzschlag</b> – nur als Zähler; Herzschläge kommen alle paar Sekunden und stehen nicht in der Liste.</li>
-  <li><b>Vorgaben vom HEMS</b> – letzte Grenze, Failsafe, Zahl der abgewiesenen Schreibversuche.</li>
+  <li><b>Herzschlag</b> – nur als Zähler; Herzschläge stehen nicht in der Liste.</li>
+  <li><b>Vorgaben vom HEMS</b> – letzte Grenze, Failsafe, Zahl der abgewiesenen Schreibversuche, letzte Ablehnung mit Grund.</li>
   <li><b>Was das HEMS abonniert/gebunden hat</b> – zum Beispiel LoadControl gebunden = das HEMS darf Grenzen schreiben.</li>
-  <li><b>Meldungsliste</b> – neueste oben, die letzten 60, nach einem Neustart leer. „nur Grenzen / Failsafe“ blendet die Messwert-Abfragen aus. Bleibt die Liste mit Filter leer, liegt die letzte Grenze schon länger zurück; für lange Zeiträume die Mitschrift (FileLog) verwenden.</li>
+  <li><b>Meldungsliste</b> – neueste oben, die letzten 60, nach einem Neustart leer. „nur Grenzen / Failsafe“ blendet die Messwert-Abfragen aus.</li>
 </ul>
+<div class="info"><b>Binding-Pflicht (ab Firmware v039):</b> Nach SPINE darf nur ein Gerät mit <b>Bindung</b> an die Funktion schreiben. Das Gateway nimmt eine Grenze nur vom Gerät an, das <b>LoadControl</b> gebunden hat, und Failsafe-Werte nur vom Gerät, das <b>DeviceConfiguration</b> gebunden hat. Sonst antwortet es mit <b>Fehler 9</b> und übernimmt den Wert nicht. Im Log:<br>
+<code>EBG: SteuVE: Grenze von … ABGELEHNT (Fehler 9) - LoadControl … nicht gebunden</code><br>
+<code>EBG: SteuVE: Failsafe-Werte von … ABGELEHNT (Fehler 9) - DeviceConfiguration … nicht gebunden</code><br>
+Bei einer Grenze steht in den Meldungen „abgelehnt - nicht gebunden (Fehler 9)“. Ein HEMS ab Firmware v039 bindet beide Funktionen und bindet nach einem Fehler 9 neu; im Normalbetrieb kommt Fehler 9 deshalb nicht vor (Abschnitt 15). Firmware v037 und v038 haben fehlende Bindungen nur protokolliert („nicht gebunden (nur protokolliert)“) und den Wert angenommen.</div>
 
-<h2>8. Reiter „Protokoll“ und Kontakt-Protokoll</h2>
+<h2 id="k10">10. Reiter „Protokoll“</h2>
 <figure><img src="bilder-SteuVE/07-reiter-protokoll.png"><figcaption>Bild 7 – Protokoll mit Zeit, Zustand, Grenze, Summe und abgeschalteten Verbrauchern. Zu sehen: ein Failsafe-Test am Vorabend und ein Start am Morgen (Anlauf mit Failsafe-Grenze, danach autonom, bis das HEMS wieder da war).</figcaption></figure>
-<p>Das Protokoll ist der Nachweis einer Begrenzung. Es wird <b>nur während einer Begrenzung und 10 Minuten danach</b> minütlich geschrieben (Datei <code>/steuve_log.csv</code>, bei SD-Karte dort). Ohne Begrenzung kommt nichts dazu – die letzten Zeilen können deshalb Tage alt sein.</p>
-<h3>Kontakt-Protokoll <code>/steuve_kontakt.csv</code></h3>
-<p>Für die Steuerkontakte schreibt das Skript zusätzlich <b>jedes Ereignis</b> in eine eigene Datei (nur anhängen, bei SD-Karte dort). Sie dient als Nachweis, wann welcher Kontakt wie stand (BK6-22-300 Anlage 1 Ziff. 7.2–7.4). Abrufbar z. B. über die TinyC-IDE (Port 82) oder die Dateiverwaltung von Tasmota.</p>
-<table>
-  <tr><th>Spalte</th><th>Inhalt</th></tr>
-  <tr><td>Zeit</td><td>Ortszeit, z. B. <code>2026-11-21T18:33:05</code></td></tr>
-  <tr><td>Ereignis</td><td>Begrenzung Beginn · Begrenzung Ende · umgelegt (Begrenzung) · zurück (normal) · bestätigt · NICHT bestätigt · nicht eingehalten -&gt; EEBusCsFail · Normalstellung wiederhergestellt</td></tr>
-  <tr><td>Prio, Name</td><td>Platz und Name (bei Beginn/Ende „-“)</td></tr>
-  <tr><td>Kontakt, Relais</td><td>NC/NO und die Stellung OPEN/CLOSE</td></tr>
-  <tr><td>Grenze W, Zustand</td><td>Grenze zu diesem Zeitpunkt, Zustand der SteuVE</td></tr>
-</table>
-<p>Beispiel (Begrenzung mit einem Kontakt NC, danach Ende):</p>
-<p><code>…T13:27:06;Begrenzung Beginn;-;-;-;-;14252;gesteuert</code><br>
-<code>…T13:27:06;umgelegt (Begrenzung);3;Test Steuern;NC;OPEN;14252;gesteuert</code><br>
-<code>…T13:27:06;bestaetigt;3;Test Steuern;NC;OPEN;14252;gesteuert</code><br>
-<code>…T13:27:38;Begrenzung Ende;-;-;-;-;0;gesteuert</code><br>
-<code>…T13:27:38;zurueck (normal);3;Test Steuern;NC;CLOSE;0;gesteuert</code><br>
-<code>…T13:27:38;bestaetigt;3;Test Steuern;NC;CLOSE;0;gesteuert</code></p>
+<p>Das Protokoll ist der Nachweis einer Begrenzung. Es wird <b>nur während einer Begrenzung und 10 Minuten danach</b> minütlich geschrieben (Datei <code>/steuve_log.csv</code>, bei SD-Karte dort). Ohne Begrenzung kommt nichts dazu – die letzten Zeilen können deshalb Tage alt sein. Die Steuerkontakte haben ein eigenes Protokoll mit jedem Ereignis (6.11).</p>
 
-<h2>9. Reiter „Test &amp; Einstellungen“</h2>
+<h2 id="k11">11. Reiter „Test &amp; Einstellungen“</h2>
 <figure><img src="bilder-SteuVE/08-reiter-test.png"><figcaption>Bild 8 – Grenze simulieren, Kenndaten und Erklärung der Zustände.</figcaption></figure>
 <ul>
-  <li><b>Test ohne HEMS / Energy Guard</b> (nur zur Inbetriebnahme): Grenze in W und Dauer in s eintragen, <b>Grenze simulieren</b>. Die SteuVE verhält sich, als hätte der Energy Guard die Grenze geschrieben. <b>Simulation aufheben</b> gibt wieder frei.</li>
-  <li><b>Kenndaten</b> – Nennleistung (Summe der eingetragenen Verbraucher), Failsafe-Grenze und -Mindestdauer (schreibt der Energy Guard; bis dahin gilt die eigene Vorgabe aus <code>EEBusCsFs</code>), Zählerstand und von wem die letzte Grenze kam.</li>
+  <li><b>Test ohne HEMS / Energy Guard</b> (nur zur Inbetriebnahme): Grenze in W und Dauer in s eintragen, <b>Grenze simulieren</b>. Das Gateway verhält sich, als hätte der Energy Guard die Grenze geschrieben – Steuerkontakte werden dabei <b>wirklich umgelegt</b>. <b>Simulation aufheben</b> gibt wieder frei.</li>
+  <li><b>Kenndaten</b> – Nennleistung, Failsafe-Grenze und -Mindestdauer (schreibt der Energy Guard; bis dahin gilt die eigene Vorgabe aus <code>EEBusCsFs</code>), Zählerstand und von wem die letzte Grenze kam.</li>
   <li><b>Antwort des Geräts</b> – Rückmeldung auf den letzten Befehl.</li>
 </ul>
 <div class="hinweis">Ein verbundener Energy Guard sieht den simulierten Wert, wenn er liest. Simulation deshalb nicht während echter Tests mit dem HEMS stehen lassen.</div>
 
-<h2 class="seite">10. Skript und Bedienseite aktualisieren</h2>
+<h2 id="k12" class="seite">12. Skript und Bedienseite aktualisieren</h2>
+<h3>Welche Fassungen zusammenpassen</h3>
+<table>
+  <tr><th>Gateway-Firmware (Treiber)</th><th>Skript</th><th>Ergebnis</th></tr>
+  <tr><td>v040 (v039)</td><td>v022</td><td><span class="ok">empfohlen</span> (Stand dieser Anleitung) – mit einem HEMS ab Firmware v039; geprüft am 23.11. (Abschnitt 15)</td></tr>
+  <tr><td>v039 (v038)</td><td>v022</td><td>läuft, geprüft am 23.11.; Verbindungsende noch mit Grund „unplug“ statt „unspecific“</td></tr>
+  <tr><td>v039 / v040</td><td>v022</td><td><span class="ab">nicht mit einem HEMS vor Firmware v039</span>: Ein älteres HEMS bindet nur LoadControl (Nachweis 23.11. 14:45). Seine <b>Failsafe-Werte</b> lehnt das Gateway dann mit Fehler 9 ab, und das HEMS bindet nicht neu.</td></tr>
+  <tr><td>v038 (v037)</td><td>v022</td><td>läuft, geprüft am 23.11.; Bindungen nur protokolliert, kein eigener Wiederaufbau nach Trennung durch den Energy Guard</td></tr>
+  <tr><td>ab v038</td><td>–</td><td>ein <b>neues</b> Gateway braucht zuerst <code>EEBusCsTrust</code>, sonst kann das HEMS es nicht anrufen (Abschnitt 4)</td></tr>
+  <tr><td>v037 (v036)</td><td>v022</td><td>läuft; alte SHIP-Prüfung, Bindungen nur protokolliert</td></tr>
+  <tr><td>Treiber v035</td><td>v022</td><td>läuft; nimmt aber auch ohne laufendes Skript Grenzen an (Abschnitt 8)</td></tr>
+  <tr><td>ab v037 (Treiber ab v036)</td><td>v012 … v021</td><td>läuft; bis v021 bricht das Skript eine nicht gehaltene Grenze noch ab (<code>EEBusCsFail</code>)</td></tr>
+  <tr><td>ab v037 (Treiber ab v036)</td><td>v011 oder älter</td><td><span class="ab">nicht verwenden</span>: das Skript meldet keine Zusage (<code>EEBusCsReady</code>) – das Gateway lehnt <b>jede</b> Grenze ab</td></tr>
+  <tr><td>Treiber v033 / v034</td><td>v022</td><td><span class="ab">nicht verwenden</span>: Skript v022 braucht Treiber ab v035 (Normpaket)</td></tr>
+</table>
+<div class="hinweis"><b>Reihenfolge beim Aktualisieren auf Firmware v039/v040:</b> zuerst das HEMS auf Firmware v039 oder neuer bringen, dann die Gateways. Vorher in der Konsole <code>EEBusCsTrust</code> prüfen: Es muss die SKI des HEMS (bzw. bei Direktsteuerung der Steuerbox) eingetragen sein.</div>
 <h3>Skript</h3>
 <ul>
-  <li>Das Skript läuft in <b>Slot 0</b>. Ein neues Skript über <b>TinyC</b> oder <b>TinyC-IDE</b> laden; vorher den Slot stoppen.</li>
-  <li>Die Verbraucherliste steht in einer <code>.pvs</code>-Datei, deren Name dem Skriptdateinamen folgt. Lädt man eine neue Fassung desselben Skripts (gleicher <code>@name</code>) unter <b>neuem Dateinamen</b>, übernimmt TinyC die alte Liste selbst (im Log: „persist values taken over“) – auch beim Laden über die <b>TinyC-IDE</b>.</li>
+  <li>Das Skript läuft in <b>Slot 0</b> mit <b>Autostart</b> (Knopf A grün). Ein neues Skript über <b>TinyC</b> oder <b>TinyC-IDE</b> laden; vorher den Slot stoppen.</li>
+  <li>Die Verbraucherliste steht in einer <code>.pvs</code>-Datei, deren Name dem Skriptdateinamen folgt. Lädt man eine neue Fassung desselben Skripts (gleicher <code>@name</code>) unter <b>neuem Dateinamen</b>, übernimmt TinyC die alte Liste selbst (im Log: „persist values taken over“).</li>
   <li>Vor jedem Update die Liste notieren: Konsole → <code>STVCFG</code> und <code>STVKONT</code>. Mit <code>STVSET</code> und <code>STVKONT</code> lässt sie sich schnell wieder eintragen.</li>
-  <li>Lokal geladene Skripte heißen in der IDE immer <code>slot&lt;N&gt;-&lt;name&gt;</code> und haben keinen Update-Knopf. Der Update-Knopf erscheint nur bei Skripten aus dem Verzeichnis, wenn dort eine neuere <code>@version</code> liegt.</li>
 </ul>
-<div class="warn"><b>Von Skript v011 oder älter auf v021:</b> Mit dem Steuerkontakt (ab v012) sind neue gespeicherte Werte dazugekommen. TinyC verwirft dabei die alte <code>.pvs</code> – <b>die Verbraucherliste ist danach leer</b>. Vorher mit <code>STVCFG</code> notieren und nach dem Laden im Reiter Verbraucher neu eintragen. Von v012 bis v020 auf v021 bleibt die Liste erhalten.</div>
+<div class="warn"><b>Von Skript v011 oder älter auf v022:</b> Mit dem Steuerkontakt (ab v012) sind neue gespeicherte Werte dazugekommen. TinyC verwirft dabei die alte <code>.pvs</code> – <b>die Verbraucherliste ist danach leer</b>. Vorher mit <code>STVCFG</code> notieren. Von v012 … v021 auf v022 bleibt die Liste erhalten (keine neuen gespeicherten Werte).</div>
 <h3>Bedienseite</h3>
 <ul>
-  <li>Die Seite liegt als <code>steuve.html</code> <b>und</b> gepackt als <code>steuve.html.gz</code> auf der SD-Karte. Das Gerät liefert zuerst die <code>.gz</code> aus (etwa 30 statt 90 KB, die Seite ist schneller da und der Webserver weniger belastet).</li>
-  <li>Bei einer neuen Fassung <b>immer beide Dateien</b> ersetzen. Bleibt eine alte <code>.gz</code> liegen, zeigt der Browser weiter die alte Seite.</li>
+  <li>Die Seite liegt als <code>steuve.html</code> <b>und</b> gepackt als <code>steuve.html.gz</code> auf der SD-Karte. Das Gerät liefert zuerst die <code>.gz</code> aus. Bei einer neuen Fassung <b>immer beide Dateien</b> ersetzen.</li>
   <li>Die <code>.gz</code> entsteht z. B. mit <code>gzip -9 -k -n steuve.html</code>.</li>
   <li>Die Seite für den Steuerkontakt braucht Skript v012 oder neuer; mit älterem Skript steht in der Spalte „Skript ab v012“.</li>
 </ul>
 
-<h2>11. Befehle in der Tasmota-Konsole</h2>
+<h2 id="k13">13. Befehle in der Tasmota-Konsole</h2>
 <p>Tasmota-Hauptseite → Werkzeuge → Konsole.</p>
 <h3>Treiber (<code>xdrv_128</code>)</h3>
 <table>
   <tr><th>Befehl</th><th>Bedeutung</th></tr>
-  <tr><td><code>EEBusCs</code></td><td>Zustand als JSON:<br>Zustand, Begrenzt, Grenze, Restzeit, Energy Guard,<br>Failsafe, Nennleistung, Leistung, Bekannt, Herzschlag,<br><code>ZusageW</code>, <code>ZusageAlterS</code>, <code>Quelle</code> (neu)</td></tr>
-  <tr><td><code>EEBusCsTrust</code><br><code>EEBusCsTrust &lt;ski&gt;</code><br><code>EEBusCsTrust hm</code><br><code>EEBusCsTrust 0</code></td><td>aktuellen Stand anzeigen<br>diesem Energy Guard vertrauen (SKI oder eindeutiger Anfang)<br>dem Energiemanager aus der Fundliste vertrauen<br>Vertrauen entziehen (trennt sofort)</td></tr>
-  <tr><td><code>EEBusCsTyp wp</code><br><code>EEBusCsTyp wallbox</code><br><code>EEBusCsTyp steuerbox</code></td><td>stellt sich als Wärmepumpen-Gateway vor (Vorgabe; im Netz „Gateway“, Kategorie 4)<br>stellt sich als Ladestation vor (im Netz „ChargingStation“, Kategorie 3)<br>alte Kennung (bis Treiber v006)<br><i>Umstellen kündigt neu an und trennt eine eingehende Verbindung.</i></td></tr>
-  <tr><td><code>EEBusCsFs &lt;W&gt; [s]</code></td><td>eigene Failsafe-Vorgabe,<br>gilt bis der Energy Guard eigene Werte schreibt</td></tr>
-  <tr><td><code>EEBusCsSim &lt;W&gt; [s]</code><br><code>EEBusCsSim 0</code></td><td>Grenze lokal simulieren (nur zum Testen)<br>Simulation aufheben</td></tr>
-  <tr><td><code>EEBusCsMsg</code></td><td>Meldungen vom/an den Energy Guard<br>(letzte 60, ohne Herzschläge)</td></tr>
-  <tr><td><code>EEBusCsPower &lt;W&gt; [Wh]</code><br><code>EEBusCsPower unbekannt</code><br><code>EEBusCsMax &lt;W&gt;</code></td><td>Leistung melden<br>Verbrauch nicht bekannt melden<br>Nennleistung melden<br><i>macht das Skript selbst, nicht von Hand nötig</i></td></tr>
-  <tr><td><code>EEBusCsReady &lt;W&gt;</code><br><code>EEBusCsReady unbekannt</code></td><td>Zusage: so weit kommt die SteuVE gerade herunter<br>(darunter: NACK); unbekannt = jede aktive Grenze NACK<br><i>macht das Skript selbst; ohne diesen Befehl (altes Skript) wird wie bisher immer angenommen</i></td></tr>
-  <tr><td><code>EEBusCsFail [Text]</code></td><td>angenommene Grenze kann nicht eingehalten werden:<br>Grenze aufheben, Energy Guard benachrichtigen<br><i>macht das Skript selbst</i></td></tr>
-  <tr><td><code>EEBusCsQuelle m|c|e</code></td><td>Herkunft der gemeldeten Leistung:<br>gemessen / berechnet / geschätzt (Vorgabe: gemessen)</td></tr>
-  <tr><td><code>EEBusScan</code><br><code>EEBusPeers</code></td><td>EEBUS-Geräte im Netz suchen<br>gefundene Geräte anzeigen</td></tr>
+  <tr><td><code>EEBusCs</code></td><td>Zustand als JSON: Zustand, Begrenzt, Grenze, RestS, EnergyGuard, Failsafe, FailsafeDauerS, Max (Nennleistung), Leistung, Bekannt, HerzschlagS, Vertraut, Abgewiesen, Typ, <code>ZusageW</code>, <code>ZusageAlterS</code>, <code>Quelle</code>, <b><code>Skript</code></b> (<code>"laeuft"</code> / <code>"laeuft nicht"</code>, seit Firmware v037)</td></tr>
+  <tr><td><code>EEBusCsTrust</code> · <code>EEBusCsTrust &lt;ski&gt;</code> · <code>EEBusCsTrust hm</code> · <code>EEBusCsTrust 0</code></td><td>Stand anzeigen · diesem Energy Guard vertrauen (SKI oder eindeutiger Anfang) · dem Energiemanager aus der Fundliste vertrauen · Vertrauen entziehen (trennt sofort).<br><b>Ab Firmware v038</b> lässt das Gateway nur diesen Energy Guard überhaupt verbinden – bei einem neuen Gateway zuerst setzen (Abschnitt 4).</td></tr>
+  <tr><td><code>EEBusCsStreng</code> · <code>EEBusCsStreng 1|0</code></td><td>Stand anzeigen · 1 (Vorgabe) = nur der vertraute Energy Guard mit Zertifikat · 0 = <b>nur zum Testen</b>: jeder Anrufer wird zugelassen, Vertrauen auch ohne Zertifikat. Wird nicht gespeichert, nach einem Neustart wieder 1.</td></tr>
+  <tr><td><code>EEBusCsTyp wp|wallbox|steuerbox</code></td><td>stellt sich als Wärmepumpen-Gateway (Vorgabe, Kategorie 4), Ladestation (Kategorie 3) oder alte Kennung vor. Umstellen kündigt neu an und trennt eine eingehende Verbindung.</td></tr>
+  <tr><td><code>EEBusCsFs &lt;W&gt; [s]</code></td><td>eigene Failsafe-Vorgabe, gilt bis der Energy Guard eigene Werte schreibt. Dauer <b>2 … 24 h</b> (7200 … 86400 s, seit v035).</td></tr>
+  <tr><td><code>EEBusCsSim &lt;W&gt; [s]</code> · <code>EEBusCsSim 0</code></td><td>Grenze lokal simulieren (nur zum Testen) · Simulation aufheben</td></tr>
+  <tr><td><code>EEBusCsMsg</code></td><td>Meldungen vom/an den Energy Guard (letzte 60, ohne Herzschläge)</td></tr>
+  <tr><td><code>EEBusCsPower &lt;W&gt; [Wh]</code> · <code>EEBusCsPower unbekannt</code> · <code>EEBusCsMax &lt;W&gt;</code></td><td>Leistung melden · Verbrauch nicht bekannt melden · Nennleistung melden (wird im Flash gespeichert, seit Firmware v037)<br><i>macht das Skript selbst</i></td></tr>
+  <tr><td><code>EEBusCsReady &lt;W&gt;</code> · <code>EEBusCsReady unbekannt</code></td><td>Zusage: so weit kommt das Gateway gerade herunter; darunter NACK. Gilt 60 s; ohne frische Meldung lehnt das Gateway (seit Firmware v037) jede aktive Grenze ab.<br><i>macht das Skript selbst</i></td></tr>
+  <tr><td><code>EEBusCsFail [Text]</code></td><td>angenommene Grenze aufheben und dem Energy Guard melden. <i>Skript v022 benutzt ihn nicht mehr</i> (Abschnitt 14); der Befehl bleibt für ältere Skripte.</td></tr>
+  <tr><td><code>EEBusCsQuelle m|c|e</code></td><td>Herkunft der gemeldeten Leistung: gemessen / berechnet / geschätzt (Vorgabe: gemessen)</td></tr>
+  <tr><td><code>EEBusCsHbTest 1|0</code></td><td><b>nur für Tests</b> (v034): Herzschlag des Energy Guard weder abonnieren noch lesen, um einen Partner ohne Herzschlag nachzustellen. Nach einem Neustart aus.</td></tr>
+  <tr><td><code>EEBusScan</code> · <code>EEBusPeers</code></td><td>EEBUS-Geräte im Netz suchen · gefundene Geräte anzeigen</td></tr>
 </table>
 <p>Die Befehle prüfen ihre Zahlen: Buchstaben oder negative Werte werden abgelehnt und ändern nichts.</p>
 <h3>Skript (<code>steuve</code>)</h3>
 <table>
   <tr><th>Befehl</th><th>Bedeutung</th></tr>
   <tr><td><code>STVSTAT</code></td><td>Kurzstand (Zustand, Begrenzt, Grenze, Summe, Bekannt)</td></tr>
-  <tr><td><code>STVLIST</code></td><td>Messwerte je Platz:<br>Leistung, an/aus, von SteuVE abgeschaltet, Fehler, Kontakt-Bestätigung;<br>dazu Melder, Modus und Zusage</td></tr>
-  <tr><td><code>STVCFG</code></td><td>eingetragene Liste je Platz:<br>Name, Adresse, Nennleistung, Fake, abschaltbar, Profil, Typ, Modell</td></tr>
-  <tr><td><code>STVSET p,fake,abs,ip,nenn,profil,name</code></td><td>Platz p (1 … 5) setzen und speichern<br>(das macht der Knopf „Speichern“)<br>Eine neue Adresse setzt den Steuerkontakt des Platzes zurück.</td></tr>
-  <tr><td><code>STVKONT</code><br><code>STVKONT p,NC</code><br><code>STVKONT p,NO</code><br><code>STVKONT p,-</code></td><td>Steuerkontakte aller Plätze anzeigen:<br>[Platz, NC/NO/-, –, –, Bestätigung, Relais, aktiv]<br>Platz p als Steuerkontakt NC bzw. NO<br>Platz p kein Steuerkontakt<br><i>Während einer Begrenzung nicht änderbar, wenn die SteuVE den Kontakt umgelegt hat.</i></td></tr>
-  <tr><td><code>STVPROBE p</code></td><td>Gerät auf Platz p neu erkennen<br>(Shelly-Modell/Generation bzw. Tasmota)</td></tr>
-  <tr><td><code>STVMODE 0</code><br><code>STVMODE 1</code><br><code>STVMODE 2</code></td><td>Fake: Programm hält an und läuft weiter<br>Fake: Programm startet von vorn<br>Fake: Gerät bleibt aus</td></tr>
-  <tr><td><code>STVSIM &lt;W&gt; [s]</code><br><code>STVSIM 0</code></td><td>Grenze simulieren (ruft <code>EEBusCsSim</code>)<br>Simulation aufheben</td></tr>
+  <tr><td><code>STVLIST</code></td><td>Messwerte je Platz (Leistung, an/aus, von SteuVE abgeschaltet, Fehler, Kontakt-Bestätigung); dazu Melder, Modus und Zusage</td></tr>
+  <tr><td><code>STVCFG</code></td><td>eingetragene Liste je Platz: Name, Adresse, Nennleistung, Fake, abschaltbar, Profil, Typ, Modell</td></tr>
+  <tr><td><code>STVSET p,fake,abs,ip,nenn,profil,name</code></td><td>Platz p (1 … 5) setzen und speichern (das macht der Knopf „Speichern“). Eine neue Adresse setzt den Steuerkontakt des Platzes zurück.</td></tr>
+  <tr><td><code>STVKONT</code> · <code>STVKONT p,NC</code> · <code>STVKONT p,NO</code> · <code>STVKONT p,-</code></td><td>Steuerkontakte anzeigen <code>[Platz,NC/NO/-,W,"-",Bestätigung,Relais,aktiv]</code> · Platz p als Steuerkontakt NC bzw. NO · kein Steuerkontakt (Abschnitt 6)</td></tr>
+  <tr><td><code>STVPROBE p</code></td><td>Gerät auf Platz p neu erkennen</td></tr>
+  <tr><td><code>STVMODE 0|1|2</code></td><td>Fake: Programm hält an und läuft weiter · startet von vorn · Gerät bleibt aus</td></tr>
+  <tr><td><code>STVSIM &lt;W&gt; [s]</code> · <code>STVSIM 0</code></td><td>Grenze simulieren (ruft <code>EEBusCsSim</code>) · aufheben</td></tr>
 </table>
 
-<h2>12. Häufige Fragen</h2>
-<h3>Ein Gerät steht auf „antwortet nicht“</h3>
-<p>Adresse prüfen (Tippfehler im dritten Oktett), Gerät in der Shelly-App bzw. im Browser aufrufen. Bei Geräten im WLAN kann eine Antwort auch einmal ausbleiben; nach der nächsten Runde (10 s) ist der Platz meist wieder da. Sonst „prüfen“ klicken. Solange ein Gerät 3 Runden in Folge nicht antwortet, meldet die SteuVE den Verbrauch als „unbekannt“.</p>
-<h3>Ein Tasmota-Gerät steht auf „kein Shelly/Tasmota?“ oder „Tasmota: Passwort?“</h3>
-<p>Das Gerät antwortet, aber nicht verwertbar. Im Browser <code>http://&lt;Adresse&gt;/cm?cmnd=Status</code> aufrufen: Kommt eine Warnung, ist ein Web-Passwort gesetzt; kommt nichts, ist die HTTP-Schnittstelle ausgeschaltet. Danach „prüfen“ klicken.</p>
-<h3>Der Haken „abschaltbar“ lässt sich nicht setzen</h3>
-<p>Das Gerät ist ein Messgerät ohne Relais (Spalte M/S zeigt „M“). Es kann nichts abschalten. Wer schalten will, braucht ein Gerät mit Relais (S).</p>
-<h3>Bei „Steuerkontakt“ steht „nur Shelly 1“</h3>
-<p>Steuerkontakt kann nur ein Gerät der Shelly-1-Familie sein (potentialfreier Kontakt, Tabelle in Abschnitt 5). Steckdosen und Schalter mit Messung schalten die Last selbst und sind normale Verbraucher.</p>
-<h3>Ein Steuerkontakt steht auf „NICHT bestätigt“</h3>
-<p>Die zurückgelesene Relaisstellung passt nicht zur verlangten. Häufige Gründe: Der Shelly war kurz ohne Strom, ein Schalter am SW-Eingang hat das Relais umgelegt (Eingang auf „getrennt“ stellen, Abschnitt 5), oder in der Shelly-App läuft eine Zeitschaltung. Während einer Begrenzung führt das nach 2 Runden zum Abbruch der Grenze.</p>
+<h2 id="k14" class="seite">14. Norm und Gesetz: was umgesetzt ist</h2>
+<p>Ziel ist ein Gateway, das sich so nah wie uns möglich an Gesetz und Norm hält. Grundlage: § 14a EnWG mit BNetzA-Festlegung <b>BK6-22-300</b> (Anlage 1), EEBUS Use Case <b>LPC</b> (Technische Spezifikation V1.0.0, Leitfaden IG V1.1.0, Testspezifikation V1.0.2 mit den Testfällen für die steuerbare Einrichtung „CS“), <b>SPINE</b> (Protokollspezifikation, Testspezifikation V1.1.0) und <b>SHIP</b>. Am 22.11.2026 wurde der Code (Treiber v033, Skript v021) Regel für Regel gegen die Normtexte geprüft; die gefundenen Lücken sind in Treiber v035, v036 (= Firmware v037) und Skript v022 eingearbeitet. Am 23.11.2026 folgten die SHIP-Prüfung nach der SHIP-Spezifikation 1.1.0 und der SHIP-Testspezifikation 1.0.0 (Firmware v038), die Binding-Pflicht (Firmware v039) und das normgerechte Verbindungsende (Firmware v040). Offen sind nur die unten genannten Punkte. In den Spalten „seit“ stehen bis v036 Treiber-Nummern, danach „FW“ = Firmware-Nummer. Regelnummern und Zeilen beziehen sich auf die Normtexte; die Inhalte sind sinngemäß übersetzt.</p>
+
+<h3>14.1 Gesetz und BNetzA (BK6-22-300 Anlage 1)</h3>
+<table>
+  <tr><th>Vorgabe (sinngemäß)</th><th>Umsetzung</th></tr>
+  <tr><td>Ziff. 4.4: Steuerung entweder über ein Energiemanagementsystem (b) oder direkt (a), nicht beides</td><td>genau <b>ein</b> vertrauter Energy Guard, erkannt an der SKI seines Zertifikats; fremde Schreibversuche abgewiesen</td></tr>
+  <tr><td>Ziff. 4.6: Kann ein Gerät nicht genau reduzieren, gilt der nächstniedrige technisch mögliche Wert</td><td>Verbraucher ohne Stufen werden ganz abgeschaltet; Steuerkontakt: das Gerät regelt selbst</td></tr>
+  <tr><td>Ziff. 4.3: schrittweise Rückkehr nach dem Ende</td><td>Wiedereinschalten gestaffelt, einer je 60 s</td></tr>
+  <tr><td>Ziff. 4.5.1: Mindestleistung 4,2 kW</td><td>setzt der Energy Guard (Steuerbox/HEMS); das Gateway hält, was es bekommt</td></tr>
+  <tr><td>Ziff. 7.2–7.4: Nachweis der Steuerung</td><td>Protokoll <code>/steuve_log.csv</code> (minütlich während Begrenzung) und Kontakt-Protokoll <code>/steuve_kontakt.csv</code> (jedes Ereignis, nur anhängen)</td></tr>
+</table>
+
+<h3>14.2 Use Case LPC – steuerbare Einrichtung</h3>
+<table>
+  <tr><th>Regel (sinngemäß)</th><th>Stelle</th><th>seit</th></tr>
+  <tr><td>ACK heißt „werde die Grenze einhalten“, sonst NACK; NACK lässt den Zustand unverändert</td><td>[LPC-002], [LPC-003], [LPC-907]; IG Z. 222–223</td><td>v032</td></tr>
+  <tr><td>Grenze unter 0 W ablehnen</td><td>LPC Z. 313</td><td>v030</td></tr>
+  <tr><td>Nach dem Start mit dem Failsafe-Wert begrenzen, bis eine Vorgabe kommt</td><td>[LPC-901]</td><td>vorher</td></tr>
+  <tr><td>120 s ohne Herzschlag → Failsafe; Frist ab dem letzten Herzschlag</td><td>[LPC-911], [LPC-912]</td><td>v030</td></tr>
+  <tr><td>In Anlauf/Failsafe/autonom die Grenze als nicht aktiv melden</td><td>[LPC-009]</td><td>v030</td></tr>
+  <tr><td>In Anlauf/Failsafe/autonom nur eine Grenze werten, der binnen 60 s ein Herzschlag vorausging; Failsafe-Werte erst danach</td><td>LPC Z. 342–346, 372–375</td><td>v035</td></tr>
+  <tr><td>Abgelehnte (nicht einhaltbare oder negative) Grenze in Anlauf/Failsafe/autonom → „gesteuert“ ohne Begrenzung</td><td>[LPC-902], [LPC-918]; Testfälle CSConnection_003, CSTransition…_001</td><td>v035/v036</td></tr>
+  <tr><td>Dauer 0 mit „aktiv“ = sofort frei und ACK, kein NACK</td><td>IG Z. 175–177, 187–189</td><td>v036</td></tr>
+  <tr><td>Failsafe-Mindestdauer 2–24 h; darunter NACK; darüber NACK, auf 24 h setzen und melden; negative Failsafe-Leistung NACK; 0 W gültig</td><td>[LPC-022], [LPC-003]; LPC Z. 404–405</td><td>v030/v035</td></tr>
+  <tr><td>Teil-Schreiben ohne Endzeit lässt die Endzeit stehen</td><td>LPC Z. 1551–1553</td><td>v035</td></tr>
+  <tr><td>Herzschlag-Zusage 60 s (heartbeatTimeout PT60S)</td><td>LPC Tab. 26</td><td>v035</td></tr>
+  <tr><td>Herzschlag-Abo beim Energy Guard prüfen; bei Ablehnung regelmäßig lesen; nach Discovery-Änderung und Herzschlagverlust neu abonnieren</td><td>LPC Z. 1466, 1470–1472</td><td>v036</td></tr>
+  <tr><td>Änderungen von Failsafe-Werten und Nennleistung an Abonnenten melden</td><td>LPC Z. 1641, 1771</td><td>v035</td></tr>
+  <tr><td>Nennleistung melden, auch ohne laufendes Skript (zuletzt bekannter Wert)</td><td>LPC Z. 657–659; Testfall CSUnlCntrl_003</td><td>v036</td></tr>
+  <tr><td>Abbruch einer angenommenen Grenze durch eine Einrichtung, die <b>nicht</b> auf einem Energiemanager sitzt, nur bei Selbstschutz, Sicherheit oder rechtlichen Vorgaben</td><td>[LPC-923], LPC Z. 356–363</td><td>Skript v022 (kein Abbruch mehr)</td></tr>
+</table>
+
+<h3>14.3 SPINE und SHIP</h3>
+<table>
+  <tr><th>Regel (sinngemäß)</th><th>Stelle</th><th>seit</th></tr>
+  <tr><td>Herzschlag als Meldung (notify) nur an Abonnenten; ein bloßes Lesen wird nur beantwortet</td><td>SPINE PS Z. 2417–2418</td><td>v036</td></tr>
+  <tr><td>Liste der Abos und Bindungen je Verbindung; <code>nodeManagementSubscriptionData</code>/<code>BindingData</code> beantworten</td><td>SPINE TS SUBS_001/002, BIND_001</td><td>v036</td></tr>
+  <tr><td>Bindung auf NodeManagement → Fehler 7; unbekannter Befehl → Fehler 6; NodeManagement-Befehl an falsche Adresse → Fehler 6</td><td>SPINE TS BIND_001, FC_001</td><td>v036</td></tr>
+  <tr><td>Unbekanntes Lesen → Ergebnis mit Fehlernummer 6; Meldungen mit Quittungswunsch werden quittiert; Quittung mit dem angeschriebenen Feature als Absender</td><td>SPINE Z. 1088–1093, 1134–1145; PS Z. 1166–1167</td><td>v035/v036</td></tr>
+  <tr><td>Zerstückelte WebSocket-Nachrichten zusammensetzen</td><td>RFC 6455 5.4; SHIP Z. 834–836</td><td>v031</td></tr>
+  <tr><td>Kein Pong 10 s nach Ping → Verbindung abbauen</td><td>SHIP Z. 851–855</td><td>v035</td></tr>
+  <tr><td>Nachricht als ein TLS-Record senden</td><td>–</td><td>v033</td></tr>
+  <tr><td>Schreiben (Grenze, Failsafe-Werte) nur vom Gerät, das die Funktion gebunden hat; sonst Fehler 9</td><td>SPINE PS Z. 2419, LPC Z. 1488–1490; Testfall BIND_002</td><td>FW v039</td></tr>
+  <tr><td>CMI ohne Blockieren, Frist 15 s, nur Nachrichtentyp und Kopf auswerten; als Server bei falscher CMI trotzdem CMI senden, dann schließen</td><td>SHIP Z. 2052–2084; TC_SHIP_CMI_001–006</td><td>FW v038</td></tr>
+  <tr><td>Hello: Wartefrist 60 s, Verlängerung nur auf Anfrage (je +60 s, höchstens 10 min), Abbruch mit „aborted“; als Server Hello sofort nach der CMI</td><td>SHIP Z. 2194–2313; TC_SHIP_HELLO_001–004</td><td>FW v038</td></tr>
+  <tr><td>Protokoll-Handshake prüfen (Version 1.0, JSON-UTF8), Frist 10 s, Fehler 1/2/3 senden</td><td>SHIP Z. 2385–2446; TC_SHIP_PROT_001–006</td><td>FW v038</td></tr>
+  <tr><td>PIN-Zustand der Gegenstelle binnen 10 s, sonst schließen</td><td>SHIP Z. 2658–2664, 2747–2754; TC_SHIP_PIN_001</td><td>FW v038</td></tr>
+  <tr><td>Anrufer nur mit Zertifikat und nur, wenn vertraut</td><td>SHIP Z. 692–693, 2125–2126, 2255–2256</td><td>FW v038</td></tr>
+  <tr><td>SKI-Erweiterung im Zertifikat muss zum Schlüssel passen (beide Richtungen)</td><td>SHIP Z. 1265–1269; TC_SHIP_SEC_001/002</td><td>FW v038</td></tr>
+  <tr><td>TLS-Records des Servers höchstens 1024 Byte; Servername (SNI) = mDNS-Name der Gegenstelle, nie eine Adresse</td><td>SHIP Z. 714–716, 723, 804</td><td>FW v038</td></tr>
+  <tr><td>WebSocket: Antwortkopf und Subprotokoll „ship“ prüfen; Text-Frames und reservierte Opcodes mit Close beantworten</td><td>SHIP Z. 802, 818–830; RFC 6455</td><td>FW v038</td></tr>
+  <tr><td><code>accessMethods</code> mit <code>dnsSd_mDns</code>; mDNS-Einträge ohne <code>txtvers=1</code> verwerfen</td><td>SHIP Tab. 22, Z. 570–573; TC_SHIP_MDNS_001</td><td>FW v038</td></tr>
+  <tr><td>Verbindungsende mit Grund „unspecific“ (statt „unplug“); auf „announce“ mit „confirm“ antworten, dann schließen</td><td>SHIP Z. 3127–3138, 3158–3162</td><td>FW v040</td></tr>
+</table>
+
+<h3>14.4 Bewusste Abweichungen und Grenzen</h3>
+<table>
+  <tr><th>Punkt</th><th>Stand und Begründung</th></tr>
+  <tr><td><span class="ok">Bindungspflicht für Schreiben</span></td><td><b>Umgesetzt ab Firmware v039</b> (SPINE PS Z. 2419, Testfall BIND_002): ohne Bindung Fehler 9. Firmware v037/v038 hatten fehlende Bindungen nur protokolliert, weil das HEMS damals nur LoadControl band (Nachweis 23.11. 14:45). Seit HEMS-Firmware v039 bindet das HEMS auch DeviceConfiguration; erst danach wurde die Pflicht eingeschaltet.</td></tr>
+  <tr><td><span class="ok">SHIP</span></td><td><b>Umgesetzt ab Firmware v038</b> wie bei der Steuerbox v242 (14.3), Verbindungsende ab Firmware v040 – mit einer Ausnahme (nächste Zeile).</td></tr>
+  <tr><td><span class="offen">SHIP-Regel für doppelte Verbindungen</span></td><td><b>Bewusst nicht umgesetzt</b> (SHIP Z. 1353–1366: bauen zwei Geräte gleichzeitig je eine Verbindung zueinander auf, wird eine nach fester Regel geschlossen). Grund: Der eigene Verbindungserhalt (Keep-Alive) des Gateways und das HEMS kennen diese Regel nicht; ohne sie auf beiden Seiten könnten sich Gateway und HEMS die Verbindungen gegenseitig abbauen. Doppelte Verbindungen räumt das HEMS ab.</td></tr>
+  <tr><td><span class="ab">nicht zertifiziert</span></td><td>Keine EEBUS-Zertifizierung, keine Prüfung durch eine Prüfstelle. Getestet nur mit eigenen Geräten (Tasmota-Steuerbox, Tasmota-HEMS); <b>kein offizielles Testwerkzeug</b>. <b>Nur am Programmcode geprüft</b>, nicht am Gerät ausgelöst: negative Grenze, Dauer 0 mit „aktiv“ und einzelne SPINE-Testfälle (Auslieferung der Abo-/Bindungsliste, Fehler auf Bindung an NodeManagement, FC_001) – sie lassen sich mit eigenen Geräten nicht auslösen. Ebenso die SHIP-Fehlerfälle (z. B. falsche CMI, Fristablauf, unpassende SKI-Erweiterung); am Gateway geprüft ist der normale Verbindungsaufbau mit dem HEMS (Abschnitt 15).</td></tr>
+  <tr><td><span class="offen">Ablehnung „Skript läuft nicht“ (seit Firmware v037)</span></td><td><b>Abwägung:</b> Nach LPC Z. 317–319 darf eine Einrichtung, die <b>nicht</b> auf einem Energiemanager sitzt, eine Grenze nur aus Selbstschutz, Sicherheit oder rechtlichen Gründen ablehnen. Nach dem Leitfaden IG Z. 222–223 sendet sie ein ACK aber nur, wenn sie der Grenze folgen wird – „ein ACK ist keine bloße Empfangsbestätigung“. Ohne Skript kann das Gateway nichts schalten; ein ACK wäre eine falsche Zusage. Wir lehnen deshalb ab. Ob eine Prüfstelle das so sieht, ist offen.</td></tr>
+  <tr><td><span class="offen">Ablehnung wegen nicht abschaltbarer Verbraucher</span></td><td>Das Gateway lehnt Grenzen unter dem Verbrauch seiner nicht abschaltbaren Geräte ab. LPC Z. 314–316 nennt „nicht steuerbare Lasten“ als Ablehnungsgrund nur für eine Einrichtung <b>auf einem Energiemanager</b>; das Gateway verhält sich hier wie ein Energiemanager als steuerbare Einrichtung (IG Abschn. 2.4). Beim Abbruch (7.3) behandeln wir es dagegen vorsichtig als Einrichtung ohne Energiemanager. Die Einordnung ist nicht abschließend geklärt.</td></tr>
+  <tr><td><span class="offen">Steuerkontakt nicht bestätigt</span></td><td>Ob ein nicht bestätigter Kontakt als „Selbstschutz“ gilt und einen Abbruch erlauben würde, ist offen (Frage an eine Prüfstelle). Bis dahin: kein Abbruch, Zusage unbekannt, neue Grenzen NACK.</td></tr>
+  <tr><td><span class="offen">Leistung hinter dem Steuerkontakt</span></td><td>wird nicht gemessen und mit 0 W gerechnet; wie weit das Gerät herunterregelt, prüft das Gateway nicht.</td></tr>
+  <tr><td><span class="offen">Nennleistung nie bekannt</span></td><td>War noch nie eine Nennleistung gemeldet, meldet das Gateway 0 W statt „unbekannt“ (Empfehlung [LPC-041] noch offen).</td></tr>
+  <tr><td>[LPC-921] (KANN-Regel)</td><td>nicht umgesetzt – zulässig.</td></tr>
+</table>
+
+<h2 id="k15" class="seite">15. Geprüft</h2>
+<p>Alle Tests im eigenen Testnetz mit Tasmota-Steuerbox, Tasmota-HEMS und zwei Gateways (im Folgenden Gateway 1 und 2). Genannt ist nur, was in Mitschnitten und Übergabeprotokollen belegt ist.</p>
+<table>
+  <tr><th>Datum · Stand</th><th>Test</th><th>Ergebnis</th></tr>
+  <tr><td>21.11. · Treiber v033, Skript v013</td><td>Dimmung über das HEMS bis zu den Shellys, ein Steuerkontakt NC (Shelly 1 Mini Gen3)</td><td><span class="ok">bestanden</span>: beide Gateways „BESTAETIGT aktiv“ (z. B. 12.000 W und 11.426 W); Kontakt umgelegt und durch Zurücklesen bestätigt</td></tr>
+  <tr><td>21.11. · Skript v020</td><td>Steuerkontakt-Ausfall während einer Begrenzung (Shelly 1 Mini vom Strom)</td><td><span class="ok">bestanden</span> (damaliges Verhalten mit Abbruch): Zusage nach 7 s unbekannt, Abbruch nach 22 s, neue Grenze <b>abgelehnt</b>, solange der Kontakt fehlte; Shelly zurück → Normalstellung CLOSE bestätigt, nächste Grenze angenommen und Kontakt OPEN bestätigt; nach der Freigabe CLOSE bestätigt</td></tr>
+  <tr><td>21.11. · Treiber v033, Skript v020</td><td>Begrenzung mit vier Kontakten</td><td><span class="ok">bestanden</span></td></tr>
+  <tr><td>21.11. · Treiber v033, Skript v021</td><td>Gateway 1 stromlos bei einer Grenze von 4.200 W</td><td><span class="ok">richtig</span>: Gateway 2 lehnt seinen Anteil von 0 W ab (nicht abschaltbarer Rest 1 W)</td></tr>
+  <tr><td>22.11. · Treiber v035, Skript v022</td><td>Herzschlag-Fenster in Anlauf/Failsafe</td><td><span class="ok">bestanden</span>: ohne vorherigen Herzschlag NACK, mit Herzschlag ACK</td></tr>
+  <tr><td>22.11. · Treiber v035, Skript v022</td><td>Shelly aus während einer Begrenzung</td><td><span class="ok">bestanden</span>: „nicht eingehalten - Grenze bleibt aktiv“, kein Abbruch durch das Gateway</td></tr>
+  <tr><td>22.11. · Treiber v035, Skript v022, HEMS v036</td><td>Grenze 6.000 W; danach Shelly aus</td><td><span class="ok">bestanden</span>: ACK nach 4,7 s; Gateway meldet „Verbrauch unbekannt“, das HEMS bricht nach oben ab; Shelly wieder an → nächste Wiederholung ACK</td></tr>
+  <tr><td>22.11. · Treiber v034</td><td>Partner ohne Herzschlag-Abo nachgestellt (<code>EEBusCsHbTest</code>)</td><td><span class="ok">bestanden</span>: HEMS v035 erkennt das fehlende Abo und baut neu auf</td></tr>
+  <tr><td>23.11. · Treiber v035, Skript v022, HEMS v038</td><td>Grenze 5.000 W Dauer 0 und Freigabe</td><td><span class="ok">bestanden</span>: beide Gateways „BESTAETIGT“ (5.000 W und 4.998 W), Freigabe bestätigt; kein „nicht gebunden“ oder Fehler 9 im Log</td></tr>
+  <tr><td>23.11. · Treiber v035</td><td>Stromlos-Start beider Gateways</td><td><span class="ab">Befund</span>: TinyC-Boot-Schutz schaltete den Autostart ab, „Skript nicht geladen“ → Anlass für v036 (Abschnitt 8)</td></tr>
+  <tr><td>23.11. · Treiber <b>v036</b>, Skript v022</td><td>Grenze 5.000 W rund 1 Minute nach dem Flashen; ein Gateway meldete seinen Verbrauch noch nicht</td><td><span class="ok">bestanden</span>: Das HEMS rechnete das stumme Gateway mit voller Nennleistung; das andere sollte auf 0 W, kann aber nur auf 2 W (Zusage des Skripts) → richtig abgelehnt (NACK), das HEMS meldet NACK an die Steuerbox. Automatische Wiederholung der Steuerbox nach 60 s: ACK nach 4,5 s, beide Gateways bestätigt (5.000 W / 4.998 W)</td></tr>
+  <tr><td>23.11. · Treiber <b>v036</b>, Skript v022</td><td>Skript auf einem Gateway angehalten (<code>TinyCStop 0</code>), dann neue Grenze; danach Skript wieder gestartet (<code>TinyCRun 0</code>)</td><td><span class="ok">bestanden</span>: nach 64 s <code>EEBusCs</code> <code>"Skript":"laeuft nicht"</code>, Leistung unbekannt; neue Grenze vom Gateway abgelehnt „Skript laeuft nicht (Meldung zu alt)“, das HEMS zählt es mit Nennleistung, NACK an die Steuerbox. Nach dem Start läuft das Skript, Autostart bleibt an, Freigabe bestätigt.<br><i>Ehrlicher Hinweis:</i> Beim ersten Anhalteversuch lief das Skript kurz danach wieder an; die Ursache ist nicht geklärt.</td></tr>
+  <tr><td>23.11. · Treiber <b>v036</b>, Skript v022</td><td>Neustart des HEMS</td><td><span class="ok">bestanden</span>: nach 50 s beide Gateways wieder verbunden, nach 53 s Herzschlag-Abo beider Gateways erkannt; beide blieben „gesteuert“ (kein Failsafe)</td></tr>
+  <tr><td>23.11. · Treiber <b>v036</b></td><td>Log-Zeile „nicht gebunden (nur protokolliert)“</td><td><span class="offen">nicht nachgewiesen</span> – der Log-Puffer war zu kurz</td></tr>
+  <tr><td>23.11. 14:45 · Firmware v037 (Treiber v036), HEMS Firmware v038</td><td>Binding-Nachweis: HEMS-Neustart, Grenze und Freigabe mit Mitschrift am Gateway; Abfrage der Bindungsliste beider Gateways (<code>nodeManagementBindingData</code>)</td><td><span class="ok">bestanden</span> für LoadControl: Grenzen ohne „nicht gebunden“. <span class="offen">Befund</span>: je Gateway nur <b>eine</b> Bindung (LoadControl), <b>keine</b> auf DeviceConfiguration – Failsafe-Werte wären bei Binding-Pflicht abgelehnt worden, und das HEMS band nach Fehler 9 nicht neu. → Binding-Pflicht noch nicht eingeschaltet, zuerst HEMS Firmware v039</td></tr>
+  <tr><td>23.11. · <b>Firmware v038</b> (Treiber v037), Skript v022, HEMS Firmware v038</td><td>Verbindung mit neuem SHIP, Grenze/Freigabe, HEMS-Neustart</td><td><span class="ok">bestanden</span>: nach dem Flashen HEMS verbunden, Herzschlag-Abo beider Gateways, SKI aus dem Zertifikat, Skript läuft. Erste Grenze direkt nach dem Flashen NACK – derselbe Anlauf-Effekt wie oben (ein Gateway erst rund 30 s online, Verbrauch unbekannt, das andere lehnt richtig ab). Wiederholt mit bekannten Verbräuchen: <b>ACK nach 5,0 s</b>, 5.000 W / 4.998 W bestätigt, Freigabe in Ordnung. HEMS-Neustart: Das HEMS kommt mit den neuen SHIP-Regeln (Zertifikat und Vertrauen) bei beiden Gateways wieder herein, Herzschlag-Abo beider Gateways nach 52 s, kein Failsafe</td></tr>
+  <tr><td>23.11. · Firmware v038, <b>HEMS Firmware v039</b></td><td>Bindungen mit neuem HEMS; Grenze 5.000 W und Freigabe</td><td><span class="ok">bestanden</span>: Bindungsliste je Gateway jetzt <b>zwei</b> Einträge (LoadControl und DeviceConfiguration). Grenze ACK nach 4,6 s, 5.000 W / 4.998 W bestätigt; Freigabe nach 4,8 s bestätigt</td></tr>
+  <tr><td>23.11. · <b>Firmware v039</b> (Treiber v038), Skript v022, HEMS Firmware v039</td><td>Binding-Pflicht im Normalbetrieb; Grenze 5.000 W und Freigabe</td><td><span class="ok">bestanden</span>: beide Gateways gebunden (LoadControl und DeviceConfiguration), <b>kein</b> „nicht gebunden“ und <b>kein Fehler 9</b>; Grenze <b>ACK nach 5,0 s</b> (5.000 W / 4.998 W), Freigabe in Ordnung</td></tr>
+  <tr><td>23.11. · <b>Firmware v039</b>, HEMS Firmware v039</td><td>Neustart des HEMS: Zeit, bis beide Gateways wieder verbunden sind</td><td><span class="ok">bestanden</span>: wieder verbunden nach <b>31 s</b> und <b>37 s</b>. Vorher (Firmware v038) waren es 44 s und 19 s.<br><b>Warum es vorher so verschieden war:</b> Eine Verbindung baut entweder das Gateway auf (es ruft an) oder der Energy Guard. Welche Seite zuletzt angerufen hatte, war Zufall – beide Gateways sind gleich eingestellt. Das Gateway, das selbst angerufen hatte, baute nach dem HEMS-Neustart über seinen eigenen Verbindungserhalt nach 19 s neu auf. Das andere hatte die Verbindung nur angenommen und wartete, bis das HEMS wieder anrief (44 s). Seit Firmware v039 ruft auch dieses Gateway nach 10 s selbst an (Abschnitt 4); der große Abstand ist weg.<br><i>Ehrlicher Hinweis:</i> Erwartet waren rund 20 s. Warum es 31/37 s sind, ist nicht belegt (Vermutung: der erste eigene Anruf fällt in den Start des HEMS, der nächste Versuch kommt erst nach einer Pause). Die Zeit wird bewusst so belassen.</td></tr>
+  <tr><td>23.11. ~17:00 · <b>Firmware v040</b> (Treiber v039), Skript v022, HEMS Firmware v039</td><td>Nach dem Flashen beider Gateways: Grundfunktion, Grenze 5.000 W und Freigabe</td><td><span class="ok">bestanden</span>: Skript läuft, Herzschlag-Abo, Bindung LoadControl und DeviceConfiguration bestätigt; Grenze: HEMS-Quittung <b>ACK nach 4,5 s</b>, beide Gateways bestätigt (5.000 W / 4.998 W); Freigabe bestätigt; <b>kein Fehler 9</b>.<br><i>Ehrlicher Hinweis:</i> Das neue Verbindungsende („unspecific“ / „confirm“) wurde dabei <b>nicht gezielt ausgelöst</b> und ist damit am Gerät nicht eigens nachgewiesen.</td></tr>
+</table>
+
+<h2 id="k16">16. Häufige Fragen</h2>
 <h3>Das HEMS meldet „abgelehnt“ (NACK)</h3>
-<p>Die Grenze lag unter der Zusage der SteuVE: Nicht abschaltbare Verbraucher ziehen gerade mehr, ein Verbraucher antwortet nicht (zählt mit Nennleistung), oder ein Steuerkontakt ist nicht bestätigt (Zusage unbekannt). Mit <code>EEBusCs</code> den Wert <code>ZusageW</code> ansehen.</p>
-<h3>Die Verbraucherliste ist nach einem Update leer</h3>
-<p>Entweder kam das alte Skript von v011 oder älter (Abschnitt 10, das ist dann so gewollt), oder das Skript wurde mit einem anderen <code>@name</code> geladen (dann gibt es nichts zu übernehmen) und hat eine neue, leere <code>.pvs</code> angelegt. Ebenso kann es direkt nach einem Neustart passieren, wenn die SD-Karte beim Start noch nicht bereit war und das Skript die Kopie im Flash gelesen hat.</p>
-<h3>Die Seite zeigt nach einem Update noch die alte Fassung</h3>
-<p>Auf der SD-Karte liegt noch eine alte <code>steuve.html.gz</code>. Beide Dateien ersetzen (Abschnitt 10) und die Seite neu laden.</p>
-<h3>Die Seite bleibt leer, wenn ich die Adresse direkt eintippe</h3>
-<p>Der Haken <b>„HTTP API aktivieren“</b> fehlt (Abschnitt 2). Dann beantwortet das Gerät ein direkt eingetipptes <code>http://&lt;Adresse&gt;/steuve</code> nicht; über den Knopf „SteuVE“ auf der Hauptseite geht es noch. Haken setzen und speichern – das Gerät startet dabei neu.</p>
-<h3>Keine SD-Karte gefunden</h3>
-<p>Vorlage prüfen: Es muss <code>Waveshare ESP32-S3-ETH SDIO</code> sein (Abschnitt 2). Im Log beim Start muss <code>UFS: SDCard mounted (SDIO 1-bit)</code> stehen.</p>
-<h3>Das HEMS meldet weniger Grenze, als die Steuerbox gesetzt hat</h3>
-<p>Ein HEMS verteilt die Vorgabe der Steuerbox auf seine Geräte. Wie es aufteilt, legt das HEMS fest; die SteuVE bekommt nur ihren Anteil (Anzeige „Anteil SteuVE“ in der Übersicht).</p>
+<p>Mit <code>EEBusCs</code> nachsehen: Steht <code>"Skript":"laeuft nicht"</code>, läuft das Skript nicht (Abschnitt 8). Sonst lag die Grenze unter der Zusage (<code>ZusageW</code>): Nicht abschaltbare Verbraucher ziehen gerade mehr, ein Verbraucher antwortet nicht (zählt mit Nennleistung), oder ein Steuerkontakt ist nicht bestätigt (Zusage unbekannt, <code>ZusageW</code> −1). Der Reiter Meldungen nennt den Grund („Skript laeuft nicht“ bzw. „Grenze nicht erreichbar“).</p>
+<h3>Nach einem Stromausfall nimmt das Gateway keine Grenze mehr an</h3>
+<p>Fast immer hat der Boot-Schutz von TinyC den Autostart abgeschaltet. TinyC → Slot 0 → <b>A</b> grün, <b>▶</b> starten (Abschnitt 8.3).</p>
+<h3>Ein Steuerkontakt steht auf „NICHT bestätigt“</h3>
+<p>Die zurückgelesene Relaisstellung passt nicht zur verlangten. Häufige Gründe: Der Shelly war kurz ohne Strom, ein Schalter am SW-Eingang hat das Relais umgelegt (Eingang auf „getrennt“ stellen, 6.4), oder in der Shelly-App läuft eine Zeitschaltung. Neue Grenzen werden dann abgelehnt; eine laufende Grenze bleibt aktiv (6.10).</p>
+<h3>Bei „Steuerkontakt“ steht „nur Shelly 1“</h3>
+<p>Steuerkontakt kann nur ein Gerät der Shelly-1-Familie sein (6.2). Ist es ein Shelly 1, aber noch nicht erkannt: <b>prüfen</b> klicken und eine Runde warten.</p>
+<h3>Der Kontakt steht ohne Begrenzung in Begrenzungsstellung</h3>
+<p>Das Gateway stellt ihn in der nächsten Runde (10 s) zurück und schreibt „Normalstellung wiederhergestellt“ ins Kontakt-Protokoll. Bleibt er stehen, antwortet der Shelly nicht oder der Platz ist kein aktiver Steuerkontakt (<code>STVKONT</code> → letztes Feld 0, siehe 6.7).</p>
+<h3>Ein Gerät steht auf „antwortet nicht“</h3>
+<p>Adresse prüfen, Gerät in der Shelly-App bzw. im Browser aufrufen. Bei Geräten im WLAN kann eine Antwort auch einmal ausbleiben. Sonst „prüfen“ klicken. Solange ein Gerät 3 Runden in Folge nicht antwortet, meldet das Gateway den Verbrauch als „unbekannt“.</p>
+<h3>Ein Tasmota-Gerät steht auf „kein Shelly/Tasmota?“ oder „Tasmota: Passwort?“</h3>
+<p>Im Browser <code>http://&lt;Adresse&gt;/cm?cmnd=Status</code> aufrufen: Kommt eine Warnung, ist ein Web-Passwort gesetzt; kommt nichts, ist die HTTP-Schnittstelle ausgeschaltet. Danach „prüfen“ klicken.</p>
+<h3>Der Haken „abschaltbar“ lässt sich nicht setzen</h3>
+<p>Das Gerät ist ein Messgerät ohne Relais (Spalte M/S zeigt „M“). Es kann nichts abschalten.</p>
 <h3>Ein Verbraucher wird trotz Grenze nicht abgeschaltet</h3>
-<p>Abgeschaltet wird nur, was „abschaltbar“ ist und gerade zieht, und nur, solange die Summe über der Grenze liegt. Reine Messgeräte (Spalte M/S = M) werden nie geschaltet.</p>
+<p>Abgeschaltet wird nur, was „abschaltbar“ ist und gerade zieht, und nur, solange die Summe über der Grenze liegt.</p>
+<h3>Im Log steht „ABGELEHNT (Fehler 9) … nicht gebunden“</h3>
+<p>Der Energy Guard schreibt ohne SPINE-Bindung. Ab Firmware v039 lehnt das Gateway den Wert dann ab (Abschnitt 9). Ein HEMS vor Firmware v039 bindet DeviceConfiguration nicht (Abschnitt 15) – dann trifft es die Failsafe-Werte. Abhilfe: HEMS auf Firmware v039 oder neuer bringen. Ältere Gateway-Firmware (v037/v038) schreibt stattdessen „nicht gebunden (nur protokolliert)“ und nimmt den Wert an.</p>
+<h3>Das HEMS findet ein neues Gateway, kann es aber nicht verbinden</h3>
+<p>Ab Firmware v038 lässt das Gateway nur den vertrauten Energy Guard herein. Zuerst im Reiter EEBus beim HEMS <b>Vertrauen</b> klicken oder <code>EEBusCsTrust &lt;SKI&gt;</code> eingeben, danach koppeln (Abschnitt 4).</p>
+<h3>Die Verbraucherliste ist nach einem Update leer</h3>
+<p>Entweder kam das alte Skript von v011 oder älter (Abschnitt 12), oder das Skript wurde mit einem anderen <code>@name</code> geladen. Ebenso kann es direkt nach einem Neustart passieren, wenn die SD-Karte beim Start noch nicht bereit war.</p>
+<h3>Die Seite zeigt nach einem Update noch die alte Fassung</h3>
+<p>Auf der SD-Karte liegt noch eine alte <code>steuve.html.gz</code>. Beide Dateien ersetzen und die Seite neu laden.</p>
+<h3>Die Seite bleibt leer, wenn ich die Adresse direkt eintippe</h3>
+<p>Der Haken <b>„HTTP API aktivieren“</b> fehlt (Abschnitt 2). Haken setzen und speichern – das Gerät startet dabei neu.</p>
 <h3>Ein Energy Guard wird trotz „Vertrauen“ abgewiesen</h3>
-<p>Vertraut wird nur der SKI, die beim „Vertrauen“ gewählt wurde – geprüft am Zertifikat der Gegenstelle. Schreibt ein anderes Gerät (z. B. die Steuerbox, während die SteuVE dem HEMS vertraut), wird es abgewiesen (Zähler „Abgewiesen“). Das ist gewollt: Eine SteuVE gehorcht nur einem Energy Guard. Hat der Energy Guard eine neue Identität erzeugt, muss ihm neu vertraut werden.</p>
+<p>Vertraut wird nur der SKI, die beim „Vertrauen“ gewählt wurde – geprüft am Zertifikat der Gegenstelle. Hat der Energy Guard eine neue Identität erzeugt, muss ihm neu vertraut werden.</p>
 <h3>Nach einem Neustart steht kurz „Anlauf – begrenzt auf … W“</h3>
-<p>So verlangt es der Use Case LPC: Nach einem Neustart beginnt die SteuVE mit dem Failsafe-Wert, bis der Energy Guard eine Vorgabe schickt. Das geschieht meist nach wenigen Sekunden; kommt 120 s lang nichts, wechselt sie auf „autonom“ und ist frei (Bild 7).</p>
-<h3>Das HEMS legt die SteuVE als neues Gerät an</h3>
-<p>Das passiert nur mit einer neuen Identität (neue SKI). Zieht die SteuVE auf ein anderes Board um, vorher <b>Sichern</b> und auf dem neuen Board <b>Zurückspielen</b> (Abschnitt 4) – dann erkennt das HEMS das vorhandene Gerät wieder, auch mit anderer Adresse.</p>
+<p>So verlangt es der Use Case LPC ([LPC-901]): Nach einem Neustart beginnt das Gateway mit dem Failsafe-Wert, bis der Energy Guard nach seinem Herzschlag eine Vorgabe schickt. Kommt 120 s lang nichts, wechselt es auf „autonom“ und ist frei (Bild 7).</p>
+<h3>Das HEMS legt das Gateway als neues Gerät an</h3>
+<p>Das passiert nur mit einer neuen Identität (neue SKI). Beim Umzug auf ein anderes Board vorher <b>Sichern</b> und auf dem neuen Board <b>Zurückspielen</b> (Abschnitt 4).</p>
 
 </body>
 </html>

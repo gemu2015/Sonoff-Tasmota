@@ -4,6 +4,100 @@
   Rolle: Energy Guard — tritt als vorgelagerte
   Steuerbox auf und gibt einer Anlage Leistungsgrenzen vor.
 
+  v246 (23.11.2026, Abgleich SPINE-Testspezifikation V1.1.0 + SPINE-IG V1.0.0 gegen diesen Treiber):
+  A1 (TS SUBS_001/002, BIND_001): nodeManagementSubscriptionData/BindingData lesen wurde mit Fehler 6 beantwortet, obwohl
+     in der Discovery angeboten. Jetzt fuehrt jede Verbindung eine Liste der Abos/Bindings, die die Gegenstelle bei UNS
+     angelegt hat (EEBUS_GB_MAX), und liefert sie aus (Abo auf NodeManagement = Eintrag Client 0/0 - Server 0/0).
+  A2 (TS BIND_001): Binding auf unser NodeManagement wird abgelehnt (Fehler 7), unbekannte Calls mit Fehler 6 - bisher
+     wurde jeder Call mit 0 bestaetigt. Ablehnungen gehen IMMER raus, unabhaengig von ackRequest.
+  A3 (TS FC_001): NodeManagement-Befehle (Calls und nodeManagement*-Reads) an ein anderes Ziel als Entity 0/Feature 0
+     werden mit Fehler 6 abgelehnt.
+  A4 (TS RTC_003, IG 2.2 Z. 136-138): useCaseAvailable eines Servers wird ignoriert (Client SHALL ignore) - v243 hatte
+     bei false LPP/GridConnectionPoint verworfen.
+  B1: SubscriptionDelete ohne Feature-/Entity-Angabe loescht alle passenden Abos; Herzschlag-/LoadControl-/NodeManagement-
+     Merker werden aus der Liste neu bestimmt (vorher nur bei Feature 5/2 und nie fuer LoadControl).
+  B2: BindingDelete der Anlage auf unser LoadControl-Binding und Fehler 9 ("Binding noetig") auf einen Write setzen
+     lpc_bound zurueck -> der naechste Write bindet neu.
+  B3: Abo-Ziel (Herzschlag/LoadControl/NodeManagement) auch aus serverAddress erkannt - serverFeatureType ist nur empfohlen.
+  B4: reply mit ackRequest wird quittiert (wie notify). B5: Quittungen auf write/call mit unserer Zieladresse als Absender
+     statt fest 0/0.
+  C2: ackRequest und serverFeatureType werden auch mit Leerraum um den Doppelpunkt erkannt.
+  Bewusst NICHT: IG 2.6.1 Z. 233 "gueltiges NACK SHALL NOT Neuversuch ausloesen" - die LPC-Testspezifikation (EGMessages_002,
+  LPC-906) verlangt nach Fehler 7 den Neuversuch; die speziellere Use-Case-Regel geht vor. Format von specificationVersion
+  nur Warnung (wie bisher). Writes/Reads auf nicht angebotene Features (Fehler 6) erst nach Mitschnitt Wallbox/VR921.
+
+  v245 (23.11.2026, Befund EGMessages_002 am 23.11.): im Betriebslogbuch fehlten abgelehnte Wiederholungen - der Eintrag
+  "Vorgabe" wurde unterdrueckt, wenn Richtung/Wert/Ergebnis dem letzten glichen (v215), und die erste Ablehnung vor dem
+  sofortigen Neuversuch (LPC-906) wurde gar nicht protokolliert. Fuer die Nachweiskette (VDE-FNN-Empfehlung Tenorziffer 2a:
+  Nichtausfuehrbarkeit protokollieren) jetzt: jede Ablehnung/jeder Fehlschlag (LPC_FAIL) wird eingetragen, ab der 1.
+  Wiederholung mit deren Nummer; die erste Ablehnung vor dem Neuversuch bekommt einen eigenen Eintrag. Bestaetigungen
+  weiter ohne Doppel. Menge begrenzt: Wiederholungen 60 s, 120 s ... hoechstens alle 10 min (EEBUS_WDH_MAX_MS).
+
+  v244 (23.11.2026, Befund EGConnection_002 mit 6 min Netzausfall am 22.11.): nach langem Ausfall sah der Wiederaufbau
+  nur noch alle 30 s nach (Ping), ohne Ping-Antwort verband er nur alle 120 s. Kam das Netz kurz nach einem Nachsehen
+  zurueck, lag die Freigabe bei ~50 s oder mehr - die 60-s-Frist nach Verbindungsaufbau ([LPC-913]/[LPP-913]) wurde knapp
+  bzw. verfehlt. Jetzt: Wechsel "Netz weg" -> "Netz da" (FUNC_NETWORK_DOWN/UP; UP kommt jede Sekunde, nur der Wechsel
+  zaehlt) stoesst das Nachsehen SOFORT an (0,5 s) und startet die schnelle Phase (alle 5 s) neu, weil die Gegenstelle
+  spaeter zurueckkommen kann als die Box. Logbuch "Netz wieder da - Wiederaufbau sofort" je wartender Verbindung.
+
+  v243 (22.11.2026, Pruefung MGCP TS 1.0.0 + LPP TS 1.0.0 mit Testspezifikationen V1.0.2):
+  MGCP: (1) valueState "error"/"outOfRange" -> Wert ignorieren, Eintrag ohne Wert = nicht vorhanden (MGCP Z. 424-426,
+  859-874, [MGCP-003]); (2) scale nur aus DEM Eintrag, sonst 0 (Tab. 14-20); (3) Phase und Bezug aus
+  electricalConnectionParameterDescription (Tab. 18/19, [MGCP-051], [MGCP-061]), Leiter-Leiter-Spannungen eigene Felder
+  ("VoltageLL"); (4) positiveEnergyDirection "produce" -> Vorzeichen von Leistung/Strom umkehren (Tab. 15-19);
+  (5) measurementType/unit muessen zur Bedeutung passen (Tab. 15-20); (6) pvCurtailmentLimitFactor nur mit Einheit pct
+  und 0-100 % (Tab. 14), 4 DeviceConfig-Entities; (7) Netzanschlusspunkt auch aus der Use-Case-Auskunft (Z. 444-467);
+  (8) erfundene Messwert-Antworten nur noch in den Pruefrollen 0/2/3 - Rolle 1 bietet diese Server nicht an (Z. 913-914);
+  Messwert-Leser vertraegt Leerraum, Zuordnungen je Sitzung neu. Bewusst NICHT: measurementConstraints auswerten
+  (SHOULD) - ein Wert ausserhalb des Bereichs wird nach Z. 425 ohnehin ignoriert.
+  LPP: (9) Failsafe-Werte erst nach dem ersten Grenz-Write JEDER vorhandenen Richtung (LPP Z. 389-392, LPC Z. 372-375);
+  (10) 60-s-Frist je Richtung, Logbuch "LPP-913 Frist verfehlt" ([LPP-913] Z. 386-388); (11) neue Nennleistung Erzeugung ->
+  Failsafe neu ([LPP-021]); (12) Nennleistung nur mit characteristicContext entity, die der gesteuerten Entity hat Vorrang
+  (Tab. 18/19); (13) Einspeisegrenze nur, wenn die Anlage LPP als ControllableSystem anbietet (LPP 3.1.2 Z. 766-788);
+  (14) Failsafe-Schluessel mit isValueChangeable false nicht schreiben (Tab. 15/16). Bewusst so: ohne gemeldete
+  Nennleistung kein Einspeise-Failsafe (60 % von "unbekannt" waere geraten).
+
+  v242 (22.11.2026, SHIP-Pruefung gegen SHIP TS 1.1.0 + SHIP-Testspezifikation 1.0.0, meierchen006: "Box normgerecht"):
+  (1) CMI als Client ohne Blockieren, CmiTimeout 15 s, nur MessageType+CmiHead auswerten (SHIP Z. 2052-2084); Server:
+  falsche CMI -> CMI senden und schliessen (Z. 2061-2067). (2) Hello nach SHIP 13.4.4.1: Wait-For-Ready 60 s, "pending"
+  ohne Verlaengerungswunsch ignorieren, prolongationRequest +60 s und Update (Z. 2202-2313), Server schickt sein Hello
+  sofort; Abbruch sendet "aborted" (Z. 2292-2297). (3) Protocol Handshake: select pruefen (Client, Z. 2403-2416), Spiegel
+  pruefen (Server, Z. 2417-2428), Wait-Timer 10 s, Fehler 1/2/3 senden (Z. 2441-2446). (4) PIN: Peer-pinState binnen
+  10 s, sonst schliessen; Datenphase erst danach, auch als Server (Z. 2658-2664, 2747-2754). (5) Anrufer nur mit
+  Zertifikat (Z. 692-693) und nur, wenn vertraut (Partnerliste, EEBusTrust, Zuordnung; Z. 2125-2126, 2255-2256).
+  (6) SubjectKeyIdentifier im Zertifikat muss zur SKI des Schluessels passen (Z. 1265-1269, TC_SHIP_SEC_001/002).
+  (7) Doppelverbindung: groessere SKI schliesst sofort die aeltere, kleinere nach 3 s (Z. 1353-1366). (8) Server-Records
+  <= 1024 B (Z. 714-716). (9) SNI = mDNS-Hostname (Z. 723, 804). (10) WebSocket-Header pruefen (Z. 802), Text-/reservierte
+  Opcodes -> Close 1003/1002, Close beantworten (Z. 826-830). (11) Pong-Frist 10 s (Z. 854-855). (12) accessMethods mit
+  dnsSd_mDns (Tab. 22); connectionClose nur in der Datenphase (Z. 3103-3105). (13) JSON mit Leerraum (TC_SHIP_MSG_003).
+  (14) mDNS-Eintraege ohne txtvers=1 verwerfen (Z. 570-573). Bewusst NICHT: Kennung der Gegenstelle dauerhaft speichern
+  (Z. 2929-2930) - die Box findet Partner ueber die SKI im mDNS, die id kommt dort jedes Mal neu mit.
+
+  v241 (22.11.2026, Normpruefung SPINE/LPC + LPC-Testspezifikation V1.0.2, meierchen006: "Box normgerecht machen"):
+  (1) Grenzauswahl nur noch nach LPC TS Tab. 22 / Z. 1509-1511: limitType signDependentAbsValueLimit, limitCategory
+  obligation, limitDirection consume (LPP: produce), scopeType activePowerLimit; ohne measurementId ist die Beschreibung
+  ungueltig (LPC IG 3.4 Z. 646-649) - kein Rueckfall mehr auf maxValueLimit oder die erste limitId. Eigene Beschreibung
+  (Rollen 0/2/3) ebenso. (2) isLimitChangeable false -> nicht schreiben (LPC TS Tab. 23). (3) Abo-Ergebnis auswerten,
+  bei Ablehnung regelmaessig lesen (LPC TS Z. 1466); Herzschlag-Abo bei Herzschlagverlust erneuern (SPINE Z. 2406-2409).
+  (4) maxResponseDelay der Anlage als Antwortfrist (SPINE Z. 1196-1198). (5) Hinweis bei Schreiben < 5 min (LPC IG 2.10,
+  SHOULD; bewusste Abweichung: die Box gibt Vorgaben unverzoegert weiter, Testfall EGMessages_003 schreibt 25x).
+  (6) "BESTAETIGT aktiv" nach Ablauf auch ohne Rueckmeldung der Dauer richtigstellen. (7) Rest eines Frames: 10 s statt
+  1 s warten, nicht blockierend (SHIP 8.3/8.4 Z. 669-686 TCP-Wiederholung 1+3+6 s, SHIP Z. 841-842 Verbindung halten).
+  (8) Sicherung erst mit Herzschlag-Abo der Anlage (LPC-913, TS Tab. 15-17). (9) Herzschlag nach > 110 s Pause gilt als
+  zurueck -> Herzschlag + Grenze (LPC-911/913, EGConnection_002). (10) Wiederaufbau nach Neustart auch ohne Uhr nach
+  60 s (EGConnection_001/003) und ohne Aufgeben (EGConnection_003 "automatically reconnects after a black start").
+
+  v240 (22.11.2026, meierchen006: "normgerechte Geraete"): heartbeatTimeout PT60S (LPC TS Tab. 13); Herzschlag-Notify nur
+  an Abonnenten, blosses Lesen nur beantworten (SPINE Z. 2417-2419); Binding-Quittung ueber msgCounterReference der
+  eigenen LoadControl-Bindung (LPC TS Z. 1450-1452).
+
+  v239 (22.11.2026, Normpruefung, Bericht 2026-11-22--1815): (1) Antwortfrist der LPC-Kette auch bei eingehenden
+  Verbindungen (SPINE 5.2.5.3); (2) Herzschlag vor dem Write auch im SteuVE-Betrieb, wenn > 50 s (LPC-913); (3) abgelehnte
+  Failsafe-Werte spaeter erneut (IG 2.15); (4) LPC-913-Frist und fehlendes Herzschlag-Abo der Anlage in Log/Logbuch;
+  (5) Stumm-Abbau erst nach 2x Herzschlag-Zusage; (6) Abbruch-Erkennung auch bei reply; (7) unbekannter Read -> errorNumber 6,
+  notify-Quittung, Abo-Loeschung + geaenderte Geraeteliste (SPINE Z. 1088-1093, 1134-1145, LPC TS Z. 1455, 1470-1477);
+  (8) unvollstaendige Grenzen-Beschreibung melden (IG 3.4). Binding-Zuordnung bleibt bewusst wie bisher (erprobt).
+
   Kann:
     SHIP als Client UND als Server (Gegenstellen bauen die Verbindung teils selbst zu uns auf),
       TLS 1.2 mit eigenem EC-Zertifikat, mDNS (_ship._tcp), bis zu EEBUS_MAX_CONN Gegenstellen
@@ -14,7 +108,7 @@
     Messwerte am Netzanschlusspunkt (MGCP) lesen
     Weboberflaeche unter /steuerbox (liest steuerbox.html aus dem Dateisystem)
 
-  Offen: mehrere eingehende Verbindungen gleichzeitig (SHIP 12.2.2 Doppelverbindungs-Regel).
+  Offen: mehrere eingehende Verbindungen gleichzeitig. Doppelverbindungen (SHIP Z. 1353-1366) loest seit v242 die Box.
 
   Identitaet der Gegenstelle (Stand v231): in BEIDEN Richtungen ueber die SKI aus ihrem Zertifikat.
     - eigener Anruf (v192/v193): tls_mini liefert den oeffentlichen Schluessel der Gegenstelle
@@ -83,7 +177,7 @@
     EEBusProbe <ent> <v> <b> [1]  Feature-Sweep; mit 1 vorher Subscribe und Binding
     EEBusProvide <watt>           eigenes LoadControl mit diesem Wert bereitstellen (0 = aus)
     EEBusOpen 0|1                 Discovery-Eroeffnung: 0 reaktiv adressiert, 1 adresslos
-    EEBusTrust                    Platzhalter, noch ohne Funktion (gedacht: Liste erlaubter Anrufer).
+    EEBusTrust [<SKI>|0]          v242: erlaubte Anrufer (ohne Argument: Liste, SKI: aufnehmen, 0: Liste leeren).
                                   Seit v190 ist die SKI eines Anrufers mit Zertifikat bekannt; die
                                   Liste selbst ist noch nicht gebaut, der Schalter tut nichts.
 
@@ -488,7 +582,7 @@ static const uint16_t kEebusLateReadS[3] = { 60, 180, 420 };
 #define EEBUS_LIFE_SILENT_MS    25000UL    // v233: Gegenstelle mit Herzschlag so lange ganz still -> Verbindung abbauen (ersetzt den Dauer-Ping)
 #define EEBUS_KA_SCAN_MIN_MS    60000UL    // neue mDNS-Suche hoechstens so oft (laeuft nebenher)
 
-// v233 (07.11. nachmittags, Andreas): KEIN Lebenszeichen-Ping mehr bei stehender Verbindung. Box v231/v232 stuerzte im
+// v233 (07.11. nachmittags, meierchen006): KEIN Lebenszeichen-Ping mehr bei stehender Verbindung. Box v231/v232 stuerzte im
 // Testnetz am 07.11. viermal ab (DebugException in vTaskSwitchContext, EPC 4037e9bd - dieselbe Adresse wie der bewiesene
 // Ping-Absturz von v229), Box v224 im Hauptnetz (ohne diesen Ping) lief zur selben Zeit 2 Tage 16 h ohne Absturz. Der
 // v231-Ping legte alle 3 s eine esp_ping-Task an und loeschte sie wieder. Ersatz ohne Task: bei einer Gegenstelle, die
@@ -502,7 +596,7 @@ static const uint16_t kEebusLateReadS[3] = { 60, 180, 420 };
 // statt 8160). Ausserdem liest EEBusLppFrei die Zahl streng (Eebus126ArgNum) wie EEBusLpp - bisher atol, "abc" = 0 W.
 // v231 (05.11./06.11.): Sammelrunde nach der Pruefung aller Treiber vom 06.11. (Befundliste 2026-11-06--1245, Nummern
 // in Klammern). Eine Version fuer alles, keine Einzelschritte.
-//  Nachtrag 06.11. abends (Andreas): EEBusStatus meldet je Platz zusaetzlich "HerzschlagGesendetS" (Alter unseres
+//  Nachtrag 06.11. abends (meierchen006): EEBusStatus meldet je Platz zusaetzlich "HerzschlagGesendetS" (Alter unseres
 //  letzten Herzschlags an die Gegenstelle, hb_tx_at); die Statuszeile von steuerbox.html zeigt "gesendet · empfangen".
 //  Fehlerklassen komplett: (6) ALLE SKI-Vergleiche ohne Gross-/Kleinschreibung (10 Stellen, u. a. EebusKaPeerZurueck,
 //   Wiederaufbau, "schon verbunden"); (4.12) jeder Timer "millis() + T" ueber Eebus126At (0 = aus kann nicht mehr
@@ -599,7 +693,7 @@ static const uint16_t kEebusLateReadS[3] = { 60, 180, 420 };
 // Kommunikationsstoerung, abgewiesene Steuerbefehle. Steuerbefehle nur noch an STEHENDE Verbindungen (Index-Weg
 // nahm vorher auch einen Platz im Wiederaufbau an).
 
-// v214 (26.10., Andreas: "das muss alles so funktionieren"): eine ABGELEHNTE Vorgabe gilt nicht als geschrieben;
+// v214 (26.10., meierchen006: "das muss alles so funktionieren"): eine ABGELEHNTE Vorgabe gilt nicht als geschrieben;
 // die Sicherung wird nach 60 s wiederholt (eigene Grenze erneut, sonst Freigabe), bis die Gegenstelle annimmt.
 // Vorher blieb eine Anlage, die uns beim Verbinden noch nicht vertraute, nach dem Vertrauen dauerhaft "autonom".
 
@@ -610,7 +704,7 @@ static const uint16_t kEebusLateReadS[3] = { 60, 180, 420 };
 // v212 (26.10.): mDNS kuendigt auch die IPv4 an (mdns_netif_action ENABLE/ANNOUNCE_IP4 nach mdns_init). Bisher nur
 // AAAA, weil mdns_init erst nach dem Ereignis "IPv4 bekommen" lief; Geraete ohne IPv6 konnten uns nicht anrufen.
 
-// v211 (26.10., Normpruefung Teil B, Andreas): ein DIREKT gesteuertes Geraet wird immer genau auf seine
+// v211 (26.10., Normpruefung Teil B, meierchen006): ein DIREKT gesteuertes Geraet wird immer genau auf seine
 // Mindestleistung gedimmt - 4200 W (BK6-22-300 Anl. 1 Ziff. 4.5.1), WP/Klima ueber 11 kW 0,4 x P (Satz 2); sie ist
 // Untergrenze und Dimmwert zugleich (FNN-Empfehlung: "Dimmen (zugesicherte Mindestbezugsleistung § 14a)"). Andere
 // Eingaben werden ersetzt und geloggt. Failsafe direkt = derselbe Wert. Log-Text Failsafe korrigiert.
@@ -618,7 +712,7 @@ static const uint16_t kEebusLateReadS[3] = { 60, 180, 420 };
 // Sicherung (bisher nur nach der Anmeldung: dort war lpc_onboarded gesetzt, beim Wiederaufbau nicht). VDE FNN
 // Empfehlung zu Tenorziffer 2a BK6-22-300 Kap. 4.1.2.5: "bei bestehender Kommunikationsverbindung [werden] die
 // FailSafe-Leistungsgrenzen (Bezug und Einspeisung) und deren Dauer an die steuerbare Einrichtung uebertragen".
-// Wert (Andreas): direkt gesteuert 4200 W je SteuVE (BK6 Ziff. 4.5.1), hinter dem HEMS Pmin der Anlage (Ziff. 4.5.2).
+// Wert (meierchen006): direkt gesteuert 4200 W je SteuVE (BK6 Ziff. 4.5.1), hinter dem HEMS Pmin der Anlage (Ziff. 4.5.2).
 // Dazu: Betriebsart (HEMS/direkt) auch aus der Discovery der Gegenstelle, wenn sie (noch) nicht in der Fundliste steht.
 // v208 (26.10., Normpruefung Teil A): FNN-Empfehlung zu Tenorziffer 2a BK6-22-300 (Verbindungsueberwachung): die
 // Steuerungseinrichtung muss "einen zeitnahen Wiederaufbau der Kommunikationsverbindung veranlassen". Wartezeit nach
@@ -643,7 +737,7 @@ static const uint16_t kEebusLateReadS[3] = { 60, 180, 420 };
 // Jetzt: waehrend des Wartens eingehende TLS-Records lesen; Warten und Abbruch werden geloggt; nach einem Abbruch
 // wird die Verbindung sauber beendet (die Gegenstelle baut neu auf). Am Inhalt/der Reihenfolge der Nachrichten
 // aendert sich nichts.
-// v203 (25.10., Normpruefung Andreas "regelkonform"): Sicherung nach 30 s statt 60 s. LPC V1.0.0 [LPC-913]
+// v203 (25.10., Normpruefung meierchen006 "regelkonform"): Sicherung nach 30 s statt 60 s. LPC V1.0.0 [LPC-913]
 // (Z. 369-371): "After restoration of communication, the Energy Guard SHALL send a Heartbeat and a following power
 // limit within 60 seconds"; die Freigabe ist dabei ausdruecklich zulaessig ([LPC-916]/[LPC-920], Z. 376-386: "MAY also
 // deactivate ... if there is no need for setting a limit" -> CS wechselt nach "unlimited/controlled").
@@ -651,7 +745,7 @@ static const uint16_t kEebusLateReadS[3] = { 60, 180, 420 };
 // Vorgabe mehr - weder von der Sicherung noch ueber "alle". Bisher endete die Sicherung dort mit "keine produce-Grenze
 // (EEG9)" und ueberschrieb das gute Ergebnis der Bezugs-Freigabe. Erkannt an der gelesenen Beschreibung: Bezug-limitId
 // bekannt, Einspeise-limitId nicht (EebusOhneEinspeisung).
-// v202 (25.10., Andreas): Wiederaufbau zu MEHREREN Partnern. Bisher merkte sich die Steuerbox genau EINE SKI
+// v202 (25.10., meierchen006): Wiederaufbau zu MEHREREN Partnern. Bisher merkte sich die Steuerbox genau EINE SKI
 // (/eebus_peer.txt) - bei Direktsteuerung von zwei SteuVE kam nach einem Neustart nur eine zurueck (Test 20:43).
 // Jetzt eine Liste mit bis zu EEBUS_AC_MAX SKIs (eine je Zeile, alte Datei mit einer SKI bleibt lesbar). Jede
 // Verbindung, die die Datenphase erreicht (ausgehend, oder eingehend mit Zertifikat), kommt dazu - unbekannte Geraete
@@ -673,7 +767,7 @@ static const uint16_t kEebusLateReadS[3] = { 60, 180, 420 };
 // mit Endzeit) -> sie wird mit der Restdauer erneut geschrieben; sonst -> Freigabe. Unabhaengig von der globalen
 // Betriebsart und von Grenzen, die das Geraet als aktiv meldet. Jede Entscheidung steht im Log. (Nach einem NEUSTART
 // der Steuerbox ist die eigene Grenze vergessen - dann Freigabe.)
-// v199 (25.10., Andreas): Direktsteuerung mehrerer SteuVE. 6 Verbindungsplaetze fuer eigene Anrufe (statt 3) plus
+// v199 (25.10., meierchen006): Direktsteuerung mehrerer SteuVE. 6 Verbindungsplaetze fuer eigene Anrufe (statt 3) plus
 // der Serverplatz: VDE FNN Hinweis "Schnittstellen der Steuerungseinrichtung" v1.0 (03/2025) Kap. 3 S. 12 nennt
 // nach Lastenheft Steuerbox 1.4 bis zu VIER steuerbare Einrichtungen je Steuerbox; Haushalt WP + Klima + 2 Wallboxen
 // + Speicher = 5, dazu 1 Reserve. SHIP 1.1.0 Kap. 8.1: bei x Plaetzen hoechstens x-1 als Client und immer ein
@@ -770,7 +864,11 @@ enum EebusLpcState : uint8_t {
 // Timing sein (CS gerade im "init") -> "the EG may simply send Heartbeat and write command once more".
 // [LPC-914]: der Write wird nur bewertet, wenn UNMITTELBAR davor ein Heartbeat kam und der Write <60 s
 // folgt. Daher: bei errorNumber:7 automatisch Heartbeat+Write erneut, mehrmals. Nur HEMS-Modus.
-#define EEBUS_LPC_WRITE_MAX_TRIES  3   // so oft HB+Write nach err7 wiederholen (Norm LPC-906/914)
+#define EEBUS_LPC_WRITE_MAX_TRIES  1   // v237: so oft HB+Write nach err7 SOFORT wiederholen - nur einmal und nur kurz nach dem
+                                      // Verbinden (LPC TS 2.2 Hinweis / LPC IG 2.5 Z. 269-281: "once more", Zustand "init").
+                                      // Bis v236 dreimal bei JEDEM err7 -> Test 22.11.: alle ~13 s eine Grenze ans HEMS.
+#define EEBUS_LPC_INIT_FENSTER_MS 120000UL   // v237: so lange nach dem Verbinden kann die Anlage noch in "init" sein (LPC-906)
+#define EEBUS_WDH_MAX_MS          600000UL   // v237: laengste Wartezeit der Wiederholung (LPC IG 2.5 Z. 283-286: jedes Mal laenger)
 #define EEBUS_LPC_WRITE_RETRY_MS   2000UL   // Pause zwischen den HB+Write-Retries (CS "init" absetzen lassen)
 // §14a verlangt zwingend einen Failsafe (Rueckfall-Limit + Mindestdauer, falls die Steuerbox-
 // Verbindung abreisst). Die Vergleichs-Steuerbox SCHREIBT vor dem Consumption-Limit die Failsafe-DeviceConfig
@@ -1343,11 +1441,13 @@ void EebusPollScan(void) {
       EebusPeer *p = &Eebus.peers[Eebus.peer_count];
       memset(p, 0, sizeof(EebusPeer));
       strlcpy(p->path, "/ship/", sizeof(p->path));   // SHIP-Default
+      bool txtvers1 = false;   // v242 (SHIP Z. 570-573): ohne txtvers=1 verwerfen
       for (size_t i = 0; i < cur->txt_count; i++) {
         const char *k = cur->txt[i].key;
         const char *v = cur->txt[i].value;
         if ((nullptr == k) || (nullptr == v)) { continue; }
-        if (0 == strcmp(k, "ski"))        { strlcpy(p->ski, v, sizeof(p->ski)); }
+        if (0 == strcmp(k, "txtvers"))    { txtvers1 = (0 == strcmp(v, "1")); }
+        else if (0 == strcmp(k, "ski"))   { strlcpy(p->ski, v, sizeof(p->ski)); }
         else if (0 == strcmp(k, "id"))    { strlcpy(p->id, v, sizeof(p->id)); }
         else if (0 == strcmp(k, "path"))  { strlcpy(p->path, v, sizeof(p->path)); }
         else if (0 == strcmp(k, "model")) { strlcpy(p->model, v, sizeof(p->model)); }
@@ -1373,6 +1473,7 @@ void EebusPollScan(void) {
       }
    // SKI ist die Identitaet — ohne SKI ist der Eintrag fuer uns wertlos (SHIP 7.3.2 Pflichtfeld)
       if ('\0' == p->ski[0]) { continue; }
+      if (!txtvers1) { AddLog(LOG_LEVEL_DEBUG, PSTR("EBG: mDNS-Eintrag %s ohne txtvers=1 verworfen"), p->ski); continue; }   // v242
    // Dedup nach SKI. mDNS liefert denselben Dienst mitunter MEHRFACH (mehrere Interfaces/
    // Adressen — z.B. der Referenz-CS an 169.254 doppelt). Jedes Geraet soll genau einmal in der
    // Liste stehen (SKI = Identitaet), sonst ist die Geraeteauswahl uneindeutig.
@@ -1533,9 +1634,14 @@ enum EebusSmeState : uint8_t {
   SME_PIN,   // select bestaetigt + pinState:none gesendet, warte auf Peer-pinState (Referenz-Umsetzung-Gate)
   SME_ACCESS,   // accessMethodsRequest gesendet, warte auf Peer-accessMethods (Referenz-Umsetzung-Gate)
   SME_DONE,   // Handshake komplett -> Datenphase (SPINE = M3)
-  SME_FAIL
+  SME_FAIL,
+  SME_CMI   // v242: CMI gesendet, warte auf die CMI des Servers (ohne Blockieren, SHIP Z. 2068-2084)
 };
 
+#define EEBUS_CMI_TIMEOUT_MS         15000UL   // v242: CmiTimeout (SHIP Z. 2084: 10-30 s)
+#define EEBUS_SME_PIN_TIMEOUT_MS     10000UL   // v242: Peer-pinState (SHIP Z. 2663-2664)
+#define EEBUS_WS_PONG_MS             10000UL   // v242: Pong-Frist (SHIP Z. 854-855)
+#define EEBUS_TRUST_FILE        "/eebus_trust.txt"   // v242: erlaubte Anrufer (EEBusTrust)
 #define EEBUS_SME_HELLO_TIMEOUT_MS   60000UL   // SHIP SME_INIT_TIMEOUT (wird bei Pending verlaengert)
 #define EEBUS_SME_HELLO_MAX_MS      600000UL   // Obergrenze Pairing-Wartezeit gesamt (10 min).
    // Muss den kompletten Bedien-UI-Ablauf abdecken:
@@ -1546,6 +1652,13 @@ enum EebusSmeState : uint8_t {
    //       laeuft sie ab -> trotzdem in die Datenphase (Fallback)
 #define EEBUS_SHIP_LOGFILE           "/eebus_ship.log"
 // M3: SPINE-Datenphase
+#define EEBUS_WS_REST_MS          10000UL   // v241: so lange auf den Rest eines Frames warten (SHIP 8.3/8.4: 1+3+6 s TCP-Wiederholung)
+#define EEBUS_WSRAW_SIZE          (EEBUS_SPINE_RXBUF + 16)   // v241: Rohpuffer = ein ganzer Frame samt Kopf
+#define EEBUS_ABO_MAX                  12   // v241: gemerkte eigene Abos je Verbindung
+#define EEBUS_GB_MAX                   10   // v246: Abos/Bindings der Gegenstelle bei UNS je Verbindung (SPINE TS SUBS_001/BIND_001)
+#define EEBUS_ABO_POLL_MS          30000UL  // v241: Lesetakt fuer abgelehnte Abos (LPC TS Z. 1466)
+#define EEBUS_HB_LUECKE_MS        110000UL  // v241: Herzschlag-Pause, nach der die Anlage im Failsafe sein kann (LPC-911: 120 s)
+#define EEBUS_AC_ENDLOS_MS        120000UL  // v241: Wiederaufbau nach dem Neustart gibt nicht auf, neuer Durchlauf alle 120 s
 #define EEBUS_SPINE_RXBUF            32768   // PSRAM-Empfangspuffer fuer SPINE-Datagramme. 8192 war ZU KLEIN: Energiemanager-DetailedDiscovery = 9713 B, Waermepumpen-Gateway = 10969 B -> WsRecv (Z.913) verwarf den Frame STILL ("WS-Nachricht > 8191 B, verworfen", nur DEBUG) -> wir bekamen die Peer-Discovery NIE. Live bewiesen . 32 KB deckt reale Discovery + Reserve (PSRAM, pro Slot).
 #define EEBUS_SPINE_VERSION          "1.3.0"   // SUPPORTED_SPINE_VERSION (wie Ladestation/Energiemanager/Waermepumpen-Gateway)
 #define EEBUS_SPINE_KEEPALIVE_MS     8000UL   // Auto-Reconnect, wenn nach Done die Leitung abfaellt
@@ -1588,6 +1701,12 @@ typedef struct {
    // M3: SPINE-Datenphase
   uint8_t *rxbuf = nullptr;   // grosser Empfangspuffer (PSRAM) fuer SPINE-Datagramme
   size_t   rxbuf_size = 0;
+  uint8_t *wsraw = nullptr;   // v241: Rohpuffer des Empfangs (PSRAM), Frames ueber mehrere Durchlaeufe
+  size_t   wsraw_len = 0;
+  uint32_t wsraw_at = 0;      // v241: millis() des zuletzt empfangenen Bytes
+  size_t   wsf_len = 0;       // v241: Laenge der zerstueckelten Nachricht, die gerade zusammengesetzt wird
+  bool     wsf_on = false;
+  bool     wsf_drop = false;
   char     peer_dev[80] = { 0 };   // SPINE-Geraeteadresse des Peers (aus addressSource)
   uint32_t spine_ctr = 1;   // unser SPINE-msgCounter
   bool     disco_answered = false;   // haben wir dem Peer schon unsere Detailed Discovery geliefert?
@@ -1609,6 +1728,9 @@ typedef struct {
   void    *ka_ping_h = nullptr;       // v230: offene Ping-Sitzung (esp_ping_handle_t), geloescht nur im Tasmota-Ablauf
   bool     ka_ping_seen = false;     // v230: Gegenstelle hat schon einmal auf Ping geantwortet -> Versuch ohne Antwort nur alle 120 s
   uint32_t ws_ping_next = 0;   // millis() fuer den naechsten WebSocket-Ping (0 = noch nicht gesetzt)
+  uint32_t pong_wait_at = 0;   // v242: millis() des Pings, auf dessen Pong wir warten (0 = keiner offen)
+  uint32_t conn_at = 0;        // v242: millis() des TLS-Aufbaus (Doppelverbindung: welche ist aelter)
+  uint32_t dbl_at = 0;         // v242: seit wann diese Verbindung doppelt ist
    // mitgelesene Nutzdaten fuer die Anzeige. Alle Werte als Zahl+Zehnerexponent wie auf dem Draht
    // ("scaledNumber"), damit nichts gerundet wird; die Oberflaeche rechnet zusammen.
    // Zuordnung Kennung->Bedeutung kommt aus measurementDescriptionListData (scopeType), NICHT geraten.
@@ -1619,7 +1741,17 @@ typedef struct {
   bool     m_have[7] = { false };   // schon einmal empfangen?
    // v197: Strom (Code 4) und Spannung (Code 5) je Phase L1-L3. Die Phase ist die Reihenfolge der
    // Kennungen gleicher Bedeutung in der Beschreibung (erste = L1) — so liefern es HEMS und Zaehler.
-  int8_t   m_phase[24] = { 0 };
+  int8_t   m_phase[24] = { 0 };   // v243: 0-2 = L1-L3 (Strom / Spannung gegen N), 3-5 = L1-L2, L2-L3, L3-L1
+  uint32_t m_ph_desc = 0;         // v243: Bit je measurementId - Phase kommt aus der ParameterDescription (nicht geraten)
+  long     mll_val[3] = { 0 };    // v243: Leiter-Leiter-Spannungen ([MGCP-061/4-6])
+  int8_t   mll_sc[3] = { 0 };
+  bool     mll_have[3] = { false };
+  bool     meas_prod_dir = false; // v243: positiveEnergyDirection "produce" -> Vorzeichen umkehren
+  int      gcp_uc_ent = -1;       // v243: Entity des GridConnectionPoint laut Use-Case-Auskunft (-1 = unbekannt)
+  int8_t   lpp_uc = -1;           // v243: Anlage bietet LPP als ControllableSystem an: -1 unbekannt, 0 nein, 1 ja
+  uint32_t sess_dir_w[2] = { 0, 0 };   // v243: erster Grenz-Write dieser Sitzung je Richtung (LPC-/LPP-913)
+  bool     lpp913_warn = false;   // v243
+  uint8_t  fs_ro = 0;             // v243: Bit 1/2/3 = Failsafe Bezug/Dauer/Einspeisung laut Anlage nicht beschreibbar
   long     m3_val[2][3] = { { 0 } };
   int8_t   m3_sc[2][3]  = { { 0 } };
   bool     m3_have[2][3] = { { false } };
@@ -1641,8 +1773,8 @@ typedef struct {
    // DeviceConfig: die Schluessel heissen je Entity anders (Failsafe auf der Limit-Entity,
    // pvCurtailmentLimitFactor am Netzanschlusspunkt) — beide fuehren keyId 0. Deshalb die Bedeutung
    // je QUELL-ENTITY merken, sonst landet der Prozentwert im Failsafe-Feld.
-  int      cfg_ent[2] = { -1, -1 }; // bis zu zwei DeviceConfig-Entities
-  int8_t   cfg_code[2][6] = { { 0 } };   // je keyId: 1=failsafeConsW 2=failsafeDur 3=failsafeProdW 4=pvCurtailPct
+  int      cfg_ent[4] = { -1, -1, -1, -1 }; // v243: bis zu vier DeviceConfig-Entities (vorher zwei)
+  int8_t   cfg_code[4][8] = { { 0 } };   // je keyId: 1=failsafeConsW 2=failsafeDur 3=failsafeProdW 4=pvCurtailPct
   long     fs_cons = 0;  int8_t fs_cons_sc = 0;  bool fs_cons_ok = false;
   long     fs_prod = 0;  int8_t fs_prod_sc = 0;  bool fs_prod_ok = false;
   char     fs_dur[16] = { 0 };   // Mindestdauer als Norm-Text, z.B. "PT2H"
@@ -1709,7 +1841,7 @@ typedef struct {
   bool     teardown = false;   // Client-Freigabe steht an (verzoegert, NIE aus dem Callback)
   bool     send_broken = false;   // v187: ein Frame ging nur teilweise raus -> nichts mehr senden, Abbau laeuft
   uint32_t hb_counter = 1;   // DeviceDiagnosis-Heartbeat-Zaehler
-  uint32_t hb_tx_at = 0;     // v231 (06.11., Andreas): Zeitpunkt unseres letzten Herzschlags an die Gegenstelle (EEBusStatus "HerzschlagGesendetS")
+  uint32_t hb_tx_at = 0;     // v231 (06.11., meierchen006): Zeitpunkt unseres letzten Herzschlags an die Gegenstelle (EEBusStatus "HerzschlagGesendetS")
   uint32_t hb_next = 0;   // millis()-Zeitpunkt des naechsten Heartbeat-Sendens
   bool     peer_subscribed = false; // hat der Peer unser NodeManagement abonniert?
   bool     lc_sub = false;   // hat der Peer unser LoadControl (ent1/feat6) abonniert?
@@ -1790,6 +1922,31 @@ typedef struct {
   bool     sess_vorgabe = false;    // v200: in dieser Sitzung schon eine Vorgabe (Freigabe/Grenze) geschrieben?
   uint8_t  sich_stufe = 0;          // v200: Sicherung 0 = noch nicht geprueft, 1 = geprueft
   uint32_t sich_wdh_at = 0;         // v214: Sicherung nach Ablehnung erst ab diesem millis() wiederholen (0 = sofort)
+  bool     wdh_offen = false;       // v237: eine Wiederholung ist vorgemerkt (eigene Markierung - eine andere Vorgabe, z. B. die
+                                    //       Freigabe der anderen Richtung, setzt sess_vorgabe und loeschte sie bisher still)
+  uint32_t bind_mc = 0;             // v240: msgCounter unseres LoadControl-Bindings (0 = keins offen)
+  uint32_t fs_wdh_at = 0;           // v239: Failsafe-Werte nach einem NACK erst ab diesem millis() erneut (0 = sofort)
+  bool     fs_nack = false;         // v239: in der laufenden Failsafe-Kette wurde ein Wert abgelehnt
+  uint32_t sess_write_at = 0;       // v239: erste Vorgabe (Write) dieser Sitzung - Pruefung LPC-913
+  uint8_t  abo_n = 0;               // v241: eigene Abos dieser Sitzung (LPC TS Z. 1466, SPINE Z. 2406-2409)
+  uint8_t  abo_typ[EEBUS_ABO_MAX] = { 0 };   // = unsere Client-Feature-Nummer: 1 DeviceDiagnosis 2 LoadControl 3 DeviceConfiguration 4 ElectricalConnection 6 Measurement
+  int16_t  abo_ent[EEBUS_ABO_MAX] = { 0 };
+  int16_t  abo_feat[EEBUS_ABO_MAX] = { 0 };
+  uint32_t abo_mc[EEBUS_ABO_MAX] = { 0 };    // msgCounter der Abo-Anfrage (0 = keine Antwort offen)
+  uint8_t  abo_st[EEBUS_ABO_MAX] = { 0 };    // 0 offen, 1 bestaetigt, 2 abgelehnt -> regelmaessig lesen
+  uint32_t abo_poll_at = 0;         // v241: naechstes Lesen der abgelehnten Abos
+  uint8_t  gb_n = 0;                // v246: Abos (typ 0) / Bindings (typ 1) der Gegenstelle bei UNS (wir = Server)
+  uint8_t  gb_typ[EEBUS_GB_MAX] = { 0 };
+  int16_t  gb_ce[EEBUS_GB_MAX] = { 0 };   // Client-Entity/-Feature (Gegenstelle), -1 = nicht angegeben
+  int16_t  gb_cf[EEBUS_GB_MAX] = { 0 };
+  int16_t  gb_se[EEBUS_GB_MAX] = { 0 };   // Server-Entity/-Feature (bei uns)
+  int16_t  gb_sf[EEBUS_GB_MAX] = { 0 };
+  uint16_t mrd_s = 0;               // v241: groesste maxResponseDelay der Anlage (LoadControl/DeviceConfiguration), 0 = Vorgabe
+  uint32_t ig210_at = 0;            // v241: letzte Grenze (Hinweis LPC IG 2.10)
+  bool     lpc913_warn = false;     // v239: LPC-913-Frist dieser Sitzung schon als verfehlt gemeldet
+  bool     hbabo_warn = false;      // v239: "Anlage hat unseren Herzschlag nicht abonniert" schon gemeldet
+  uint8_t  wdh_n = 0;               // v237: Wiederholungen ohne Bestaetigung (Wartezeit 60 s x (n+1), hoechstens EEBUS_WDH_MAX_MS)
+  bool     best_akt[2] = {false, false};   // v237: letzte Grenze dieser Richtung wurde BESTAETIGT (nur dann ist ein Abbruch moeglich)
   bool     hb_zurueck = false;      // v225: Herzschlag kam nach einem Ausfall zurueck, im naechsten Takt auswerten
   bool     frei_offen[2] = {false, false};   // v225: je Richtung eine Freigabe, die noch nicht bestaetigt ist
   uint8_t  sich_plan[2] = {0, 0};   // v200: je Richtung 0 = nichts, 1 = Freigabe schreiben, 2 = eigene Grenze erneut schreiben
@@ -1869,12 +2026,18 @@ void EebusPeerWerteNeu(uint32_t ci) {
   if (ci >= EEBUS_MAX_CONN) { return; }
   EebusConn *c = &EConn[ci];
   for (uint8_t k = 0; k < 7; k++) { c->m_have[k] = false; }
+  for (uint8_t k = 0; k < 24; k++) { c->m_scope[k] = 0; c->m_phase[k] = 0; }   // v243: Zuordnungen je Sitzung neu
+  for (uint8_t k = 0; k < 4; k++) { c->cfg_ent[k] = -1; for (uint8_t j = 0; j < 8; j++) { c->cfg_code[k][j] = 0; } }
+  for (uint8_t k = 0; k < 3; k++) { c->mll_have[k] = false; }
+  c->m_ph_desc = 0; c->meas_prod_dir = false; c->gcp_uc_ent = -1; c->lpp_uc = -1; c->sess_dir_w[0] = c->sess_dir_w[1] = 0;
+  c->lpp913_warn = false; c->fs_ro = 0;
   for (uint8_t k = 0; k < 2; k++) { for (uint8_t f = 0; f < 3; f++) { c->m3_have[k][f] = false; } }   // v197
   c->fs_cons_ok = false; c->fs_prod_ok = false; c->plf_ok = false; c->fs_dur[0] = '\0';
   c->pnom_prod_ok = false; c->pnom_cons_ok = false; c->pnom_cprod_ok = false; c->pnom_ccons_ok = false;
   c->lpc_fs_done = false; c->lpc_fs_step = 0;   // v197: neue Sitzung -> Failsafe-Werte neu schreiben
   c->hems_m = -1; c->ping_ok_at = 0; c->ping_next = 0;   // v231: Betriebsart und Lebenszeichen neu je Sitzung
-  c->sess_at = 0; c->sess_vorgabe = false; c->sich_stufe = 0; c->sich_wdh_at = 0; c->sich_plan[0] = c->sich_plan[1] = 0; c->frei_offen[0] = c->frei_offen[1] = false;   // v200: Sicherung neu
+  c->sess_at = 0; c->sess_vorgabe = false; c->sich_stufe = 0; c->sich_wdh_at = 0; c->wdh_n = 0; c->wdh_offen = false; c->fs_wdh_at = 0; c->bind_mc = 0; c->fs_nack = false; c->sess_write_at = 0; c->lpc913_warn = false; c->hbabo_warn = false; c->best_akt[0] = c->best_akt[1] = false; c->sich_plan[0] = c->sich_plan[1] = 0; c->frei_offen[0] = c->frei_offen[1] = false;   // v200: Sicherung neu
+  c->abo_n = 0; c->abo_poll_at = 0; c->ig210_at = 0;   // v241
   for (uint8_t d = 0; d < 2; d++) {
     c->lim_act[d] = -1; c->lim_val[d] = 0; c->lim_sc[d] = 0;
     c->lim_dur[d][0] = '\0'; c->lim_dur_s[d] = -1; c->lim_dur_at[d] = 0;
@@ -1978,6 +2141,8 @@ void EebusShipFree(void) {
   if (ESp->cert_der) { free(ESp->cert_der); ESp->cert_der = nullptr; }
   EebusHeapCheck("shipfree_cert");   // nach free(cert_der) (= Crash-Zeile 607!)
   if (ESp->rxbuf) { free(ESp->rxbuf); ESp->rxbuf = nullptr; ESp->rxbuf_size = 0; }
+  if (ESp->wsraw) { free(ESp->wsraw); ESp->wsraw = nullptr; }   // v241
+  ESp->wsraw_len = 0; ESp->wsf_len = 0; ESp->wsf_on = false; ESp->wsf_drop = false;
   EebusHeapCheck("shipfree_rxbuf");   // nach free(rxbuf, PSRAM)
   ESp->cert_len = 0;
   ESp->active = false;
@@ -2299,6 +2464,85 @@ int EebusWsRecv(uint8_t *out, size_t max, uint32_t timeout_ms) {
   }
 }
 
+// v241 (SHIP 8.3/8.4 Z. 669-686, SHIP Z. 841-842): Empfang der Datenphase OHNE Blockieren. Bis v240 las EebusWsRecv
+// blockierend und gab nach 1 s ohne weiteres Byte mitten im Frame auf -> Abbau. Ein einziges verlorenes TCP-Segment
+// (Wiederholung nach 1 s, dann 3 s, dann 6 s) trennte so die Verbindung. 10 s am Stueck zu warten geht nicht (Loop-WDT
+// 5 s). Jetzt wie der Server-Weg (EebusSrvAppData): alles Verfuegbare in den Rohpuffer, nur vollstaendige Frames
+// auswerten, der Rest wartet auf den naechsten Durchlauf - hoechstens EEBUS_WS_REST_MS ohne neues Byte.
+// Rueckgabe: >0 Laenge einer ganzen Nachricht in out, 0 = (noch) nichts Ganzes, -1 Fehler/Frist, -2 Close.
+int EebusWsRecvNb(uint8_t *out, size_t max) {
+  if ((nullptr == ESp->wsraw) || (nullptr == ESp->client)) { return -1; }
+  while ((ESp->wsraw_len < EEBUS_WSRAW_SIZE) && (ESp->client->available() > 0)) {
+    int r = ESp->client->read(ESp->wsraw + ESp->wsraw_len, EEBUS_WSRAW_SIZE - ESp->wsraw_len);
+    if (r <= 0) { break; }
+    ESp->wsraw_len += (size_t)r;
+    ESp->wsraw_at = millis();
+  }
+  for (;;) {
+    uint8_t *p = ESp->wsraw;
+    const size_t have = ESp->wsraw_len;
+    if (have < 2) { break; }
+    const bool    fin    = (0 != (p[0] & 0x80));
+    const uint8_t opcode = p[0] & 0x0F;
+    const bool    masked = (0 != (p[1] & 0x80));
+    size_t len = p[1] & 0x7F;
+    size_t ho = 2;
+    if (126 == len) {
+      if (have < 4) { break; }
+      len = ((size_t)p[2] << 8) | p[3];
+      ho = 4;
+    } else if (127 == len) {   // 64-bit Laenge: nur die unteren 32 Bit (reicht)
+      if (have < 10) { break; }
+      len = ((size_t)p[6] << 24) | ((size_t)p[7] << 16) | ((size_t)p[8] << 8) | p[9];
+      ho = 10;
+    }
+    if (masked) {
+      if (have < ho + 4) { break; }
+      ho += 4;
+    }
+    if (len > EEBUS_WSRAW_SIZE - ho) {
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: WS-Frame %u B von %s passt nie in den Puffer"), (uint32_t)len, ESp->peer_ip);
+      return -1;
+    }
+    if (have < ho + len) { break; }   // Frame noch nicht komplett -> naechster Durchlauf
+    uint8_t *pl = p + ho;
+    if (masked) { const uint8_t *mk = p + ho - 4; for (size_t i = 0; i < len; i++) { pl[i] ^= mk[i & 3]; } }
+    int ret = 0;
+    if (0x8 == opcode) {   // v242 (RFC 6455 5.5.1, SHIP Z. 802): Close beantworten
+      EebusWsSendOp(pl, (len >= 2) ? 2 : 0, 0x8);
+      ret = -2;
+    } else if (0x9 == opcode) {   // Ping -> Pong gleiche Payload (Control-Frames auch zwischen Fragmenten, RFC 6455 5.4)
+      EebusWsSendOp(pl, (len > 125) ? 125 : len, 0xA);
+    } else if (0xA == opcode) {
+      ESp->pong_wait_at = 0;   // v242: Pong da
+    } else if ((0x0 != opcode) && (0x2 != opcode)) {   // v242 (SHIP Z. 826-830): Text -> 1003, reserviert -> 1002
+      const uint8_t cs[2] = { 0x03, (uint8_t)((0x1 == opcode) ? 0xEB : 0xEA) };
+      EebusWsSendOp(cs, 2, 0x8);
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: %s sendet WS-Opcode %u - Close %u (SHIP Z. 826-830)"), ESp->peer_ip, opcode, (0x1 == opcode) ? 1003 : 1002);
+      return -3;
+    } else {
+      if (0x0 != opcode) { ESp->wsf_len = 0; ESp->wsf_on = true; ESp->wsf_drop = false; }   // neuer Anfang (verschachtelt: neu beginnen)
+      if (ESp->wsf_on) {   // Fortsetzung ohne Anfang wird verworfen
+        if (!ESp->wsf_drop && (len > max - ESp->wsf_len)) {
+          ESp->wsf_drop = true;
+          AddLog(LOG_LEVEL_DEBUG, PSTR("EBG: WS-Nachricht > %u B, verworfen"), (uint32_t)max);
+        }
+        if (!ESp->wsf_drop) { memcpy(out + ESp->wsf_len, pl, len); ESp->wsf_len += len; }
+        if (fin) {
+          if (!ESp->wsf_drop && ESp->wsf_len) { ret = (int)ESp->wsf_len; }
+          ESp->wsf_on = false; ESp->wsf_len = 0; ESp->wsf_drop = false;
+        }
+      }
+    }
+    const size_t used = ho + len;   // Frame aus dem Puffer nehmen
+    memmove(ESp->wsraw, ESp->wsraw + used, have - used);
+    ESp->wsraw_len = have - used;
+    if (0 != ret) { return ret; }
+  }
+  if (((ESp->wsraw_len > 0) || ESp->wsf_on) && ((millis() - ESp->wsraw_at) > EEBUS_WS_REST_MS)) { return -1; }
+  return 0;
+}
+
 // Letztes Verbindungsergebnis eines Peers merken (Slot per SKI suchen/anlegen).
 // (Signaturen nur einfache Typen — .ino-Prototypen-Falle.)
 void EebusStatSet(const char *ski, int state, const char *err) {
@@ -2374,6 +2618,7 @@ bool EebusShipConnect(int idx) {
   ESp->we_nm_subscribed = false;   // 
   ESp->disco_fallback_at = 0;
   ESp->peer_subscribed = false;
+  ESp->gb_n = 0;   // v246
   ESp->lc_sub = false; ESp->lc_cli_ent = 0; ESp->lc_cli_feat = 0;   // 
   ESp->hb_sub = false;
   ESp->hb_cli_ent = 0;
@@ -2427,6 +2672,10 @@ bool EebusShipConnect(int idx) {
   ESp->rxbuf = (uint8_t*)special_malloc(EEBUS_SPINE_RXBUF);
   if (nullptr == ESp->rxbuf) { strlcpy(ESp->err, "rxbuf", sizeof(ESp->err)); goto fail; }
   ESp->rxbuf_size = EEBUS_SPINE_RXBUF;
+  if (ESp->wsraw) { free(ESp->wsraw); }   // v241: Rohpuffer fuer den Empfang ohne Blockieren
+  ESp->wsraw = (uint8_t*)special_malloc(EEBUS_WSRAW_SIZE);
+  if (nullptr == ESp->wsraw) { strlcpy(ESp->err, "wsraw", sizeof(ESp->err)); goto fail; }
+  ESp->wsraw_len = 0; ESp->wsraw_at = millis(); ESp->wsf_len = 0; ESp->wsf_on = false; ESp->wsf_drop = false;
 
    // Unser Client-Zertifikat (DER) laden — bleibt allokiert, BearSSL zeigt darauf
   ESp->cert_der = (uint8_t*)malloc(EEBUS_CERT_DER_SIZE);
@@ -2443,7 +2692,7 @@ bool EebusShipConnect(int idx) {
   ESp->br_key.x = ESp->key_scalar;
   ESp->br_key.xlen = 32;
 
-   // Sendepuffer 1024, Empfang 2048 (Andreas, 16.11.2026). SHIP TS 1.1.0 Kap. 9.2: ausgehende Pakete duerfen
+   // Sendepuffer 1024, Empfang 2048 (meierchen006, 16.11.2026). SHIP TS 1.1.0 Kap. 9.2: ausgehende Pakete duerfen
    // 1024 Byte (TLSPlaintext.length) NICHT ueberschreiten. setBufferSizes() in tls_mini rechnet den Overhead selbst
    // dazu: aus (2048, 2048) wurden 2373/2133 Byte, BearSSL waehlte daraus 2^11 (ssl_engine.c Z. 429-447) und bat im
    // ClientHello um 2048; gemessen: Datenbloecke von 2072 B (= 2048 + 24 B GCM). Die Fragment-Bitte richtet sich nach
@@ -2474,6 +2723,18 @@ bool EebusShipConnect(int idx) {
   {
      // v231 (Pruefung 1.10): TCP-Aufbau hoechstens EEBUS_TCP_CONN_MS. Ohne Angabe galt die Stream-Frist des Clients
      // (10 s), so lange stand die ganze Box (Web, Log, alle Verbindungen), wenn die Gegenstelle weg war.
+     // v242 (SHIP Z. 723, 804): SNI = mDNS-Hostname des Servers (ohne Schlusspunkt), nie eine Adresse.
+    if (p->host[0]) {
+      bool nur_ziffern = true;
+      for (const char *c = p->host; *c; c++) { if (!isdigit((unsigned char)*c) && ('.' != *c) && (':' != *c)) { nur_ziffern = false; break; } }
+      if (!nur_ziffern) {
+        char sni[48]; size_t hl = strlen(p->host);
+        while (hl && ('.' == p->host[hl - 1])) { hl--; }
+        if ((hl > 6) && (0 == strncasecmp(p->host + hl - 6, ".local", 6))) { snprintf(sni, sizeof(sni), "%.*s", (int)hl, p->host); }
+        else { snprintf(sni, sizeof(sni), "%.*s.local", (int)hl, p->host); }
+        ESp->client->setDomainName(sni);
+      }
+    }
     if (!ESp->client->connect(dst_addr, p->port, (int32_t)EEBUS_TCP_CONN_MS)) {   // v189: Adresse oben geprueft (IPv4 oder IPv6)
       snprintf(ESp->err, sizeof(ESp->err), "tls connect err=%d", (int)ESp->client->getLastError());
       goto fail;
@@ -2517,27 +2778,35 @@ bool EebusShipConnect(int idx) {
       AddLog(LOG_LEVEL_INFO, PSTR("EBG: %s: SKI %s durch Zertifikat bestaetigt"), ESp->peer_ip, ESp->peer_ski);
     }
   }
+  {   // v242 (SHIP Z. 1265-1269 Fussnote 1, TC_SHIP_SEC_001/002): die SKI-Erweiterung des Zertifikats muss dieselbe SKI tragen
+    size_t dl = 0;
+    const uint8_t *der = BearSSL::TlsPeerCertDer(&dl);
+    uint8_t ext[20];
+    char eh[41] = { 0 };
+    if (EebusDerSkiExt(der, dl, ext)) { for (uint32_t i = 0; i < 20; i++) { snprintf_P(eh + (i * 2), 3, PSTR("%02x"), ext[i]); } }
+    if (!eh[0] || (0 != strcasecmp(eh, ESp->peer_ski))) {
+      AddLog(LOG_LEVEL_ERROR, PSTR("EBG: %s: SKI-Erweiterung im Zertifikat %s (Schluessel-SKI %s) - NICHT verbunden"),
+             ESp->peer_ip, eh[0] ? eh : "fehlt", ESp->peer_ski);
+      strlcpy(ESp->err, "SKI-Erweiterung passt nicht", sizeof(ESp->err));
+      goto fail;
+    }
+  }
+  ESp->conn_at = millis(); if (!ESp->conn_at) { ESp->conn_at = 1; }   // v242
+  ESp->pong_wait_at = 0; ESp->dbl_at = 0;
 
    // WebSocket-Upgrade (Subprotocol "ship")
   if (!EebusWsUpgrade(dst_host, p->port, p->path)) { goto fail; }   // err bereits gesetzt (v189: IPv6 in [])
   ESp->state = SHIP_WS_OK;
   EebusHeapCheck("ws_upgrade");   // Checkpunkt: nach HTTP-Upgrade
 
-   // CMI-Handshake (SHIP 13.4.3): [0x00,0x00] senden, [0x00,0x00] erwarten
+   // CMI-Handshake (SHIP 13.4.3): [0x00,0x00] senden, die Antwort kommt ohne Blockieren im Empfang (EebusCmiAntwort).
+   // v242 (SHIP Z. 2082-2084): CmiTimeout 15 s - bis v241 wartete die Box blockierend nur 5 s.
   {
     uint8_t cmi[2] = { 0x00, 0x00 };
     if (!EebusWsSend(cmi, 2)) { strlcpy(ESp->err, "cmi send", sizeof(ESp->err)); goto fail; }
-    uint8_t rx[8];
-    int n = EebusWsRecv(rx, sizeof(rx), EEBUS_HS_WAIT_MS);   // Geraet antwortet sofort (v231: 5 s statt 8 s)
-    if (n != 2 || rx[0] != 0x00 || rx[1] != 0x00) {
-      snprintf(ESp->err, sizeof(ESp->err), "cmi resp n=%d", n); goto fail; }
   }
-  ESp->state = SHIP_CMI_OK;
-  EebusHeapCheck("cmi");   // Checkpunkt: nach CMI-Austausch
-  EebusStatSet(ESp->peer_ski, SHIP_CMI_OK, "");
-  AddLog(LOG_LEVEL_INFO, PSTR("EBG: SHIP verbunden %s:%u, CMI ok, Peer-SKI %s"),
-         ESp->peer_ip, ESp->peer_port, ESp->peer_ski);
-  EebusSmeStart();   // M2b: SME-Handshake asynchron weiterfuehren
+  ESp->sme = SME_CMI;
+  ESp->sme_deadline = Eebus126At(EEBUS_CMI_TIMEOUT_MS);
   return true;
 
 fail:
@@ -2589,6 +2858,23 @@ bool EebusWsUpgrade(const char *ip, uint16_t port, const char *path_in) {
   resp[ri] = '\0';
   if (nullptr == strstr(resp, " 101")) {
     strlcpy(ESp->err, "ws no 101", sizeof(ESp->err)); return false; }
+  {   // v242 (SHIP Z. 802, 818-821, RFC 6455 4.1): Sec-WebSocket-Accept und Subprotokoll "ship" pruefen
+    uint8_t sha[20];
+    SHA1Builder s1;
+    s1.begin();
+    s1.add(key_b64, key_len);
+    s1.add((uint8_t*)"258EAFA5-E914-47DA-95CA-C5AB0DC85B11", 36);
+    s1.calculate();
+    s1.getBytes(sha);
+    unsigned char erw[32]; size_t el = 0;
+    mbedtls_base64_encode(erw, sizeof(erw), &el, sha, 20);
+    erw[el] = '\0';
+    char v[64];
+    if (!EebusHdrWert(resp, "Sec-WebSocket-Accept", v, sizeof(v)) || (0 != strcmp(v, (const char*)erw))) {
+      strlcpy(ESp->err, "ws accept falsch", sizeof(ESp->err)); return false; }
+    if (!EebusHdrWert(resp, "Sec-WebSocket-Protocol", v, sizeof(v)) || (0 != strcasecmp(v, "ship"))) {
+      strlcpy(ESp->err, "ws protocol nicht ship", sizeof(ESp->err)); return false; }
+  }
   return true;
 }
 
@@ -2716,31 +3002,53 @@ void EebusLogDump(void) {
 // Naiver String-Extraktor "key":"value" — reicht fuer die winzigen SHIP-Control-Messages
 // (kontrolliertes Vokabular, keine Escapes). Kein vollwertiger JSON-Parser noetig.
 bool EebusJsonStr(const char *json, const char *key, char *out, size_t outlen) {
+   // v242 (SHIP-Test TC_SHIP_MSG_003): Leerraum um den Doppelpunkt zulassen. Ein Treffer, dessen Wert kein Text ist
+   // (oder der gar kein Schluessel ist), wird uebersprungen - wie bisher beim Muster "key":".
   char pat[48];
-  snprintf(pat, sizeof(pat), "\"%s\":\"", key);
-  const char *p = strstr(json, pat);
-  if (nullptr == p) { return false; }
-  p += strlen(pat);
-  const char *e = strchr(p, '"');
-  if (nullptr == e) { return false; }
-  size_t l = e - p;
-  if (l >= outlen) { l = outlen - 1; }
-  memcpy(out, p, l);
-  out[l] = '\0';
-  return true;
+  snprintf(pat, sizeof(pat), "\"%s\"", key);
+  const size_t pl = strlen(pat);
+  const char *p = json;
+  while (nullptr != (p = strstr(p, pat))) {
+    const char *q = p + pl;
+    while ((' ' == *q) || ('\t' == *q) || ('\r' == *q) || ('\n' == *q)) { q++; }
+    if (':' == *q) {
+      q++;
+      while ((' ' == *q) || ('\t' == *q) || ('\r' == *q) || ('\n' == *q)) { q++; }
+      if ('"' == *q) {
+        q++;
+        const char *e = strchr(q, '"');
+        if (nullptr == e) { return false; }
+        size_t l = e - q;
+        if (l >= outlen) { l = outlen - 1; }
+        memcpy(out, q, l);
+        out[l] = '\0';
+        return true;
+      }
+    }
+    p += pl;
+  }
+  return false;
 }
 
 // Naiver Integer-Extraktor "key":<zahl> (keine Anfuehrungszeichen). true wenn gefunden.
 bool EebusJsonInt(const char *json, const char *key, uint32_t *out) {
   char pat[48];
-  snprintf(pat, sizeof(pat), "\"%s\":", key);
-  const char *p = strstr(json, pat);
-  if (nullptr == p) { return false; }
-  p += strlen(pat);
-  while ((*p == ' ') || (*p == '\t')) { p++; }
-  if ((*p < '0') || (*p > '9')) { return false; }
-  *out = (uint32_t)strtoul(p, nullptr, 10);
-  return true;
+  snprintf(pat, sizeof(pat), "\"%s\"", key);   // v242: Leerraum vor dem Doppelpunkt zulassen
+  const size_t pl = strlen(pat);
+  const char *p = json;
+  while (nullptr != (p = strstr(p, pat))) {
+    const char *q = p + pl;
+    while ((' ' == *q) || ('\t' == *q) || ('\r' == *q) || ('\n' == *q)) { q++; }
+    if (':' == *q) {
+      q++;
+      while ((' ' == *q) || ('\t' == *q) || ('\r' == *q) || ('\n' == *q)) { q++; }
+      if ((*q < '0') || (*q > '9')) { return false; }
+      *out = (uint32_t)strtoul(q, nullptr, 10);
+      return true;
+    }
+    p += pl;
+  }
+  return false;
 }
 
 // Control-/End-Message senden: [classifier][JSON] als WS-Binaerframe + Mitschnitt.
@@ -2775,8 +3083,106 @@ const char* EebusSmeName(int sme) {
     case SME_ACCESS:return "access_gate";
     case SME_DONE:  return "done";
     case SME_FAIL:  return "fail";
+    case SME_CMI:   return "cmi";
     default:        return "off";
   }
+}
+
+// v242: Hilfen fuer die SHIP-Pruefungen
+// Kopfzeile "name: wert" (Gross-/Kleinschreibung egal) aus einem HTTP-Kopf lesen.
+bool EebusHdrWert(const char *h, const char *name, char *out, size_t outlen) {
+  const size_t nl = strlen(name);
+  for (const char *p = h; p && *p; ) {
+    if ((0 == strncasecmp(p, name, nl)) && (':' == p[nl])) {
+      const char *v = p + nl + 1;
+      while ((' ' == *v) || ('\t' == *v)) { v++; }
+      size_t k = 0;
+      while (v[k] && ('\r' != v[k]) && ('\n' != v[k]) && (k < outlen - 1)) { out[k] = v[k]; k++; }
+      while (k && ((' ' == out[k - 1]) || ('\t' == out[k - 1]))) { k--; }
+      out[k] = '\0';
+      return true;
+    }
+    p = strchr(p, '\n');
+    if (p) { p++; }
+  }
+  return false;
+}
+// enthaelt s den Text t (Gross-/Kleinschreibung egal)?
+bool EebusTextHatI(const char *s, const char *t) {
+  const size_t tl = strlen(t);
+  for (; s && *s; s++) { if (0 == strncasecmp(s, t, tl)) { return true; } }
+  return false;
+}
+// zwei JSON-Texte gleich bis auf Leerraum? (SHIP Z. 2422-2424: Spiegel des select)
+bool EebusJsonGleich(const char *a, const char *b) {
+  for (;;) {
+    while ((' ' == *a) || ('\t' == *a) || ('\r' == *a) || ('\n' == *a)) { a++; }
+    while ((' ' == *b) || ('\t' == *b) || ('\r' == *b) || ('\n' == *b)) { b++; }
+    if (*a != *b) { return false; }
+    if ('\0' == *a) { return true; }
+    a++; b++;
+  }
+}
+// SHIP Z. 2409-2410: genau EIN Format und das ist JSON-UTF8?
+bool EebusFormatNurJson(const char *json) {
+  const char *f = strstr(json, "\"format\"");
+  if (nullptr == f) { return false; }
+  f = strchr(f + 8, '[');
+  if (nullptr == f) { return false; }
+  const char *e = strchr(f, ']');
+  if (nullptr == e) { return false; }
+  char inh[24]; size_t k = 0;
+  for (const char *c = f + 1; (c < e) && (k < sizeof(inh) - 1); c++) {
+    if ((' ' != *c) && ('\t' != *c) && ('\r' != *c) && ('\n' != *c)) { inh[k++] = *c; }
+  }
+  inh[k] = '\0';
+  return (0 == strcmp(inh, "\"JSON-UTF8\""));
+}
+// SubjectKeyIdentifier (OID 2.5.29.14) aus einem DER-Zertifikat lesen (SHIP Z. 1265-1269).
+bool EebusDerSkiExt(const uint8_t *der, size_t len, uint8_t *out20) {
+  if ((nullptr == der) || (len < 32)) { return false; }
+  for (size_t i = 0; i + 5 + 4 + 20 <= len; i++) {
+    if ((0x06 != der[i]) || (0x03 != der[i + 1]) || (0x55 != der[i + 2]) || (0x1D != der[i + 3]) || (0x0E != der[i + 4])) { continue; }
+    size_t p = i + 5;
+    if ((p + 3 <= len) && (0x01 == der[p]) && (0x01 == der[p + 1])) { p += 3; }   // critical (BOOLEAN)
+    if ((p + 4 + 20 > len) || (0x04 != der[p]) || (0x16 != der[p + 1]) || (0x04 != der[p + 2]) || (0x14 != der[p + 3])) { return false; }
+    memcpy(out20, der + p + 4, 20);
+    return true;
+  }
+  return false;
+}
+// SKI in einer Datei mit einer SKI je Zeile (Partnerliste, Vertrauensliste)?
+bool EebusSkiInDatei(const char *datei, const char *ski) {
+#ifdef USE_UFILESYS
+  if ((nullptr == ski) || (40 != strlen(ski)) || !TfsFileExists(datei)) { return false; }
+  File f = ffsp->open(datei, "r");
+  if (!f) { return false; }
+  char buf[EEBUS_AC_MAX * 41 + 1];
+  int n = f.read((uint8_t*)buf, sizeof(buf) - 1);
+  f.close();
+  if (n <= 0) { return false; }
+  buf[n] = '\0';
+  for (char *s = buf; *s; ) {
+    while (*s && !isxdigit((unsigned char)*s)) { s++; }
+    size_t k = 0;
+    while (isxdigit((unsigned char)s[k])) { k++; }
+    if ((40 == k) && (0 == strncasecmp(s, ski, 40))) { return true; }
+    s += k;
+  }
+#endif
+  return false;
+}
+// v242 (SHIP Z. 2125-2126, 2255-2256): darf diese SKI uns anrufen? Vertraut ist, wen der Betreiber kennt: gemerkte
+// Partner, EEBusTrust-Liste, ausdrueckliche Betriebsart-Zuordnung, oder wen wir selbst gerade angerufen haben.
+bool EebusSkiVertraut(const char *ski) {
+  if ((nullptr == ski) || (40 != strlen(ski))) { return false; }
+  for (uint8_t i = 0; i < eebus_ac_n; i++) { if (0 == strcasecmp(eebus_ac_list[i], ski)) { return true; } }
+  if (EebusSkiInDatei(EEBUS_PEER_FILE, ski) || EebusSkiInDatei(EEBUS_TRUST_FILE, ski)) { return true; }
+  if (EebusModeForSki(ski) >= 0) { return true; }
+  for (int i = 0; i < EEBUS_MAX_CONN; i++) {
+    if (EConn[i].active && !EConn[i].via_srv && (0 == strcasecmp(EConn[i].peer_ski, ski))) { return true; }
+  }
+  return false;
 }
 
 // Handshake abbrechen: Grund merken, Verbindung freigeben, Uebersicht aktualisieren
@@ -2789,7 +3195,54 @@ void EebusSmeFail(const char *why) {
   EebusTeardownLater();   // Client verzoegert freigeben (nie aus dem Callback)
 }
 
-// Nach CMI-ok den SME-Handshake starten: wir sind sofort "ready" (Tool vertraut jedem).
+// v242 (SHIP Z. 2292-2297, 2441-2446): gemeinsamer Abbruch - erst "aborted" bzw. protocolHandshakeError senden, dann
+// schliessen. prot_err: 1 Timeout, 2 unerwartete Nachricht, 3 Auswahl passt nicht.
+void EebusSmeAbbruch(const char *why, int prot_err) {
+  if (SME_HELLO == ESp->sme) {
+    EebusShipSendJson("{\"connectionHello\":[{\"phase\":\"aborted\"}]}", 1);
+  } else if (SME_PROT == ESp->sme) {
+    char e[64]; snprintf(e, sizeof(e), "{\"messageProtocolHandshakeError\":[{\"error\":%d}]}", prot_err ? prot_err : 2);
+    EebusShipSendJson(e, 1);
+  }
+  EebusSmeFail(why);
+}
+// v242 (SHIP Z. 2298-2306): Hello-Update - "ready" mit der Restzeit des Wait-For-Ready-Timers.
+void EebusSmeHelloUpdate(void) {
+  int32_t rest = (int32_t)(ESp->sme_deadline - millis());
+  if (rest < 0) { rest = 0; }
+  char h[64]; snprintf(h, sizeof(h), "{\"connectionHello\":[{\"phase\":\"ready\"},{\"waiting\":%ld}]}", (long)rest);
+  EebusShipSendJson(h, 1);
+}
+// v242: Verbindung abbauen (Doppelverbindung, Pong-Frist). abmelden: connectionClose "announce" (nur in der Datenphase).
+void EebusVerbindungWeg(bool abmelden) {
+  if (abmelden && (SME_DONE == ESp->sme)) {
+    EebusShipSendJson("{\"connectionClose\":[{\"phase\":\"announce\"},{\"maxTime\":500},{\"reason\":\"unspecific\"}]}", 3);
+  }
+  EebusStatSet(ESp->peer_ski, SHIP_CMI_OK, "");
+  ESp->sme = SME_OFF;
+  ESp->state = SHIP_IDLE;
+  ESp->last_rx = 0;
+  ESp->pong_wait_at = 0; ESp->dbl_at = 0;
+  if (ESp->via_srv) { EebusSrvFree(); return; }
+  if (ESp->keepalive && (ESp->peer_idx >= 0)) { ESp->reconnect_at = Eebus126At(EebusKaWaitMs()); }
+  EebusTeardownLater();
+}
+// v242 (SHIP Z. 2068-2075): CMI-Antwort des Servers auswerten - nur MessageType und CmiHead.
+void EebusCmiAntwort(const uint8_t *rx, int n) {
+  if ((n < 2) || (0x00 != rx[0]) || (0x00 != rx[1])) {
+    AddLog(LOG_LEVEL_INFO, PSTR("EBG: %s: ungueltige CMI (Typ %u, Kopf %u) - Verbindung wird geschlossen"),
+           ESp->peer_ip, (n > 0) ? rx[0] : 255, (n > 1) ? rx[1] : 255);
+    EebusSmeFail("cmi ungueltig");
+    return;
+  }
+  ESp->state = SHIP_CMI_OK;
+  EebusHeapCheck("cmi");
+  EebusStatSet(ESp->peer_ski, SHIP_CMI_OK, "");
+  AddLog(LOG_LEVEL_INFO, PSTR("EBG: SHIP verbunden %s:%u, CMI ok, Peer-SKI %s"), ESp->peer_ip, ESp->peer_port, ESp->peer_ski);
+  EebusSmeStart();
+}
+
+// Nach CMI-ok den SME-Handshake starten: wir sind sofort "ready" (die Box ruft nur Partner an, denen sie vertraut).
 void EebusSmeStart(void) {
   ESp->peer_id[0] = '\0';
   ESp->sme_pending_logged = false;
@@ -3249,36 +3702,162 @@ bool EebusLpcLearnTarget(const char *disco) {
   return false;
 }
 
-// die richtige limitId aus der LoadControl-Beschreibung waehlen — die der VERBRAUCHS-
-// Obergrenze (limitDirection "consume" bzw. limitType "maxValueLimit") statt blind der ersten.
-// Fallback = erste limitId (bisheriges Verhalten) -> kein Regress, wenn kein passender Block da ist.
-// Die limitId steht am Blockanfang VOR limitType/-Direction -> wir nehmen die letzte limitId, die
-// noch VOR der Fundstelle liegt (= die des passenden Blocks). true wenn eine id gesetzt wurde.
-// richtungsabhaengig. dir 0 = consume (§14a, bisheriges Verhalten unveraendert),
-// dir 1 = produce (§9 EEG). Der Peer beschreibt beide Grenzen im selben Block, z.B.
-//   [{limitId 0},{limitType signDependentAbsValueLimit},{limitCategory obligation},{limitDirection consume},...]
-//   [{limitId 1},{limitType signDependentAbsValueLimit},{limitCategory obligation},{limitDirection produce},...]
-// Fuer produce gibt es KEINEN maxValueLimit-Ersatzweg (das waere eine Bezugs-Obergrenze) und auch keinen
-// Fallback auf die erste limitId — ohne ausgewiesene produce-Grenze wird nicht geschrieben, sonst
-// landete ein Einspeise-Limit versehentlich auf der Bezugs-Grenze.
+// v241 (LPC TS Tab. 22 + Z. 1509-1511, LPP TS entsprechend, LPC IG 3.4 Z. 646-649): die limitId GENAU der Grenze,
+// die die Norm beschreibt: limitType signDependentAbsValueLimit, limitCategory obligation, limitDirection consume
+// (dir 0, Paragraf 14a) bzw. produce (dir 1, Paragraf 9 EEG), scopeType activePowerLimit. Fehlt die measurementId, ist
+// die Beschreibung ungueltig (IG 3.4: "SHALL consider ... as invalid"). Bis v240 Rueckfall auf maxValueLimit bzw. die
+// erste limitId - damit landete eine Vorgabe womoeglich auf einer fremden Grenze. true wenn eine gueltige id gefunden.
 bool EebusLpcPickLimitId(const char *desc, uint8_t dir, int *out_id) {
-  const char *best = strstr(desc, (1 == dir) ? "\"limitDirection\":\"produce\"" : "\"limitDirection\":\"consume\"");
-  if ((nullptr == best) && (1 == dir)) { return false; }   // produce nur bei ausgewiesener Grenze
-  if (nullptr == best) { best = strstr(desc, "\"limitType\":\"maxValueLimit\""); }
-  if (best) {
-    const char *p = desc, *last = nullptr;
-    while (true) {
-      const char *li = strstr(p, "\"limitId\":");
-      if ((nullptr == li) || (li > best)) { break; }
-      last = li; p = li + 10;
+  const char *want = (1 == dir) ? "\"limitDirection\":\"produce\"" : "\"limitDirection\":\"consume\"";
+  const char *p = desc;
+  while (nullptr != (p = strstr(p, "\"limitId\":"))) {
+    const char *nx = strstr(p + 10, "\"limitId\":");
+    auto hat = [&](const char *k) -> bool { const char *f = strstr(p, k); return (nullptr != f) && ((nullptr == nx) || (f < nx)); };
+    if (hat(want) && hat("\"limitType\":\"signDependentAbsValueLimit\"") && hat("\"limitCategory\":\"obligation\"") &&
+        hat("\"scopeType\":\"activePowerLimit\"")) {
+      uint32_t id = 0;
+      if (EebusJsonInt(p, "limitId", &id)) {
+        if (!hat("\"measurementId\":")) {
+          AddLog(LOG_LEVEL_INFO, PSTR("EBG: Grenze limitId %u @ %s ohne measurementId - Beschreibung ungueltig (LPC IG 3.4)"), id, ESp->peer_ip);
+          return false;
+        }
+        *out_id = (int)id;
+        return true;
+      }
     }
-    uint32_t id = 0;
-    if (last && EebusJsonInt(last, "limitId", &id)) { *out_id = (int)id; return true; }
+    p += 10;
   }
-  if (1 == dir) { return false; }   // fuer produce KEIN Blind-Fallback
-  uint32_t id = 0;   // Fallback: erste limitId
-  if (EebusJsonInt(desc, "limitId", &id)) { *out_id = (int)id; return true; }
   return false;
+}
+
+// v241 (LPC TS Tab. 23): steht im Block dieser limitId der Schluessel k (z. B. "isLimitChangeable":false)?
+bool EebusLimitBlockHas(const char *json, int lid, const char *k) {
+  if ((nullptr == json) || (lid < 0)) { return false; }
+  char pat[24]; snprintf(pat, sizeof(pat), "\"limitId\":%d", lid);
+  const char *p = json;
+  while (nullptr != (p = strstr(p, pat))) {
+    const char c = p[strlen(pat)];
+    if ((c >= '0') && (c <= '9')) { p += 10; continue; }   // limitId 1 ist nicht limitId 12
+    const char *nx = strstr(p + 10, "\"limitId\":");
+    const char *f = strstr(p, k);
+    return (nullptr != f) && ((nullptr == nx) || (f < nx));
+  }
+  return false;
+}
+
+// v241 (SPINE TS 5.2.5.3 Z. 1193-1198, Z. 1214): Antwortfrist der LPC-Kette. Gibt die Anlage in ihrer Discovery eine
+// maxResponseDelay an, gilt diese (SHALL) plus Uebertragungsreserve; nie kuerzer als die bisherige Frist.
+uint32_t EebusLpcFristMs(void) {
+  uint32_t m = (uint32_t)ESp->mrd_s * 1000UL + 10000UL;
+  return (ESp->mrd_s && (m > EEBUS_LPC_PHASE_TIMEOUT_MS)) ? m : EEBUS_LPC_PHASE_TIMEOUT_MS;
+}
+
+// v241: groesste maxResponseDelay der Features LoadControl/DeviceConfiguration aus der Discovery der Anlage.
+void EebusLernMrd(const char *disco) {
+  ESp->mrd_s = 0;
+  if (nullptr == disco) { return; }
+  const char *fa = disco;
+  while (nullptr != (fa = strstr(fa, "\"featureAddress\""))) {
+    const char *nx = strstr(fa + 16, "\"featureAddress\"");
+    const char *ft = strstr(fa, "\"featureType\":\"");
+    const char *md = strstr(fa, "\"maxResponseDelay\":\"");
+    if (ft && md && (!nx || ((ft < nx) && (md < nx))) &&
+        ((0 == strncmp(ft + 15, "LoadControl\"", 12)) || (0 == strncmp(ft + 15, "DeviceConfiguration\"", 20)))) {
+      char d[20] = { 0 };
+      if (EebusJsonStr(md, "maxResponseDelay", d, sizeof(d))) {
+        long s = EebusIsoDurSecs(d);
+        if ((s > 0) && (s < 3600) && ((uint16_t)s > ESp->mrd_s)) { ESp->mrd_s = (uint16_t)s; }
+      }
+    }
+    fa += 16;
+  }
+  if (ESp->mrd_s) {
+    AddLog(LOG_LEVEL_INFO, PSTR("EBG: %s nennt maxResponseDelay %u s - Antwortfrist %u s (SPINE 5.2.5.3)"),
+           ESp->peer_ip, ESp->mrd_s, (uint32_t)(EebusLpcFristMs() / 1000));
+  }
+}
+
+// v241 (LPC TS Z. 1466, SPINE Z. 2406-2416): eigene Abos merken, Ergebnis auswerten, abgelehnte regelmaessig lesen,
+// Herzschlag-Abo bei Herzschlagverlust erneuern. typ = unsere Client-Feature-Nummer (wie in EebusLpcSubscribeAll).
+const char *EebusAboName(uint8_t typ) {
+  switch (typ) {
+    case 1: return "DeviceDiagnosis";
+    case 2: return "LoadControl";
+    case 3: return "DeviceConfiguration";
+    case 4: return "ElectricalConnection";
+    case 6: return "Measurement";
+  }
+  return "";
+}
+const char *EebusAboLesen(uint8_t typ) {
+  switch (typ) {
+    case 1: return "deviceDiagnosisHeartbeatData";
+    case 2: return "loadControlLimitListData";
+    case 3: return "deviceConfigurationKeyValueListData";
+    case 4: return "electricalConnectionCharacteristicListData";
+    case 6: return "measurementListData";
+  }
+  return "";
+}
+void EebusAboMerken(uint8_t typ, int ent, int feat) {
+  uint8_t i = 0;
+  for (; i < ESp->abo_n; i++) {
+    if ((ESp->abo_typ[i] == typ) && (ESp->abo_ent[i] == ent) && (ESp->abo_feat[i] == feat)) { break; }
+  }
+  if (i >= ESp->abo_n) {
+    if (ESp->abo_n >= EEBUS_ABO_MAX) { return; }
+    i = ESp->abo_n++;
+    ESp->abo_typ[i] = typ; ESp->abo_ent[i] = (int16_t)ent; ESp->abo_feat[i] = (int16_t)feat;
+  }
+  ESp->abo_mc[i] = ESp->spine_ctr - 1;   // die gerade verbrauchte Nummer
+  ESp->abo_st[i] = 0;
+}
+void EebusAboErgebnis(const char *json) {
+  uint32_t r = 0, e = 0;
+  if (!ESp->abo_n || !strstr(json, "\"resultData\"") || !EebusJsonInt(json, "msgCounterReference", &r) || !r) { return; }
+  EebusJsonInt(json, "errorNumber", &e);
+  for (uint8_t i = 0; i < ESp->abo_n; i++) {
+    if ((ESp->abo_mc[i] != r) || (0 != ESp->abo_st[i])) { continue; }
+    ESp->abo_mc[i] = 0;
+    if (0 == e) { ESp->abo_st[i] = 1; return; }
+    ESp->abo_st[i] = 2;
+    AddLog(LOG_LEVEL_INFO, PSTR("EBG: Abo %s ent%d/feat%d @ %s abgelehnt (errorNumber %u) - wird alle %u s gelesen (LPC TS Z. 1466)"),
+           EebusAboName(ESp->abo_typ[i]), ESp->abo_ent[i], ESp->abo_feat[i], ESp->peer_ip, e, (uint32_t)(EEBUS_ABO_POLL_MS / 1000));
+    char t[64]; snprintf(t, sizeof(t), "%s abgelehnt (Fehler %u) - wird gelesen", EebusAboName(ESp->abo_typ[i]), e);
+    EebusLbLog("Abo abgelehnt", ESp->peer_ski, ESp->peer_ip, -1, "", 0, t);
+    if (!ESp->abo_poll_at) { ESp->abo_poll_at = Eebus126At(5000); }
+    return;
+  }
+}
+void EebusAboPoll(void) {
+  char cmd[64];
+  for (uint8_t i = 0; i < ESp->abo_n; i++) {
+    if (2 != ESp->abo_st[i]) { continue; }
+    snprintf(cmd, sizeof(cmd), "{\"%s\":[]}", EebusAboLesen(ESp->abo_typ[i]));
+    EebusSpineSendAddr("read", false, 0, cmd, EEBUS_LPC_CLIENT_ENT, ESp->abo_typ[i], ESp->abo_ent[i], ESp->abo_feat[i]);
+  }
+}
+void EebusAboErneuern(uint8_t typ) {
+  char own[80]; EebusOwnDevice(own, sizeof(own));
+  const size_t cap = 512;
+  char *cmd = (char*)special_malloc(cap);
+  if (nullptr == cmd) { return; }
+  for (uint8_t i = 0; i < ESp->abo_n; i++) {
+    if (ESp->abo_typ[i] != typ) { continue; }
+    snprintf(cmd, cap,
+      "{\"nodeManagementSubscriptionRequestCall\":[{\"subscriptionRequest\":["
+      "{\"clientAddress\":[{\"device\":\"%s\"},{\"entity\":[%d]},{\"feature\":%d}]},"
+      "{\"serverAddress\":[{\"device\":\"%s\"},{\"entity\":[%d]},{\"feature\":%d}]},"
+      "{\"serverFeatureType\":\"%s\"}]}]}",
+      own, EEBUS_LPC_CLIENT_ENT, typ, ESp->peer_dev, ESp->abo_ent[i], ESp->abo_feat[i], EebusAboName(typ));
+    EebusSpineSendAddr("call", false, 0, cmd, 0, 0, 0, 0);
+    ESp->abo_mc[i] = ESp->spine_ctr - 1; ESp->abo_st[i] = 0;
+    snprintf(cmd, cap, "{\"%s\":[]}", EebusAboLesen(typ));
+    EebusSpineSendAddr("read", false, 0, cmd, EEBUS_LPC_CLIENT_ENT, typ, ESp->abo_ent[i], ESp->abo_feat[i]);
+    AddLog(LOG_LEVEL_INFO, PSTR("EBG: Abo %s ent%d/feat%d @ %s erneuert und gelesen (SPINE Z. 2406-2409)"),
+           EebusAboName(typ), ESp->abo_ent[i], ESp->abo_feat[i], ESp->peer_ip);
+  }
+  free(cmd);
 }
 
 // Heartbeat-JSON bauen und senden (reply auf read ODER notify an den Abonnenten).
@@ -3309,7 +3888,9 @@ void EebusSpineSendHeartbeat(const char *cls, bool has_ref, uint32_t ref, int ds
    // v231 (Pruefung 3.10): BEWUSSTE ABWEICHUNG von LPC Tab. 17 Fn. *2 ("heartbeatTimeout SHALL be 60 seconds"). Der
    // Energiemanager lehnte mit 60 s jede Grenze ab (err7), mit PT10S wie die echte Steuerbox nicht (v175). Gesendet wird
    // ohnehin oefter als alle 60 s ([LPC-005]). Nicht aendern ohne neuen Test am Energiemanager.
-  const char *hb_to = eebus_hems_mode ? "PT10S" : "PT30S";
+   // v240 (meierchen006 22.11.: "normgerechte Geraete"): LPC TS Tab. 13 Fn. *2 (Z. 1237-1239) heartbeatTimeout SHALL 60 s.
+   // Bis v239 PT10S/PT30S fuer den SMA-Energiemanager (steuert nicht mehr). Gesendet wird weiter oefter (4 s / 20 s).
+  const char *hb_to = "PT60S";
    // ZEITZONEN-KENNUNG "Z" am Zeitstempel (UTC). Der Wert ist ein XSD-dateTime; OHNE Zonen-
    // angabe ist er "unqualifizierte Ortszeit" — ein strenger Empfaenger rechnet ihn als SEINE
    // Ortszeit, unser Wert ist aber UTC. In der Sommerzeit liegt unser Herzschlag damit zwei Stunden
@@ -3387,13 +3968,53 @@ void EebusLpcExpireCheck(void) {
     if (!cc->active || (SME_DONE != cc->sme) || (LPC_DONE != cc->lpc_state)) { continue; }
     if (0 != strncmp(cc->lpc_result, "BESTAETIGT aktiv", 16)) { continue; }   // nur gesetzte Limits
     int d = (1 == cc->lpc_dir) ? 1 : 0;
-    if (!cc->lim_dur[d][0] || (cc->lim_dur_s[d] < 0)) { continue; }           // ohne Dauer kein Ablauf
-    long weg = (long)((millis() - cc->lim_dur_at[d]) / 1000UL);
-    if ((cc->lim_dur_s[d] - weg) > 0) { continue; }                           // laeuft noch
+    bool aus = false;
+    if (cc->lim_dur[d][0] && (cc->lim_dur_s[d] >= 0)) {
+      long weg = (long)((millis() - cc->lim_dur_at[d]) / 1000UL);
+      aus = ((cc->lim_dur_s[d] - weg) <= 0);
+    }
+   // v241: die Anlage meldet nach dem Ablauf oft nur noch isLimitActive false ohne Dauer - dann zaehlt unser eigenes Ende
+    for (int j = 0; !aus && (j < EEBUS_MAX_CONN); j++) {
+      const EebusConn *oc = &EConn[j];
+      if (oc->own_ski[0] && !strcasecmp(oc->own_ski, cc->peer_ski) && oc->own_ende[d] && ((int32_t)(oc->own_ende[d] - millis()) <= 0)) { aus = true; }
+    }
+    if (!aus) { continue; }                                                   // laeuft noch
     ESp = cc; Eebus126ModeLoad();
     EebusLpcSetResult(LPC_DONE, (1 == cc->lpc_dir) ? "ausgelaufen (Einspeisung wieder frei)"
                                                    : "ausgelaufen (Bezug wieder frei)");
   }
+  ESp = save; Eebus126ModeLoad();
+}
+
+// v242 (SHIP Z. 1353-1366): zwei Verbindungen zur selben SKI. Die Seite mit der groesseren SKI behaelt die neueste und
+// schliesst die aeltere sofort; die kleinere wartet 3 s, dann darf sie die aeltere schliessen. Ergebnis ist in beiden
+// Faellen: die aeltere geht (in der Datenphase mit connectionClose). Der Keep-Alive baut nicht neu auf, solange die
+// andere Verbindung steht.
+void EebusDoppelPruefen(void) {
+  EebusConn *save = ESp;
+  bool dbl[EEBUS_MAX_CONN] = { false };
+  for (int i = 0; i < EEBUS_MAX_CONN; i++) {
+    EebusConn *a = &EConn[i];
+    if (!a->active || (1 != a->ski_quelle) || (SME_OFF == a->sme) || (SME_FAIL == a->sme)) { continue; }
+    for (int j = i + 1; j < EEBUS_MAX_CONN; j++) {
+      EebusConn *b = &EConn[j];
+      if (!b->active || (1 != b->ski_quelle) || (SME_OFF == b->sme) || (SME_FAIL == b->sme)) { continue; }
+      if (0 != strcasecmp(a->peer_ski, b->peer_ski)) { continue; }
+      dbl[i] = dbl[j] = true;
+      EebusConn *alt = ((int32_t)(a->conn_at - b->conn_at) <= 0) ? a : b;
+      if (!alt->dbl_at) { alt->dbl_at = millis(); if (!alt->dbl_at) { alt->dbl_at = 1; } }
+      const bool groesser = (strcasecmp(Eebus.own_ski, alt->peer_ski) > 0);
+      if (groesser || ((millis() - alt->dbl_at) >= 3000UL)) {
+        AddLog(LOG_LEVEL_INFO, PSTR("EBG: Doppelverbindung zu %s - die aeltere (%s, Slot %d) wird geschlossen (SHIP 12.2.2, %s SKI)"),
+               alt->peer_ski, alt->via_srv ? "eingehend" : "ausgehend", (int)(alt - EConn), groesser ? "groessere" : "kleinere");
+        ESp = alt; Eebus126ModeLoad();
+        EebusVerbindungWeg(true);
+        ESp = save; Eebus126ModeLoad();
+        return;   // je Sekunde hoechstens ein Abbau
+      }
+    }
+  }
+  for (int k = 0; k < EEBUS_MAX_CONN; k++) { if (!dbl[k]) { EConn[k].dbl_at = 0; } }
   ESp = save; Eebus126ModeLoad();
 }
 
@@ -3447,17 +4068,15 @@ bool EebusSpineAnswerFeatureRead(const char *json, uint32_t ref, int our_ent, in
    // dieses Reads merken und ab jetzt PROAKTIV senden. Ladestations handle_message (heartbeat.cpp Z.106-108)
    // akzeptiert notify OHNE Abo -> emit_heartbeat_received -> heartbeat_received bleibt true -> in
    // update_state greift dann UNSER Wert. Reuse des periodischen Senders unten (hb_sub-Pfad).
-    ESp->hb_cli_ent  = peer_ent;
-    ESp->hb_cli_feat = peer_feat;
-    ESp->hb_sub      = true;
-   // Heartbeat-Takt im HEMS-Modus auf 8 s (wie die Vergleichs-Steuerbox) statt 20 s. Verdacht:
-   // der Energiemanager wertet den EG erst bei engem HB (<=10 s) als durchgaengig "aktiv" (verlaesst init/failsafe).
-   // Ladestation/Waermepumpen-Gateway-Pfad UNVERAENDERT bei 20 s (< dessen PT30S-Timeout) -> bewiesener Drossel-Pfad unberuehrt.
-    ESp->hb_next     = Eebus126At((eebus_hems_mode ? EEBUS_HEMS_HB_MS : 20000));
-    AddLog(LOG_LEVEL_INFO, PSTR("EBG: Peer liest unseren Heartbeat (feat %d) -> proaktiv alle %d s senden"),
-           peer_feat, eebus_hems_mode ? (EEBUS_HEMS_HB_MS / 1000) : 20);
+     // v240 (SPINE TS Z. 2417-2419: notify an einen Nicht-Abonnenten ist ein Fehler; LPC TS 3.4.3.1 Nr. 3: das Abo ist
+     // Pflicht der Anlage): auf ein blosses Lesen nur die Antwort oben - KEIN laufendes Notify mehr. Abonniert die Anlage
+     // nicht, meldet v239 das in Log und Betriebslogbuch. Bis v239 Sonderweg fuer die Ladestation (liest nur, Notify ohne Abo).
+    if (!ESp->hb_sub) {
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: Peer %s liest unseren Heartbeat nur (ohne Abo) - Antwort ja, laufend nur mit Abo (SPINE)"), ESp->peer_ip);
+    }
     return true;
   }
+  if (1 != eebus_role) {   // v243 (MGCP Z. 913-914): Rolle 1 (Steuerbox) bietet diese Server nicht an -> errorNumber 6 unten
    // ===== "DATEN-FUTTER" — Provider-Antworten fuer MGCP/MPC (Werte SIMULIERT: konstante
    // Platzhalter, bis echte Quellen (Messsteckdose / Energiemanager-Umfeld) angebunden sind. Zweck: die
    // datenkonsumierenden CEM-Client-Entities der Waermepumpen-Gateways zum Engagement bewegen.)
@@ -3510,11 +4129,12 @@ bool EebusSpineAnswerFeatureRead(const char *json, uint32_t ref, int our_ent, in
       "]}]}", our_ent, our_feat, peer_ent, peer_feat);   // Faktor 1,00 = keine PV-Abregelung
     return true;
   }
+  }   // v243: Ende der Pruefrollen-Antworten
    // ===== Ende Datenantworten =====
   if (strstr(json, "loadControlLimitDescriptionListData")) {
     EebusSpineSendAddr("reply", true, ref,
       "{\"loadControlLimitDescriptionListData\":[{\"loadControlLimitDescriptionData\":["
-      "[{\"limitId\":1},{\"limitType\":\"maxValueLimit\"},{\"limitCategory\":\"obligation\"},"
+      "[{\"limitId\":1},{\"limitType\":\"signDependentAbsValueLimit\"},{\"limitCategory\":\"obligation\"},"   // v241 LPC TS Tab. 22
       "{\"limitDirection\":\"consume\"},{\"measurementId\":1},{\"unit\":\"W\"},{\"scopeType\":\"activePowerLimit\"}]"
       "]}]}", our_ent, our_feat, peer_ent, peer_feat);
     return true;
@@ -3595,7 +4215,7 @@ void EebusSpineReadPeerDiscovery(void) {
  *    einer Kommunikationsstoerung abgewiesen werden, die Nichtausfuehrbarkeit muss fuer spaetere
  *    Nachweiszwecke protokolliert werden."
  * Ordnername, Monatsdateien, Spalten und Aufbewahrung (30 Monate) regelt die Empfehlung NICHT - unsere
- * Festlegung (Andreas 26.10.2026; das Lastenheft Steuerbox liegt uns nicht vor). Nur auf der SD (Flash schonen),
+ * Festlegung (meierchen006 26.10.2026; das Lastenheft Steuerbox liegt uns nicht vor). Nur auf der SD (Flash schonen),
  * Datei je Eintrag oeffnen/anhaengen/schliessen, abholbar ueber den FTP-Server der Steuerbox.
 \*********************************************************************************************/
 #ifdef USE_UFILESYS
@@ -3673,6 +4293,9 @@ void EebusLbLog(const char *ereignis, const char *ski, const char *ip, int dir, 
 // Ergebnis einer Vorgabe (Bestaetigung oder Nicht-Bestaetigung) - gleiche Wiederholung nicht doppelt
 uint32_t EebusFsBezugCi(uint32_t ci);   // weiter unten (Failsafe-Werte)
 extern uint32_t eebus_fs_dur_s;
+void EebusLbVorgabeWert(char *wert, size_t n) {   // v245
+  if (ESp->lpc_active_wish) { snprintf(wert, n, "%u W", ESp->lpc_value); } else { strlcpy(wert, "Freigabe", n); }
+}
 void EebusLbVorgabe(void) {
   char wert[24];
   if (0 == strncmp(ESp->lpc_result, "Failsafe", 8)) {   // Failsafe-Kette: eigenes Ereignis mit Wert und Dauer (FNN 4.1.2.5)
@@ -3684,12 +4307,16 @@ void EebusLbVorgabe(void) {
     EebusLbLog("Failsafe-Werte", ESp->peer_ski, ESp->peer_ip, 0, wert, (long)eebus_fs_dur_s, ESp->lpc_result);
     return;
   }
-  if (ESp->lpc_active_wish) { snprintf(wert, sizeof(wert), "%u W", ESp->lpc_value); } else { strlcpy(wert, "Freigabe", sizeof(wert)); }
+  EebusLbVorgabeWert(wert, sizeof(wert));
   char k[80];
   snprintf(k, sizeof(k), "%u|%s|%s", ESp->lpc_dir, wert, ESp->lpc_result);
-  if (0 == strcmp(k, ESp->lb_last)) { return; }
+  const bool fehl = (LPC_FAIL == ESp->lpc_state);   // v245: jede Ablehnung/jeden Fehlschlag eintragen (Nachweiskette)
+  if (!fehl && (0 == strcmp(k, ESp->lb_last))) { return; }
   strlcpy(ESp->lb_last, k, sizeof(ESp->lb_last));
-  EebusLbLog("Vorgabe", ESp->peer_ski, ESp->peer_ip, ESp->lpc_dir, wert, ESp->lpc_dur_s, ESp->lpc_result);
+  char erg[80];
+  if (fehl && ESp->wdh_n) { snprintf(erg, sizeof(erg), "%s (%u. Wiederholung)", ESp->lpc_result, ESp->wdh_n); }   // v245
+  else { strlcpy(erg, ESp->lpc_result, sizeof(erg)); }
+  EebusLbLog("Vorgabe", ESp->peer_ski, ESp->peer_ip, ESp->lpc_dir, wert, ESp->lpc_dur_s, erg);
 }
 // Steuerbefehl (Paragraf 14a / Paragraf 9) - nur diese werden als abgewiesen protokolliert
 bool EebusLbIstSteuerbefehl(void) {
@@ -3726,6 +4353,10 @@ void EebusLbVerbindungen(void) {
 void EebusLpcSetResult(uint8_t state, const char *txt) {
   ESp->lpc_state = state;
   strlcpy(ESp->lpc_result, txt, sizeof(ESp->lpc_result));
+  if ((LPC_DONE == state) && (0 == strncmp(txt, "BESTAETIGT", 10))) {   // v237: Bestaetigung -> Wiederholung von vorn
+    ESp->wdh_n = 0;
+    if (0 == strncmp(txt, "BESTAETIGT aktiv", 16)) { ESp->best_akt[(1 == ESp->lpc_dir) ? 1 : 0] = true; }
+  }
   if ((LPC_DONE == state) || (LPC_FAIL == state)) { EebusLbVorgabe(); }   // v215: Betriebslogbuch
   if (LPC_FAIL == state) {
     AddLog(LOG_LEVEL_ERROR, PSTR("EBG: LPC @ %s FEHLER: %s"), ESp->peer_ip, txt);
@@ -3788,6 +4419,7 @@ int EebusLpcSubscribeAll(const char *disco) {
       "{\"serverFeatureType\":\"%s\"}]}]}",
       own, EEBUS_LPC_CLIENT_ENT, cli, ESp->peer_dev, ent, feat, ftype);
     EebusSpineSendAddr("call", false, 0, cmd, 0, 0, 0, 0);
+    EebusAboMerken((uint8_t)cli, ent, feat);   // v241
    // (B) PRAEZISE binden: nur auf der §14a-Ziel-Entity (lpc_peer_ent) binden, nicht blind ueber alle
    // Entities. Der Energiemanager listet LoadControl/DeviceConfiguration auf mehreren Entities (ent1/3/7/8/9); ein Bind
    // auf die nicht-relevanten quittiert er mit errorNumber 1/4 ("Adding binding failed"/"DestinationUnknown")
@@ -3801,6 +4433,7 @@ int EebusLpcSubscribeAll(const char *disco) {
         "{\"serverFeatureType\":\"%s\"}]}]}",
         own, EEBUS_LPC_CLIENT_ENT, cli, ESp->peer_dev, ent, feat, ftype);
       EebusSpineSendAddr("call", false, 0, cmd, 0, 0, 0, 0);
+      if (0 == strcmp(ftype, "LoadControl")) { ESp->bind_mc = ESp->spine_ctr - 1; }   // v240
     }
    // fuer ElectricalConnection/Measurement zusaetzlich die Beschreibungen lesen (fire-and-forget,
    // wie die Vergleichs-Steuerbox — nicht write-gatend). LoadControl/DeviceConfiguration werden gated gelesen
@@ -3937,10 +4570,11 @@ void EebusLpcSendBind(void) {
       "]}]}", own, EEBUS_LPC_CLIENT_ENT, EEBUS_LPC_CLIENT_FEAT,
       ESp->peer_dev, ESp->lpc_peer_ent, ESp->lpc_peer_feat);
     EebusSpineSendAddr("call", false, 0, cmd, 0, 0, 0, 0);
+    ESp->bind_mc = ESp->spine_ctr - 1;   // v240
     AddLog(LOG_LEVEL_INFO, PSTR("EBG: LPC @ %s: Fallback LoadControl abo+bind (keine Discovery)"), ESp->peer_ip);
   }
   free(cmd);
-  ESp->lpc_deadline = Eebus126At(EEBUS_LPC_PHASE_TIMEOUT_MS);
+  ESp->lpc_deadline = Eebus126At(EebusLpcFristMs());
   EebusLpcSetResult(LPC_BIND, "Binding gesendet");
 }
 
@@ -3948,7 +4582,7 @@ void EebusLpcSendBind(void) {
 void EebusLpcReadDesc(void) {
   EebusSpineSendAddr("read", false, 0, "{\"loadControlLimitDescriptionListData\":[]}",
                      EEBUS_LPC_CLIENT_ENT, EEBUS_LPC_CLIENT_FEAT, ESp->lpc_peer_ent, ESp->lpc_peer_feat);
-  ESp->lpc_deadline = Eebus126At(EEBUS_LPC_PHASE_TIMEOUT_MS);
+  ESp->lpc_deadline = Eebus126At(EebusLpcFristMs());
   EebusLpcSetResult(LPC_READDESC, "Limit-Beschreibung angefragt");
 }
 
@@ -3981,7 +4615,7 @@ void EebusLpcReadData(void) {
                        EEBUS_LPC_CLIENT_ENT, EEBUS_LPC_CLIENT_FEAT, ESp->lpc_peer_ent, ESp->lpc_peer_feat);
     EebusLpcSetResult(LPC_READDATA, "Ist-LimitData angefragt");
   }
-  ESp->lpc_deadline = Eebus126At(EEBUS_LPC_PHASE_TIMEOUT_MS);
+  ESp->lpc_deadline = Eebus126At(EebusLpcFristMs());
 }
 
 // keyId eines DeviceConfig-Keys (z.B. failsafeConsumptionActivePowerLimit) aus der
@@ -4032,7 +4666,7 @@ void EebusLpcReadCfg(void) {
   }
   EebusSpineSendAddr("read", false, 0, "{\"deviceConfigurationKeyValueDescriptionListData\":[]}",
                      EEBUS_LPC_CLIENT_ENT, 3, ESp->lpc_peer_ent, ESp->lpc_peer_dcfg_feat);
-  ESp->lpc_deadline = Eebus126At(EEBUS_LPC_PHASE_TIMEOUT_MS);
+  ESp->lpc_deadline = Eebus126At(EebusLpcFristMs());
   EebusLpcSetResult(LPC_READCFG, "DeviceConfig-Beschreibung angefragt");
 }
 
@@ -4043,7 +4677,7 @@ void EebusLpcReadCfg(void) {
 void EebusLpcReadEl(void) {
   EebusSpineSendAddr("read", false, 0, "{\"electricalConnectionDescriptionListData\":[]}",
                      EEBUS_LPC_CLIENT_ENT, 4, ESp->lpc_peer_ent, 7);
-  ESp->lpc_deadline = Eebus126At(EEBUS_LPC_PHASE_TIMEOUT_MS);
+  ESp->lpc_deadline = Eebus126At(EebusLpcFristMs());
   EebusLpcSetResult(LPC_READEL, "ElectricalConnection-Beschreibung angefragt");
 }
 
@@ -4071,7 +4705,7 @@ void EebusLpcSendFailsafe(int key, const char *valjson) {
 }
 
 /*********************************************************************************************\
- * v196 (24.10., Andreas): FAILSAFE-WRITE der Steuerbox
+ * v196 (24.10., meierchen006): FAILSAFE-WRITE der Steuerbox
  *
  * VDE FNN Empfehlung zu Tenorziffer 2a BK6-22-300 (Okt. 2024), Abschnitt "FailSafe-Verhalten":
  * "Dabei uebertraegt die Steuerungseinrichtung bei bestehender Kommunikationsverbindung die Grenzwerte
@@ -4168,7 +4802,7 @@ uint32_t EebusDirektMinW(uint32_t ci) {
 }
 uint32_t EebusFsBezugCi(uint32_t ci) {
   const EebusConn *c = &EConn[ci];
-   // v209 (Andreas 26.10.): direkt gesteuert (Ziff. 4.4.a) -> Mindestleistung je SteuVE (Ziff. 4.5.1, v211 inkl. Satz 2);
+   // v209 (meierchen006 26.10.): direkt gesteuert (Ziff. 4.4.a) -> Mindestleistung je SteuVE (Ziff. 4.5.1, v211 inkl. Satz 2);
    // hinter dem HEMS / EMS (Ziff. 4.4.b) -> Pmin der Anlage (Ziff. 4.5.2), wie bisher
   if (c->peer_ski[0] && (0 == EebusModeEffective(c->peer_ski))) { return EebusDirektMinW(ci); }
   uint32_t w = EebusFsPminW(nullptr, nullptr);
@@ -4226,6 +4860,12 @@ void EebusLpcFailsafeNext(uint8_t nach) {
   for (uint8_t st = nach + 1; st <= 3; st++) {
     char v[72];
     int key = -1;
+    const uint8_t code = (1 == st) ? 1 : ((2 == st) ? 3 : 2);   // v243 (Tab. 15/16): isValueChangeable false -> nicht schreiben
+    if (ESp->fs_ro & (1 << code)) {
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: Failsafe %s @ %s laut Anlage nicht beschreibbar (isValueChangeable false) - uebersprungen"),
+             (1 == code) ? "Bezug" : (3 == code) ? "Einspeisung" : "Dauer", ESp->peer_ip);
+      continue;
+    }
     if (1 == st) {
       uint32_t w = EebusFsBezugCi((uint32_t)(ESp - EConn));
       if ((ESp->lpc_fs_val_key < 0) || (0 == w)) { continue; }
@@ -4256,7 +4896,7 @@ void EebusLpcFailsafeNext(uint8_t nach) {
     }
     ESp->lpc_fs_step = st;
     EebusLpcSendFailsafe(key, v);
-    ESp->lpc_deadline = Eebus126At(EEBUS_LPC_PHASE_TIMEOUT_MS);
+    ESp->lpc_deadline = Eebus126At(EebusLpcFristMs());
     EebusLpcSetResult(LPC_FAILSAFE, (1 == st) ? "Failsafe Bezug geschrieben"
                                   : (2 == st) ? "Failsafe Einspeisung geschrieben" : "Failsafe-Dauer geschrieben");
     return;
@@ -4264,6 +4904,15 @@ void EebusLpcFailsafeNext(uint8_t nach) {
   ESp->lpc_fs_step = 0;
   ESp->lpc_fs_done = true;
   ESp->lpc_deadline = 0;
+   // v239 (LPC IG 2.15 Z. 468-479, IG 2.5): wurde ein Failsafe-Wert abgelehnt, die Werte spaeter erneut schreiben
+   // (wachsender Abstand wie bei Vorgaben) - bis v238 galten sie nach einem NACK als erledigt.
+  if (ESp->fs_nack) {
+    ESp->fs_nack = false;
+    ESp->lpc_fs_done = false;
+    ESp->fs_wdh_at = Eebus126At(EebusWdhMs()); if (!ESp->fs_wdh_at) { ESp->fs_wdh_at = 1; }
+    AddLog(LOG_LEVEL_INFO, PSTR("EBG: Failsafe-Werte @ %s abgelehnt - erneuter Versuch in %u s"), ESp->peer_ip, EebusWdhMs() / 1000);
+    EebusLbLog("Failsafe-Werte abgelehnt", ESp->peer_ski, ESp->peer_ip, 0, "", 0, "erneuter Versuch spaeter");
+  }
   EebusLpcSetResult(LPC_DONE, "Failsafe-Werte geschrieben");
    // v197: einmal nachlesen, damit die Anzeige ("Anlage meldet zurueck") den neuen Stand zeigt
   if (ESp->lpc_peer_dcfg_feat >= 0) {
@@ -4277,6 +4926,7 @@ void EebusLpcFailsafeResult(bool ok) {
   AddLog(LOG_LEVEL_INFO, PSTR("EBG: Failsafe %s %s @ %s"),
          (1 == ESp->lpc_fs_step) ? "Bezug" : (2 == ESp->lpc_fs_step) ? "Einspeisung" : "Dauer",
          ok ? "quittiert (err0)" : "ABGELEHNT", ESp->peer_ip);
+  if (!ok) { ESp->fs_nack = true; }   // v239
   EebusLpcFailsafeNext(ESp->lpc_fs_step);
 }
 
@@ -4356,7 +5006,7 @@ void EebusLpcWrite(void) {
   const bool del_dur_now = (0 == eebus_del_dur) ? false
                          : (1 == eebus_del_dur) ? true
                                                 : ('\0' == tp[0]);
-   // v195 (24.10., Andreas "wie der Energiemanager"): das Loeschen der Geltungsdauer gilt jetzt in BEIDEN
+   // v195 (24.10., meierchen006 "wie der Energiemanager"): das Loeschen der Geltungsdauer gilt jetzt in BEIDEN
    // Betriebsarten, nicht nur im HEMS-Modus. Anlass Nacht 23./24.10. am HEMS (gleicher Code): die
    // Freigabe an die Wallbox (SteuVE-Partner) ging ohne delete raus -> Wallbox-Log "deactivated, duration:
    // unchanged", die Wallbox lud danach die ganze Nacht mit der alten Grenze (3.591 W). Der Energiemanager schickt
@@ -4382,7 +5032,9 @@ void EebusLpcWrite(void) {
    // frischer EG-Heartbeat kam (und der Write <60 s folgt). Daher direkt vor dem Write einen Heartbeat-NOTIFY
    // an den DeviceDiagnosis-Abonnenten (Energiemanager) schicken. Nur wenn der Peer uns schon abonniert hat (hb_sub).
    // SteuVE-Pfad unveraendert (kein HB vor dem Write -> byte-identisch ).
-  if (eebus_hems_mode && ESp->hb_sub) {
+   // v239 ([LPC-913], LPC TS Z. 369-375): auch im SteuVE-Betrieb, wenn unser letzter Herzschlag laenger als 50 s her ist
+   // (sonst bleibt der Ablauf unveraendert - der Takt 20 s haelt die 60 s ohnehin ein).
+  if (ESp->hb_sub && (eebus_hems_mode || !ESp->hb_tx_at || ((millis() - ESp->hb_tx_at) > 50000UL))) {
     EebusSpineSendHeartbeat("notify", false, 0, ESp->hb_cli_ent, ESp->hb_cli_feat);
     AddLog(LOG_LEVEL_INFO, PSTR("EBG: Heartbeat %u (vor Write) an %s gesendet"), ESp->hb_counter - 1, ESp->peer_ip);
     EebusServeStateNotify();   // operatingState frisch vor dem Write -> Energiemanager sieht uns "aktiv"
@@ -4398,14 +5050,30 @@ void EebusLpcWrite(void) {
     EebusLpcSetResult(LPC_FAIL, "nicht ausfuehrbar - Senden abgebrochen");
     return;
   }
-  ESp->lpc_deadline = Eebus126At(EEBUS_LPC_PHASE_TIMEOUT_MS);
+  ESp->lpc_deadline = Eebus126At(EebusLpcFristMs());
   char t[56];
   if (ESp->lpc_active_wish) {
     snprintf(t, sizeof(t), (1 == ESp->lpc_dir) ? "Einspeiselimit %ld W geschrieben" : "Limit %ld W geschrieben", frame_val);
   } else {
     strlcpy(t, (1 == ESp->lpc_dir) ? "Einspeise-Freigabe geschrieben" : "Freigabe geschrieben", sizeof(t));
   }
+  {   // v243 (LPC/LPP-913, LPP Z. 389-392): erster Grenz-Write dieser Sitzung je Richtung
+    const uint8_t d = (1 == ESp->lpc_dir) ? 1 : 0;
+    if (!ESp->sess_dir_w[d]) { ESp->sess_dir_w[d] = millis(); if (!ESp->sess_dir_w[d]) { ESp->sess_dir_w[d] = 1; } }
+  }
   EebusLpcSetResult(LPC_WRITE, t);
+}
+
+// v243 (LPP Z. 389-392, LPC Z. 372-375): andere Datenpunkte wertet die Anlage erst nach Herzschlag + Grenz-Write aus.
+// Failsafe-Werte deshalb erst, wenn fuer JEDE vorhandene Richtung in dieser Sitzung eine Grenze geschrieben ist.
+bool EebusFsGrenzenDa(void) {
+  bool eine = false;
+  for (uint8_t d = 0; d < 2; d++) {
+    const bool noetig = (ESp->lpc_lid_dir[d] >= 0) && !((1 == d) && EebusOhneEinspeisung());
+    if (noetig && !ESp->sess_dir_w[d]) { return false; }
+    if (ESp->sess_dir_w[d]) { eine = true; }
+  }
+  return eine;
 }
 
 // Reaktion auf errorNumber:7 ("Write failed") auf den §14a-Write. EEBus-LPC-Spec [LPC-906]: die erste
@@ -4416,31 +5084,47 @@ void EebusLpcWrite(void) {
 // scheitert wie bisher sofort -> Verhalten byte-identisch .
 // v225: eine Vorgabe ist gescheitert -> nach EEBUS_ABGELEHNT_WDH_MS ueber die Sicherung erneut (s. v214). Nur wenn wirklich eine Vorgabe
 // lief, nicht beim Onboarding, sonst verschoebe das die erste Vorgabe nach dem Verbinden ueber die 60 s aus [LPC-913] hinaus.
+// v237: Wartezeit der naechsten Wiederholung: 60 s x (Anzahl bisheriger Wiederholungen + 1), hoechstens EEBUS_WDH_MAX_MS.
+uint32_t EebusWdhMs(void) {
+  uint32_t w = EEBUS_ABGELEHNT_WDH_MS * (uint32_t)(ESp->wdh_n + 1);
+  return (w > EEBUS_WDH_MAX_MS) ? EEBUS_WDH_MAX_MS : w;
+}
 void EebusVorgabeWiederholen(const char *grund) {
   if (!ESp->sess_vorgabe) { return; }
   const uint8_t d = (1 == ESp->lpc_dir) ? 1 : 0;
   if (!ESp->lpc_active_wish) { ESp->frei_offen[d] = true; }
   ESp->sess_vorgabe = false;
+  ESp->wdh_offen = true;   // v237
   ESp->sich_stufe = 0;
-  ESp->sich_wdh_at = Eebus126At(EEBUS_ABGELEHNT_WDH_MS);
+  const uint32_t warte = EebusWdhMs();   // v237: 60 s, 120 s, 180 s ... hoechstens EEBUS_WDH_MAX_MS (LPC IG 2.5 Z. 283-286)
+  if (ESp->wdh_n < 255) { ESp->wdh_n++; }
+  ESp->sich_wdh_at = Eebus126At(warte);
   if (!ESp->sich_wdh_at) { ESp->sich_wdh_at = 1; }
-  AddLog(LOG_LEVEL_INFO, PSTR("EBG: Vorgabe @ %s %s - erneuter Versuch in %u s"), ESp->peer_ip, grund, (uint32_t)(EEBUS_ABGELEHNT_WDH_MS / 1000));
+  AddLog(LOG_LEVEL_INFO, PSTR("EBG: Vorgabe @ %s %s - erneuter Versuch in %u s (%u. Wiederholung)"), ESp->peer_ip, grund,
+         warte / 1000, ESp->wdh_n);
 }
 
 void EebusLpcWriteRejected(void) {
-  if (eebus_hems_mode && (ESp->lpc_write_tries < EEBUS_LPC_WRITE_MAX_TRIES)) {
+  if (eebus_hems_mode && (ESp->lpc_write_tries < EEBUS_LPC_WRITE_MAX_TRIES) &&
+      ESp->sess_at && ((millis() - ESp->sess_at) < EEBUS_LPC_INIT_FENSTER_MS)) {   // v237: nur im "init"-Fenster
     ESp->lpc_write_tries++;
     ESp->lpc_deadline = 0;   // Phasen-Timeout ruht bis zum Retry
     ESp->lpc_write_retry_at = Eebus126At(EEBUS_LPC_WRITE_RETRY_MS);
     char t[56]; snprintf(t, sizeof(t), "err7 -> Heartbeat+Retry %u/%u",
                          ESp->lpc_write_tries, EEBUS_LPC_WRITE_MAX_TRIES);
     EebusLpcSetResult(LPC_WRITE, t);
+    {   // v245: auch diese erste Ablehnung ins Betriebslogbuch (vorher nur die nach dem Neuversuch)
+      char wert[24];
+      EebusLbVorgabeWert(wert, sizeof(wert));
+      EebusLbLog("Vorgabe", ESp->peer_ski, ESp->peer_ip, ESp->lpc_dir, wert, ESp->lpc_dur_s,
+                 "Write abgelehnt - Herzschlag+Write sofort erneut (LPC-906)");
+    }
     AddLog(LOG_LEVEL_INFO, PSTR("EBG: Write err7 @ %s -> Heartbeat+Write erneut (Versuch %u/%u, LPC-906/914)"),
            ESp->peer_ip, ESp->lpc_write_tries, EEBUS_LPC_WRITE_MAX_TRIES);
     return;
   }
   EebusLpcSetResult(LPC_FAIL, "Write abgelehnt");
-   // v214 (Andreas 26.10.: "das muss alles so funktionieren", eine echte Steuerbox hat keinen Knopf): eine ABGELEHNTE
+   // v214 (meierchen006 26.10.: "das muss alles so funktionieren", eine echte Steuerbox hat keinen Knopf): eine ABGELEHNTE
    // Vorgabe gilt nicht als geschrieben. Bisher setzte schon das Abschicken sess_vorgabe, die Sicherung lief nur einmal
    // -> nach einer Ablehnung (z. B. Gegenstelle vertraute uns noch nicht) kam nie wieder eine Vorgabe, die Anlage blieb
    // "autonom" ([LPC-902]/[LPC-916] verlangen Herzschlag UND Vorgabe). Jetzt: Sicherung nach EEBUS_ABGELEHNT_WDH_MS
@@ -4462,7 +5146,7 @@ void EebusLpcWriteRejected(void) {
 void EebusLpcVerify(void) {
   EebusSpineSendAddr("read", false, 0, "{\"loadControlLimitListData\":[]}",
                      EEBUS_LPC_CLIENT_ENT, EEBUS_LPC_CLIENT_FEAT, ESp->lpc_peer_ent, ESp->lpc_peer_feat);
-  ESp->lpc_deadline = Eebus126At(EEBUS_LPC_PHASE_TIMEOUT_MS);
+  ESp->lpc_deadline = Eebus126At(EebusLpcFristMs());
   EebusLpcSetResult(LPC_VERIFY, "Read-Back angefragt");
 }
 
@@ -4504,7 +5188,7 @@ void EebusLpcStartOnboard(void) {
 bool EebusLpcStart(uint32_t watt, bool active, uint8_t dir, long dur_s) {
   if (eebus_role < 1) { EebusLpcSetResult(LPC_FAIL, "Rolle AUS (EEBusRole 1/2)"); return false; }
   if (SME_DONE != ESp->sme) { EebusLpcSetResult(LPC_FAIL, "keine SHIP-Verbindung (done)"); return false; }
-   // v211 (Andreas 26.10.): ein DIREKT gesteuertes Geraet wird immer genau auf seine Mindestleistung gedimmt
+   // v211 (meierchen006 26.10.): ein DIREKT gesteuertes Geraet wird immer genau auf seine Mindestleistung gedimmt
    // (BK6 Ziff. 4.5.1: 4200 W, Satz 2: WP/Klima > 11 kW 0,4 x P) - sie ist Untergrenze UND Dimmwert. Gilt fuer
    // Einzelbefehl, "alle" und Sicherung; beim HEMS (Ziff. 4.4.b) bleibt der Wert, wie er kommt (Gesamtwert).
   if ((0 == dir) && active && (0 == EebusModeEffective(ESp->peer_ski))) {
@@ -4516,9 +5200,18 @@ bool EebusLpcStart(uint32_t watt, bool active, uint8_t dir, long dur_s) {
     }
   }
   ESp->sess_vorgabe = true;   // v200: in dieser Sitzung wurde eine Vorgabe (Freigabe oder Grenze) geschrieben
+  if (!ESp->sess_write_at) { ESp->sess_write_at = millis(); if (!ESp->sess_write_at) { ESp->sess_write_at = 1; } }   // v239
+  if (active) {   // v241 (LPC IG 2.10, SHOULD): nur Hinweis - die Box gibt Vorgaben unverzoegert weiter (s. Kopf v241)
+    if (ESp->ig210_at && ((millis() - ESp->ig210_at) < 300000UL)) {
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: Hinweis: Grenze an %s nach %u s erneut (LPC IG 2.10 empfiehlt hoechstens alle 5 min)"),
+             ESp->peer_ip, (uint32_t)((millis() - ESp->ig210_at) / 1000));
+    }
+    ESp->ig210_at = millis(); if (!ESp->ig210_at) { ESp->ig210_at = 1; }
+  }
   if (active) { ESp->frei_offen[(1 == dir) ? 1 : 0] = false; }   // v225: eine neue Grenze ersetzt die offene Freigabe
   {   // v200: eigene Grenze je Richtung und SKI merken (Grenze -> Wert/Ende, Freigabe -> weg); ueberlebt Wiederverbindungen
     const uint8_t d = (dir > 1) ? 1 : dir;
+    ESp->best_akt[d] = false;   // v237: bis zur Bestaetigung dieser neuen Vorgabe gibt es nichts abzubrechen
     if (strcasecmp(ESp->own_ski, ESp->peer_ski)) {
       strlcpy(ESp->own_ski, ESp->peer_ski, sizeof(ESp->own_ski));
       ESp->own_akt[0] = ESp->own_akt[1] = false;
@@ -4579,7 +5272,7 @@ bool EebusLpcStart(uint32_t watt, bool active, uint8_t dir, long dur_s) {
    // nur ueber entity/feature (der Peer ist auf der SHIP-Verbindung eindeutig).
   ESp->lpc_value = watt;
   ESp->lpc_val_dir[dir ? 1 : 0] = watt;
-   // 06.11. (Andreas, Box .21 bewiesen 22:21:17): Wert JE RICHTUNG - "§14a aufheben" schickte den letzten §9-Wert (11480 W)
+   // 06.11. (meierchen006, Box .21 bewiesen 22:21:17): Wert JE RICHTUNG - "§14a aufheben" schickte den letzten §9-Wert (11480 W)
   ESp->lpc_active_wish = active;
   ESp->lpc_dur_s = (dur_s < 0) ? 0 : dur_s;   // Geltungsdauer dieses Auftrags
   ESp->lpc_write_tries = 0;   // err7-Retry-Zaehler fuer diesen neuen Write-Auftrag zuruecksetzen
@@ -4602,11 +5295,93 @@ bool EebusLpcStart(uint32_t watt, bool active, uint8_t dir, long dur_s) {
 bool EebusJsonLong(const char *s, const char *key, long *out) {
   if ((nullptr == s) || (nullptr == key)) { return false; }
   char pat[32];
-  snprintf(pat, sizeof(pat), "\"%s\":", key);
-  const char *p = strstr(s, pat);
+  snprintf(pat, sizeof(pat), "\"%s\"", key);   // v243: Leerraum um den Doppelpunkt zulassen
+  const size_t pl = strlen(pat);
+  const char *p = s;
+  while (nullptr != (p = strstr(p, pat))) {
+    const char *q = p + pl;
+    while ((' ' == *q) || ('\t' == *q) || ('\r' == *q) || ('\n' == *q)) { q++; }
+    if (':' == *q) {
+      q++;
+      while ((' ' == *q) || ('\t' == *q) || ('\r' == *q) || ('\n' == *q)) { q++; }
+      if ((('-' != *q) && ('+' != *q)) && ((*q < '0') || (*q > '9'))) { return false; }
+      *out = strtol(q, nullptr, 10);
+      return true;
+    }
+    p += pl;
+  }
+  return false;
+}
+
+// v243: Schluessel k ("\"name\"") zwischen from und end (end nullptr = bis Textende) suchen.
+const char *EebusSegKey(const char *from, const char *end, const char *k) {
+  if (nullptr == from) { return nullptr; }
+  const char *f = strstr(from, k);
+  return (f && (!end || (f < end))) ? f : nullptr;
+}
+// v243: Text-Wert eines Schluessels innerhalb des Abschnitts (leer, wenn nicht vorhanden).
+void EebusSegStr(const char *from, const char *end, const char *name, char *out, size_t outlen) {
+  out[0] = '\0';
+  char k[40]; snprintf(k, sizeof(k), "\"%s\"", name);
+  const char *p = EebusSegKey(from, end, k);
+  if (p) { EebusJsonStr(p, name, out, outlen); }
+}
+// v243: steht der Schluessel im Abschnitt mit dem Wert false?
+bool EebusSegFalse(const char *from, const char *end, const char *name) {
+  char k[40]; snprintf(k, sizeof(k), "\"%s\"", name);
+  const char *p = EebusSegKey(from, end, k);
   if (nullptr == p) { return false; }
-  *out = strtol(p + strlen(pat), nullptr, 10);
-  return true;
+  p += strlen(k);
+  while ((' ' == *p) || ('\t' == *p) || ('\r' == *p) || ('\n' == *p) || (':' == *p)) { p++; }
+  return (0 == strncmp(p, "false", 5));
+}
+
+// v243 (LPP 3.1.2 Z. 766-788, MGCP Z. 444-467): Use-Case-Auskunft der Anlage auswerten - Entity des
+// GridConnectionPoint (MGCP) und ob die Anlage LPP als ControllableSystem anbietet (useCaseAvailable nicht false).
+void EebusUcAuswerten(const char *uc) {
+  ESp->gcp_uc_ent = -1;
+  ESp->lpp_uc = 0;
+  if (nullptr == uc) { ESp->lpp_uc = -1; return; }
+  const char *a = uc;
+  while (nullptr != (a = strstr(a, "\"address\""))) {
+    const char *nx = strstr(a + 9, "\"address\"");
+    char actor[32];
+    EebusSegStr(a, nx, "actor", actor, sizeof(actor));
+    int ent = -1;
+    const char *ep = EebusSegKey(a, nx, "\"entity\"");
+    if (ep) { const char *b = strchr(ep, '['); if (b && (!nx || (b < nx))) { ent = atoi(b + 1); } }
+    const char *u = a;
+    while (nullptr != (u = EebusSegKey(u, nx, "\"useCaseName\""))) {
+      char name[48] = { 0 };
+      EebusJsonStr(u, "useCaseName", name, sizeof(name));
+      const char *un = EebusSegKey(u + 13, nx, "\"useCaseName\"");
+      const bool verf = true;   // v246 (SPINE TS RTC_003, IG 2.2 Z. 136-138): useCaseAvailable eines Servers ignorieren (vorher: false = verworfen)
+      if (verf && (0 == strcmp(name, "monitoringOfGridConnectionPoint")) && (0 == strcmp(actor, "GridConnectionPoint"))) {
+        ESp->gcp_uc_ent = ent;
+      }
+      if (verf && (0 == strcmp(name, "limitationOfPowerProduction")) && (0 == strcmp(actor, "ControllableSystem"))) {
+        ESp->lpp_uc = 1;
+      }
+      u += 13;
+    }
+    a += 9;
+  }
+  AddLog(LOG_LEVEL_INFO, PSTR("EBG: Use-Cases von %s: LPP als ControllableSystem %s, GridConnectionPoint %s%d"),
+         ESp->peer_ip, (1 == ESp->lpp_uc) ? "ja" : "NEIN - keine Einspeisegrenze (LPP 3.1.2)",
+         (ESp->gcp_uc_ent >= 0) ? "auf Entity " : "nicht gemeldet ", ESp->gcp_uc_ent);
+}
+
+// v243 (MGCP Tab. 15-20): passen Messart und Einheit zur Bedeutung? code wie m_scope.
+bool EebusMessArtPasst(int8_t code, const char *mt, const char *un) {
+  switch (code) {
+    case 1: return !strcmp(mt, "power") && !strcmp(un, "W");
+    case 2:
+    case 3: return !strcmp(mt, "energy") && !strcmp(un, "Wh");
+    case 4: return !strcmp(mt, "current") && !strcmp(un, "A");
+    case 5: return !strcmp(mt, "voltage") && !strcmp(un, "V");
+    case 6: return !strcmp(mt, "frequency") && !strcmp(un, "Hz");
+  }
+  return false;
 }
 
 // Nutzdaten aus einem eingehenden Datagramm mitlesen und im Slot behalten.
@@ -4649,6 +5424,13 @@ void EebusHarvest(const char *json, int src_ent) {
       long s = EebusIsoDurSecs(tmo);   // "PT2M" -> 120
       if ((s > 0) && (s < 65535)) { ESp->peer_hb_tmo_s = (uint16_t)s; }
     }
+    if (ESp->peer_hb_at && !ESp->peer_hb_lost && ((millis() - ESp->peer_hb_at) > EEBUS_HB_LUECKE_MS)) {
+   // v241 (LPC-911/913, Testfall EGConnection_002): nach > 110 s Pause kann die Anlage im Failsafe sein, auch wenn die
+   // doppelte Zusage (Verlust-Erkennung unten) noch nicht um ist -> wie "zurueck": Herzschlag + Grenze.
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: Herzschlag von %s nach %u s Pause - Vorgabe wird erneuert (LPC-913)"),
+             ESp->peer_ip, (uint32_t)((millis() - ESp->peer_hb_at) / 1000));
+      ESp->hb_zurueck = true;
+    }
     ESp->peer_hb_at = millis();
     if (0 == ESp->peer_hb_at) { ESp->peer_hb_at = 1; }   // 0 ist reserviert fuer "noch keiner da"
     if (ESp->peer_hb_lost) {
@@ -4662,21 +5444,23 @@ void EebusHarvest(const char *json, int src_ent) {
    // --- Beschreibung der Messwerte: measurementId -> Bedeutung -------------------------------
   if (nullptr != strstr(json, "\"measurementDescriptionData\"")) {
    // Gehoert diese Beschreibung zum NETZANSCHLUSSPUNKT? Erkennungsmerkmal sind die Bedeutungen
-   // gridFeedIn/gridConsumption — die fuehrt keine andere Einheit. Damit muss keine Entity-Nummer
-   // fest verdrahtet werden, es bleibt geraeteunabhaengig.
+   // gridFeedIn/gridConsumption - oder (v243, MGCP Z. 444-467) die Entity, die die Anlage in ihrer Use-Case-Auskunft
+   // als GridConnectionPoint nennt (ein Netzanschlusspunkt ohne Zaehlerstaende wird so auch erkannt).
     bool ist_netz = (nullptr != strstr(json, "\"gridFeedIn\""))
-                 || (nullptr != strstr(json, "\"gridConsumption\""));
+                 || (nullptr != strstr(json, "\"gridConsumption\""))
+                 || ((ESp->gcp_uc_ent >= 0) && (src_ent == ESp->gcp_uc_ent));
     if (ist_netz) { ESp->meas_ent = src_ent; }
-    int8_t n_cur = 0, n_vol = 0;   // v197: Phasenzaehler je Bedeutung
+    int8_t n_cur = 0, n_vol = 0;   // v197: Phasenzaehler je Bedeutung (nur Rueckfall ohne ParameterDescription)
     q = json;
-    while (nullptr != (q = strstr(q, "\"measurementId\":"))) {
+    while (nullptr != (q = strstr(q, "\"measurementId\""))) {
       uint32_t id = 0;
       EebusJsonInt(q, "measurementId", &id);
-      nx = strstr(q + 16, "\"measurementId\":");
-      const char *sc = strstr(q, "\"scopeType\":\"");
-      if (sc && (!nx || (sc < nx)) && (id < 24)) {
-        char s[28] = { 0 };
-        EebusJsonStr(sc, "scopeType", s, sizeof(s));
+      nx = strstr(q + 15, "\"measurementId\"");
+      char s[28], mt[16], un[8];
+      EebusSegStr(q, nx, "scopeType", s, sizeof(s));
+      EebusSegStr(q, nx, "measurementType", mt, sizeof(mt));
+      EebusSegStr(q, nx, "unit", un, sizeof(un));
+      if (s[0] && (id < 24)) {
         if (ist_netz) {
           int8_t code = 0;
           if      (0 == strcmp(s, "acPowerTotal"))    { code = 1; }
@@ -4685,8 +5469,14 @@ void EebusHarvest(const char *json, int src_ent) {
           else if (0 == strcmp(s, "acCurrent"))       { code = 4; }
           else if (0 == strcmp(s, "acVoltage"))       { code = 5; }
           else if (0 == strcmp(s, "acFrequency"))     { code = 6; }
+          if (code && !EebusMessArtPasst(code, mt, un)) {   // v243 (MGCP Tab. 15-20)
+            AddLog(LOG_LEVEL_INFO, PSTR("EBG: Messwert %u von %s (%s) mit Messart '%s' / Einheit '%s' passt nicht (MGCP Tab. 15-20) - ignoriert"),
+                   id, ESp->peer_ip, s, mt, un);
+            code = 0;
+          }
           ESp->m_scope[id] = code;
-          ESp->m_phase[id] = (4 == code) ? n_cur++ : ((5 == code) ? n_vol++ : 0);   // v197
+          const int8_t ph = (4 == code) ? n_cur++ : ((5 == code) ? n_vol++ : 0);
+          if (!(ESp->m_ph_desc & (1UL << id))) { ESp->m_phase[id] = ph; }   // v243: Beschreibung der Phase hat Vorrang
         } else {
    // Fremde Einheit: Bedeutung im eigenen Platz merken, die Tabelle des Netzanschlusspunkts
    // bleibt unberuehrt. Sonst haette eine Batterie-Beschreibung dort "Id 3 = Ladezustand"
@@ -4694,48 +5484,100 @@ void EebusHarvest(const char *json, int src_ent) {
           int i = EebusMoFind(src_ent, (uint8_t)id, true);
           if (i >= 0) {
             strlcpy(ESp->mo_scope[i], s, sizeof(ESp->mo_scope[i]));
-   // Einheit mitnehmen, solange sie zu DIESER Kennung gehoert (bis zur naechsten measurementId).
-            const char *up = strstr(q, "\"unit\":\"");
-            if (up && (!nx || (up < nx))) { EebusJsonStr(up, "unit", ESp->mo_unit[i], sizeof(ESp->mo_unit[i])); }
+            strlcpy(ESp->mo_unit[i], un, sizeof(ESp->mo_unit[i]));
           }
         }
       }
-      q += 16;
+      q += 15;
+    }
+  }
+
+   // --- v243 (MGCP Tab. 18/19, [MGCP-051], [MGCP-061]): Phase und Bezugspunkt je Messwert -------
+  if ((nullptr != strstr(json, "\"electricalConnectionParameterDescriptionData\"")) &&
+      ((ESp->meas_ent < 0) || (src_ent == ESp->meas_ent))) {
+    q = json;
+    while (nullptr != (q = strstr(q, "\"parameterId\""))) {
+      nx = strstr(q + 13, "\"parameterId\"");
+      long id = -1;
+      const char *mp = EebusSegKey(q, nx, "\"measurementId\"");
+      if (mp) { EebusJsonLong(mp, "measurementId", &id); }
+      char ph[6], ref[10];
+      EebusSegStr(q, nx, "acMeasuredPhases", ph, sizeof(ph));
+      EebusSegStr(q, nx, "acMeasuredInReferenceTo", ref, sizeof(ref));
+      int8_t p = -1;
+      if ((1 == strlen(ph)) && (ph[0] >= 'a') && (ph[0] <= 'c')) {
+        const int8_t i = ph[0] - 'a';
+        if (!ref[0] || !strcmp(ref, "neutral")) { p = i; }   // Strom je Phase bzw. Spannung gegen N
+        else if (((0 == i) && !strcmp(ref, "b")) || ((1 == i) && !strcmp(ref, "c")) || ((2 == i) && !strcmp(ref, "a"))) { p = 3 + i; }
+      }
+      if ((id >= 0) && (id < 24) && (p >= 0)) { ESp->m_phase[id] = p; ESp->m_ph_desc |= (1UL << id); }
+      q += 13;
+    }
+  }
+   // --- v243 (MGCP Tab. 15-19): positiveEnergyDirection des Netzanschlusspunkts ---------------
+  if ((nullptr != strstr(json, "\"electricalConnectionDescriptionData\"")) &&
+      ((ESp->meas_ent < 0) || (src_ent == ESp->meas_ent))) {
+    char ped[12];
+    EebusSegStr(json, nullptr, "positiveEnergyDirection", ped, sizeof(ped));
+    if (ped[0]) {
+      const bool prod = (0 == strcmp(ped, "produce"));
+      if (prod != ESp->meas_prod_dir) {
+        AddLog(LOG_LEVEL_INFO, PSTR("EBG: %s meldet positiveEnergyDirection '%s'%s"), ESp->peer_ip, ped,
+               prod ? " (Norm: consume) - Vorzeichen von Leistung und Strom wird umgekehrt" : "");
+      }
+      ESp->meas_prod_dir = prod;
     }
   }
 
    // --- Messwerte: je Kennung den letzten Wert behalten ---------------------------------------
+   // v243 (MGCP Z. 424-426, 859-874, [MGCP-003]): valueState "error"/"outOfRange" -> ignorieren; ohne value -> nicht
+   // vorhanden; scale nur aus DIESEM Eintrag (fehlt er, gilt 0).
   if (nullptr != strstr(json, "\"measurementData\"")) {
    // Solange der Netzanschlusspunkt nicht erkannt ist, verhaelt sich alles wie bisher (sonst waere
    // die Anzeige vor der ersten Beschreibung leer). Ist er erkannt, gilt er ausschliesslich.
     bool ist_netz = (ESp->meas_ent < 0) || (src_ent == ESp->meas_ent);
     q = json;
-    while (nullptr != (q = strstr(q, "\"measurementId\":"))) {
+    while (nullptr != (q = strstr(q, "\"measurementId\""))) {
       uint32_t id = 0;
       EebusJsonInt(q, "measurementId", &id);
-      nx = strstr(q + 16, "\"measurementId\":");
-      const char *vp = strstr(q, "\"value\":[{\"number\":");
-      if (vp && (!nx || (vp < nx)) && (id < 24)) {
+      nx = strstr(q + 15, "\"measurementId\"");
+      if (id < 24) {
+        char vs[16];
+        EebusSegStr(q, nx, "valueState", vs, sizeof(vs));
+        const char *vk = EebusSegKey(q, nx, "\"value\"");
+        bool gueltig = (nullptr != vk) && (!vs[0] || (0 == strcmp(vs, "normal")));
         long num = 0, sca = 0;
-        EebusJsonLong(vp, "number", &num);
-        EebusJsonLong(vp, "scale",  &sca);
+        if (gueltig) {
+          const char *ve = strchr(vk, ']');
+          if (nx && ve && (ve > nx)) { ve = nx; }
+          const char *np = EebusSegKey(vk, ve, "\"number\"");
+          if (np && EebusJsonLong(np, "number", &num)) {
+            const char *sp = EebusSegKey(vk, ve, "\"scale\"");
+            if (sp) { EebusJsonLong(sp, "scale", &sca); }
+          } else {
+            gueltig = false;
+          }
+        }
         if (ist_netz) {
           if (ESp->m_scope[id]) {
             int8_t c = ESp->m_scope[id];
+            if (gueltig && ESp->meas_prod_dir && ((1 == c) || (4 == c))) { num = -num; }   // v243: Bezug positiv
             ESp->m_val[c]  = num;
             ESp->m_sc[c]   = (int8_t)sca;
-            ESp->m_have[c] = true;
+            ESp->m_have[c] = gueltig;
             int8_t ph = ESp->m_phase[id];
             if (((4 == c) || (5 == c)) && (ph >= 0) && (ph < 3)) {   // v197: L1-L3
-              ESp->m3_val[c - 4][ph] = num; ESp->m3_sc[c - 4][ph] = (int8_t)sca; ESp->m3_have[c - 4][ph] = true;
+              ESp->m3_val[c - 4][ph] = num; ESp->m3_sc[c - 4][ph] = (int8_t)sca; ESp->m3_have[c - 4][ph] = gueltig;
+            } else if ((5 == c) && (ph >= 3) && (ph < 6)) {   // v243: Leiter-Leiter
+              ESp->mll_val[ph - 3] = num; ESp->mll_sc[ph - 3] = (int8_t)sca; ESp->mll_have[ph - 3] = gueltig;
             }
           }
         } else {
           int i = EebusMoFind(src_ent, (uint8_t)id, true);
-          if (i >= 0) { ESp->mo_v[i] = num; ESp->mo_sc[i] = (int8_t)sca; ESp->mo_have[i] = true; }
+          if (i >= 0) { ESp->mo_v[i] = num; ESp->mo_sc[i] = (int8_t)sca; ESp->mo_have[i] = gueltig; }
         }
       }
-      q += 16;
+      q += 15;
     }
   }
 
@@ -4750,12 +5592,23 @@ void EebusHarvest(const char *json, int src_ent) {
       char ct[40] = { 0 };
       EebusJsonStr(q, "characteristicType", ct, sizeof(ct));
       nx = strstr(q + 22, "\"characteristicType\":\"");
-      const char *vp = strstr(q, "\"value\":[{\"number\":");
-      if (vp && (!nx || (vp < nx))) {
+      const char *vp = EebusSegKey(q, nx, "\"value\"");   // v243: Leerraum erlaubt, scale nur aus diesem Wert
+      const char *ve = vp ? strchr(vp, ']') : nullptr;
+      const char *np = vp ? EebusSegKey(vp, ve, "\"number\"") : nullptr;
+      if (np) {
         long num = 0, sca = 0;
-        EebusJsonLong(vp, "number", &num);
-        EebusJsonLong(vp, "scale",  &sca);
-        if (0 == strcmp(ct, "powerProductionNominalMax")) {
+        EebusJsonLong(np, "number", &num);
+        const char *sp = EebusSegKey(vp, ve, "\"scale\"");
+        if (sp) { EebusJsonLong(sp, "scale", &sca); }
+        char cx[16];   // v243 (LPP Tab. 18/19): nur characteristicContext "entity"
+        EebusSegStr(q, nx, "characteristicContext", cx, sizeof(cx));
+        if (cx[0] && strcmp(cx, "entity")) {
+          // andere Bezugsebene - nicht die Kenngroesse dieser Einheit
+        } else if ((0 == strcmp(ct, "powerProductionNominalMax")) &&
+                   ESp->pnom_prod_ok && (ESp->pnom_prod_ent == ESp->lpc_peer_ent) && (src_ent != ESp->lpc_peer_ent)) {
+          // v243: die Nennleistung der gesteuerten Entity hat Vorrang vor der einer anderen Einheit
+        } else if (0 == strcmp(ct, "powerProductionNominalMax")) {
+          if (!ESp->pnom_prod_ok || (ESp->pnom_prod != num) || (ESp->pnom_prod_sc != sca)) { ESp->lpc_fs_done = false; }   // v243 [LPP-021]
           ESp->pnom_prod = num; ESp->pnom_prod_sc = (int8_t)sca; ESp->pnom_prod_ok = true;
           ESp->pnom_prod_ent = src_ent;   // festhalten, WOHER sie kam
           AddLog(LOG_LEVEL_INFO, PSTR("EBG: Nennleistung Erzeugung von Entity %d: %ld (x10^%ld)"),
@@ -4784,8 +5637,8 @@ void EebusHarvest(const char *json, int src_ent) {
    // beide keyId 0. Ohne die Entity-Zuordnung landete der Prozentwert im Failsafe-Feld.
   if (nullptr != strstr(json, "\"deviceConfigurationKeyValueDescriptionData\"")) {
     int b = -1;
-    for (int i = 0; i < 2; i++) { if (ESp->cfg_ent[i] == src_ent) { b = i; break; } }
-    if (b < 0) { for (int i = 0; i < 2; i++) { if (ESp->cfg_ent[i] < 0) { ESp->cfg_ent[i] = src_ent; b = i; break; } } }
+    for (int i = 0; i < 4; i++) { if (ESp->cfg_ent[i] == src_ent) { b = i; break; } }
+    if (b < 0) { for (int i = 0; i < 4; i++) { if (ESp->cfg_ent[i] < 0) { ESp->cfg_ent[i] = src_ent; b = i; break; } } }
     if (b >= 0) {
       q = json;
       while (nullptr != (q = strstr(q, "\"keyId\":"))) {
@@ -4793,7 +5646,7 @@ void EebusHarvest(const char *json, int src_ent) {
         EebusJsonInt(q, "keyId", &kid);
         nx = strstr(q + 8, "\"keyId\":");
         const char *kn = strstr(q, "\"keyName\":\"");
-        if (kn && (!nx || (kn < nx)) && (kid < 6)) {
+        if (kn && (!nx || (kn < nx)) && (kid < 8)) {
           char s[40] = { 0 };
           EebusJsonStr(kn, "keyName", s, sizeof(s));
           int8_t code = 0;
@@ -4801,6 +5654,16 @@ void EebusHarvest(const char *json, int src_ent) {
           else if (0 == strcmp(s, "failsafeDurationMinimum"))             { code = 2; }
           else if (0 == strcmp(s, "failsafeProductionActivePowerLimit"))  { code = 3; }
           else if (0 == strcmp(s, "pvCurtailmentLimitFactor"))            { code = 4; }
+          if (4 == code) {   // v243 (MGCP Tab. 14): Einheit pct, Wert als scaledNumber
+            char vt[16], un[8];
+            EebusSegStr(q, nx, "valueType", vt, sizeof(vt));
+            EebusSegStr(q, nx, "unit", un, sizeof(un));
+            if (strcmp(vt, "scaledNumber") || strcmp(un, "pct")) {
+              AddLog(LOG_LEVEL_INFO, PSTR("EBG: pvCurtailmentLimitFactor von %s mit valueType '%s' / unit '%s' (MGCP Tab. 14: scaledNumber/pct) - ignoriert"),
+                     ESp->peer_ip, vt, un);
+              code = 0;
+            }
+          }
           ESp->cfg_code[b][kid] = code;
         }
         q += 8;
@@ -4811,26 +5674,38 @@ void EebusHarvest(const char *json, int src_ent) {
    // --- DeviceConfig: Werte einsortieren ------------------------------------------------------
   if (nullptr != strstr(json, "\"deviceConfigurationKeyValueData\"")) {
     int b = -1;
-    for (int i = 0; i < 2; i++) { if (ESp->cfg_ent[i] == src_ent) { b = i; break; } }
+    for (int i = 0; i < 4; i++) { if (ESp->cfg_ent[i] == src_ent) { b = i; break; } }
     if (b >= 0) {
       q = json;
       while (nullptr != (q = strstr(q, "\"keyId\":"))) {
         uint32_t kid = 0;
         EebusJsonInt(q, "keyId", &kid);
         nx = strstr(q + 8, "\"keyId\":");
-        if (kid < 6) {
+        if (kid < 8) {
           int8_t code = ESp->cfg_code[b][kid];
-          const char *vp = strstr(q, "\"scaledNumber\":[{\"number\":");
-          const char *dp = strstr(q, "\"duration\":\"");
-          if ((2 == code) && dp && (!nx || (dp < nx))) {
+          if ((code >= 1) && (code <= 3)) {   // v243 (LPP/LPC Tab. 15/16): isValueChangeable merken
+            if (EebusSegFalse(q, nx, "isValueChangeable")) { ESp->fs_ro |= (uint8_t)(1 << code); }
+            else { ESp->fs_ro &= (uint8_t)~(1 << code); }
+          }
+          const char *vp = EebusSegKey(q, nx, "\"scaledNumber\"");   // v243: Leerraum erlaubt, scale nur aus diesem Wert
+          const char *ve = vp ? strchr(vp, ']') : nullptr;
+          const char *np = vp ? EebusSegKey(vp, ve, "\"number\"") : nullptr;
+          const char *dp = EebusSegKey(q, nx, "\"duration\"");
+          if ((2 == code) && dp) {
             EebusJsonStr(dp, "duration", ESp->fs_dur, sizeof(ESp->fs_dur));
-          } else if (vp && (!nx || (vp < nx))) {
+          } else if (np) {
             long num = 0, sca = 0;
-            EebusJsonLong(vp, "number", &num);
-            EebusJsonLong(vp, "scale",  &sca);
+            EebusJsonLong(np, "number", &num);
+            const char *sp = EebusSegKey(vp, ve, "\"scale\"");
+            if (sp) { EebusJsonLong(sp, "scale", &sca); }
             if      (1 == code) { ESp->fs_cons = num; ESp->fs_cons_sc = (int8_t)sca; ESp->fs_cons_ok = true; }
             else if (3 == code) { ESp->fs_prod = num; ESp->fs_prod_sc = (int8_t)sca; ESp->fs_prod_ok = true; }
-            else if (4 == code) { ESp->plf     = num; ESp->plf_sc     = (int8_t)sca; ESp->plf_ok     = true; }
+            else if (4 == code) {   // v243 (MGCP Tab. 14): 0-100 %
+              double f = (double)num;
+              for (long k = sca; k > 0; k--) { f *= 10.0; }
+              for (long k = sca; k < 0; k++) { f /= 10.0; }
+              ESp->plf = num; ESp->plf_sc = (int8_t)sca; ESp->plf_ok = (f >= 0.0) && (f <= 100.0);
+            }
           }
         }
         q += 8;
@@ -4862,7 +5737,37 @@ void EebusHarvest(const char *json, int src_ent) {
       if (d >= 0) {
         const char *ap = strstr(q, "\"isLimitActive\":");
         if (ap && (!nx || (ap < nx))) {
+          const int8_t vorher = ESp->lim_act[d];   // v236
           ESp->lim_act[d] = (0 == strncmp(ap + 16, "true", 4)) ? 1 : 0;
+   // v236 (22.11.2026, Test 4 HEMS v031): ABBRUCH DURCH DIE ANLAGE erkennen. [LPC-923]: im Zustand "limited" darf die
+   // Anlage die Grenze selbst aufheben (beim CEM u. a. wenn nicht steuerbare Lasten das Einhalten verhindern); sie meldet
+   // das per notify (LPC IG 2.4 Z. 243-257). isLimitActive ist "\RW" -> empfangene Notifys MUESSEN ausgewertet werden
+   // (LPC TS 3.1.3.5 Z. 895-897). Bis v235 wurde die Notify nur mitgelesen: die Box zeigte weiter "BESTAETIGT aktiv",
+   // im Betriebslogbuch stand eine Zusage, die nicht mehr galt (Nachweis BK6-22-300 Anl. 1 Ziff. 7.2-7.4).
+   // Bedingungen: notify, Wechsel aktiv -> inaktiv, die Box fuehrt fuer diese Richtung eine eigene, noch gueltige Grenze
+   // (bei einer eigenen Freigabe ist der Merker schon geloescht - kein Fehlalarm) und die Schreibkette ruht.
+   // Reaktion: Logbuch + Ergebnis, dann die vorhandene Wiederholung (wie nach einer Ablehnung, v214): nach
+   // EEBUS_ABGELEHNT_WDH_MS die eigene Grenze mit Restdauer erneut, abgelaufen -> Freigabe (LPC IG 2.5 Z. 264-286:
+   // Anlage nicht aus der Liste nehmen, Befehl nach angemessener Zeit wiederholen).
+          uint32_t own_w_ab = 0; long own_rest_ab = 0;
+          if ((1 == vorher) && (0 == ESp->lim_act[d]) &&
+              ((nullptr != strstr(json, "\"cmdClassifier\":\"notify\"")) ||
+               (nullptr != strstr(json, "\"cmdClassifier\":\"reply\""))) &&   // v239: auch eine Antwort (z. B. Nachlesen)
+              ((LPC_DONE == ESp->lpc_state) || (LPC_IDLE == ESp->lpc_state) || (LPC_FAIL == ESp->lpc_state)) &&
+              ESp->best_akt[d] &&   // v237: nur eine BESTAETIGTE Grenze kann abgebrochen werden (nicht das Hin und Her bei einem NACK)
+              EebusEigeneGrenze((uint8_t)d, &own_w_ab, &own_rest_ab)) {
+            ESp->best_akt[d] = false;
+            char wtxt[16]; snprintf(wtxt, sizeof(wtxt), "%u W", own_w_ab);
+            char etxt[80]; snprintf(etxt, sizeof(etxt), "Grenze von der Anlage aufgehoben - erneuter Versuch in %u s",
+                                    EebusWdhMs() / 1000);
+            EebusLbLog(d ? "Abbruch durch Anlage (LPP-923)" : "Abbruch durch Anlage (LPC-923)", ESp->peer_ski, ESp->peer_ip, d, wtxt, own_rest_ab, etxt);
+            strlcpy(ESp->lpc_result, d ? "ABBRUCH durch Anlage (LPP-923)" : "ABBRUCH durch Anlage (LPC-923)", sizeof(ESp->lpc_result));
+            strlcpy(ESp->lb_last, "", sizeof(ESp->lb_last));   // die naechste gleiche Vorgabe wieder ins Logbuch
+            AddLog(LOG_LEVEL_INFO, PSTR("EBG: *** %s hat die %s-Grenze %s selbst AUFGEHOBEN (%s-923) ***"),
+                   ESp->peer_ip, d ? "Einspeise" : "Bezugs", wtxt, d ? "LPP" : "LPC");
+            ESp->sess_vorgabe = true;   // sonst greift EebusVorgabeWiederholen nicht (die Vorgabe dieser Sitzung gilt nicht mehr)
+            EebusVorgabeWiederholen("von der Anlage abgebrochen");
+          }
    // VERSPAETETE BESTAETIGUNG. Der Read-Back pollt nur wenige Sekunden nach; antwortet
    // die Gegenstelle spaeter (oder meldet sie den Zustand von sich aus per notify), stand das
    // Ergebnis frueher fuer immer auf "Fehler" — obwohl die Begrenzung laengst wirkte. Genau
@@ -4937,6 +5842,118 @@ void EebusHarvest(const char *json, int src_ent) {
   }
 }
 
+// v246 (C2): steht der Schluessel mit dem Wert true im Text? Leerraum um den Doppelpunkt erlaubt.
+bool EebusJsonTrue(const char *json, const char *key) {
+  char k[40]; snprintf(k, sizeof(k), "\"%s\"", key);
+  const size_t kl = strlen(k);
+  const char *p = json;
+  while (nullptr != (p = strstr(p, k))) {
+    const char *q = p + kl;
+    while ((' ' == *q) || ('\t' == *q) || ('\r' == *q) || ('\n' == *q)) { q++; }
+    if (':' == *q) {
+      q++;
+      while ((' ' == *q) || ('\t' == *q) || ('\r' == *q) || ('\n' == *q)) { q++; }
+      return (0 == strncmp(q, "true", 4));
+    }
+    p = q;
+  }
+  return false;
+}
+// v246: Ende des Adress-Blocks hinter dem Schluessel (Klammern zaehlen), damit fehlende Teile nicht aus dem Rest
+// des Datagramms gelesen werden (EebusAddrParse sucht "feature" ungebremst weiter).
+const char *EebusAddrEnd(const char *frag) {
+  const char *p = strchr(frag + 1, '"');   // Ende des Schluessels
+  if (nullptr == p) { return frag; }
+  p++;
+  while ((' ' == *p) || ('\t' == *p) || ('\r' == *p) || ('\n' == *p) || (':' == *p)) { p++; }
+  if (('[' != *p) && ('{' != *p)) { return p; }
+  int d = 0; bool str = false;
+  for (; *p; p++) {
+    if (str) { if (('\\' == *p) && p[1]) { p++; } else if ('"' == *p) { str = false; } continue; }
+    if ('"' == *p) { str = true; }
+    else if (('[' == *p) || ('{' == *p)) { d++; }
+    else if ((']' == *p) || ('}' == *p)) { if (--d <= 0) { return p; } }
+  }
+  return p;
+}
+// v246: Adress-Block (clientAddress/serverAddress/addressDestination) begrenzt lesen; fehlende Teile = -1 bzw. "".
+void EebusAddrSeg(const char *frag, int *ent, int *feat, char *dev = nullptr, size_t devlen = 0) {
+  *ent = -1; *feat = -1;
+  if (dev && devlen) { dev[0] = '\0'; }
+  if (nullptr == frag) { return; }
+  const char *end = EebusAddrEnd(frag);
+  const char *p = EebusSegKey(frag, end, "\"entity\"");
+  if (p) { const char *b = strchr(p + 8, '['); if (b && (b < end)) { *ent = atoi(b + 1); } }
+  p = EebusSegKey(frag, end, "\"feature\"");
+  if (p) { uint32_t f = 0; if (EebusJsonInt(p, "feature", &f)) { *feat = (int)f; } }
+  if (dev && devlen) { p = EebusSegKey(frag, end, "\"device\""); if (p) { EebusJsonStr(p, "device", dev, devlen); } }
+}
+// v246 (SPINE TS SUBS_001/002, BIND_001): Abos und Bindings, die die Gegenstelle bei UNS angelegt hat (wir = Server).
+void EebusGbAdd(uint8_t typ, int ce, int cf, int se, int sf) {
+  for (uint8_t i = 0; i < ESp->gb_n; i++) {
+    if ((ESp->gb_typ[i] == typ) && (ESp->gb_ce[i] == ce) && (ESp->gb_cf[i] == cf) &&
+        (ESp->gb_se[i] == se) && (ESp->gb_sf[i] == sf)) { return; }
+  }
+  if (ESp->gb_n >= EEBUS_GB_MAX) {
+    AddLog(LOG_LEVEL_INFO, PSTR("EBG: %s: Liste der %s voll (%u) - Eintrag nicht gemerkt"),
+           ESp->peer_ip, typ ? "Bindings" : "Abos", (uint32_t)EEBUS_GB_MAX);
+    return;
+  }
+  const uint8_t i = ESp->gb_n++;
+  ESp->gb_typ[i] = typ; ESp->gb_ce[i] = ce; ESp->gb_cf[i] = cf; ESp->gb_se[i] = se; ESp->gb_sf[i] = sf;
+}
+// Loeschen: ein nicht angegebener Teil (-1) passt auf alles (SubscriptionDelete/BindingDelete ohne Feature = alle).
+uint8_t EebusGbDel(uint8_t typ, int ce, int cf, int se, int sf) {
+  uint8_t n = 0, j = 0;
+  for (uint8_t i = 0; i < ESp->gb_n; i++) {
+    const bool weg = (ESp->gb_typ[i] == typ) && ((ce < 0) || (ESp->gb_ce[i] == ce)) && ((cf < 0) || (ESp->gb_cf[i] == cf)) &&
+                     ((se < 0) || (ESp->gb_se[i] == se)) && ((sf < 0) || (ESp->gb_sf[i] == sf));
+    if (weg) { n++; continue; }
+    ESp->gb_typ[j] = ESp->gb_typ[i]; ESp->gb_ce[j] = ESp->gb_ce[i]; ESp->gb_cf[j] = ESp->gb_cf[i];
+    ESp->gb_se[j] = ESp->gb_se[i]; ESp->gb_sf[j] = ESp->gb_sf[i];
+    j++;
+  }
+  ESp->gb_n = j;
+  return n;
+}
+void EebusGbAdr(char *o, size_t n, const char *dev, int e, int f) {
+  size_t l = 0; o[0] = '\0';
+  if (dev && dev[0]) { l += snprintf(o + l, n - l, "{\"device\":\"%s\"}", dev); }
+  if ((e >= 0) && (l < n)) { l += snprintf(o + l, n - l, "%s{\"entity\":[%d]}", l ? "," : "", e); }
+  if ((f >= 0) && (l < n)) { snprintf(o + l, n - l, "%s{\"feature\":%d}", l ? "," : "", f); }
+}
+// Liste ausliefern: nodeManagementSubscriptionData (typ 0) bzw. nodeManagementBindingData (typ 1).
+void EebusGbAntwort(uint8_t typ, uint32_t ref, int peer_ent, int peer_feat) {
+  char own[80]; EebusOwnDevice(own, sizeof(own));
+  const size_t cap = 128 + (size_t)ESp->gb_n * (200 + strlen(own) + strlen(ESp->peer_dev));
+  char *cmd = (char*)special_malloc(cap);
+  if (nullptr == cmd) { return; }
+  const char *nm = typ ? "nodeManagementBindingData" : "nodeManagementSubscriptionData";
+  size_t l = snprintf(cmd, cap, "{\"%s\":[{\"%s\":[", nm, typ ? "bindingEntry" : "subscriptionEntry");
+  uint8_t k = 0;
+  char ca[160], sa[160];
+  for (uint8_t i = 0; (i < ESp->gb_n) && (l < cap); i++) {
+    if (ESp->gb_typ[i] != typ) { continue; }
+    EebusGbAdr(ca, sizeof(ca), ESp->peer_dev, ESp->gb_ce[i], ESp->gb_cf[i]);
+    EebusGbAdr(sa, sizeof(sa), own, ESp->gb_se[i], ESp->gb_sf[i]);
+    l += snprintf(cmd + l, cap - l, "%s[{\"%s\":%u},{\"clientAddress\":[%s]},{\"serverAddress\":[%s]}]",
+                  k ? "," : "", typ ? "bindingId" : "subscriptionId", (uint32_t)k, ca, sa);
+    k++;
+  }
+  if (l < cap) { snprintf(cmd + l, cap - l, "]}]}"); }
+  EebusSpineSendAddr("reply", true, ref, cmd, 0, 0, peer_ent, peer_feat);
+  AddLog(LOG_LEVEL_INFO, PSTR("EBG: %s an %s beantwortet (%u Eintraege)"), nm, ESp->peer_ip, (uint32_t)k);
+  free(cmd);
+}
+// v246 (B2): Fehler 9 "Binding noetig" auf einen Write -> unser Binding gilt als weg, der naechste Write bindet neu.
+void EebusErr9Pruefen(const char *json) {
+  uint32_t e = 0;
+  if (EebusJsonInt(json, "errorNumber", &e) && (9 == e) && ESp->lpc_bound) {
+    ESp->lpc_bound = false;
+    AddLog(LOG_LEVEL_INFO, PSTR("EBG: %s meldet Fehler 9 (Binding noetig) - Binding wird beim naechsten Write neu angelegt"), ESp->peer_ip);
+  }
+}
+
 void EebusSpineHandle(const char *json) {
   ESp->last_rx = millis();
    // Peer-Geraeteadresse aus addressSource merken (fuer unsere addressDestination)
@@ -4953,12 +5970,17 @@ void EebusSpineHandle(const char *json) {
   EebusJsonStr(json, "cmdClassifier", cls, sizeof(cls));
   uint32_t their_ctr = 0;
   EebusJsonInt(json, "msgCounter", &their_ctr);
-  bool ack = (nullptr != strstr(json, "\"ackRequest\":true"));
+  bool ack = EebusJsonTrue(json, "ackRequest");   // v246 (C2): auch mit Leerraum
+  if (0 == strcmp(cls, "result")) { EebusAboErgebnis(json); }   // v241
 
    // Adressen des Datagramms: von welchem Peer-Feature kam es, welches UNSERER Features ist gemeint?
   int peer_ent = 0, peer_feat = 0, our_ent = 0, our_feat = 0;
   EebusAddrParse(strstr(json, "\"addressSource\""), &peer_ent, &peer_feat);
   EebusAddrParse(strstr(json, "\"addressDestination\""), &our_ent, &our_feat);
+   // v246 (SPINE TS FC_001): NodeManagement-Befehle nur an Entity 0 / Feature 0 (fehlende Angabe = 0)
+  int fc_e = -1, fc_f = -1;
+  EebusAddrSeg(strstr(json, "\"addressDestination\""), &fc_e, &fc_f);
+  const bool nm_ziel = (fc_e <= 0) && (fc_f <= 0);
 
    // Nutzdaten mitlesen und behalten (Messwerte, Failsafe-Werte, Limit-Zustaende) — unabhaengig
    // von der Schreibkette, damit die Bedienoberflaeche etwas anzuzeigen hat. Bisher lief das alles
@@ -4966,7 +5988,11 @@ void EebusSpineHandle(const char *json) {
   EebusHarvest(json, peer_ent);
 
   if (0 == strcmp(cls, "read")) {
-    if (strstr(json, "nodeManagementDetailedDiscoveryData")) {
+    if (!nm_ziel && strstr(json, "\"nodeManagement")) {   // v246 (TS FC_001)
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: %s liest NodeManagement an ent%d/feat%d statt 0/0 - abgelehnt (Fehler 6, SPINE TS FC_001)"),
+             ESp->peer_ip, fc_e, fc_f);
+      EebusSpineSendAddr("result", true, their_ctr, "{\"resultData\":[{\"errorNumber\":6}]}", our_ent, our_feat, peer_ent, peer_feat);
+    } else if (strstr(json, "nodeManagementDetailedDiscoveryData")) {
       EebusSpineAnswerDiscovery(their_ctr, 0);
       ESp->disco_answered = true;
       EebusSpineReadPeerDiscovery();   // Gegenseitigkeit: gleich SEINE Discovery abfragen
@@ -4974,11 +6000,16 @@ void EebusSpineHandle(const char *json) {
       EebusSpineAnswerDestinationList(their_ctr);   // echte Selbstbeschreibung (nicht resultData) -> strenge Peers (Energiemanager/Waermepumpen-Gateway) onboarden weiter statt abzubrechen
     } else if (strstr(json, "nodeManagementUseCaseData")) {
       EebusSpineAnswerUseCase(their_ctr);   // wir bieten LPC (ControllableSystem) an
+    } else if (strstr(json, "nodeManagementBindingData")) {   // v246 (TS BIND_001)
+      EebusGbAntwort(1, their_ctr, peer_ent, peer_feat);
+    } else if (strstr(json, "nodeManagementSubscriptionData")) {   // v246 (TS SUBS_001/002)
+      EebusGbAntwort(0, their_ctr, peer_ent, peer_feat);
     } else if (EebusSpineAnswerFeatureRead(json, their_ctr, our_ent, our_feat, peer_ent, peer_feat)) {
    // deviceDiagnosisState/Heartbeat, deviceClassification, loadControlLimit* beantwortet
-    } else if (ack) {
-   // unbekanntes read mit Ack-Wunsch -> leere Antwort, damit der Peer nicht haengt
-      EebusSpineSend("reply", true, their_ctr, "{\"resultData\":[{\"errorNumber\":0}]}");
+    } else {
+   // v239 (SPINE TS Z. 1088-1093): unbekanntes read -> IMMER result mit errorNumber != 0 an das Absender-Feature,
+   // unabhaengig von ackRequest (bisher nur bei ackRequest und mit errorNumber 0). 6 = Befehl nicht unterstuetzt.
+      EebusSpineSendAddr("result", true, their_ctr, "{\"resultData\":[{\"errorNumber\":6}]}", our_ent, our_feat, peer_ent, peer_feat);
     }
   } else if (0 == strcmp(cls, "write")) {
    // Ein Steuergeraet schreibt uns ein LPC-Limit -> DAS ist das §14a-Pruefergebnis: mitschneiden!
@@ -4991,15 +6022,75 @@ void EebusSpineHandle(const char *json) {
              ESp->peer_ip, have ? itoa((int)number, nbuf, 10) : "?", active[0] ? active : "?");
     }
    // Quittung an das ABSENDER-Feature des Peers (nicht pauschal an sein NodeManagement) — s.u.
-    if (ack) { EebusSpineSendAddr("result", true, their_ctr, "{\"resultData\":[{\"errorNumber\":0}]}", 0, 0, peer_ent, peer_feat); }
+   // v246 (B5): Absender = das beschriebene Feature (bisher fest 0/0)
+    if (ack) { EebusSpineSendAddr("result", true, their_ctr, "{\"resultData\":[{\"errorNumber\":0}]}", our_ent, our_feat, peer_ent, peer_feat); }
   } else if (0 == strcmp(cls, "call")) {
+   // v246 (SPINE TS FC_001, BIND_001, SUBS_001/002): Call genau pruefen. Ablehnungen gehen IMMER raus (wie v239 bei read).
+    const bool c_sreq = (nullptr != strstr(json, "SubscriptionRequestCall"));
+    const bool c_sdel = (nullptr != strstr(json, "SubscriptionDeleteCall"));
+    const bool c_breq = (nullptr != strstr(json, "BindingRequestCall"));
+    const bool c_bdel = (nullptr != strstr(json, "BindingDeleteCall"));
+    int ce = -1, cf = -1, se = -1, sf = -1;
+    char cdev[96], sdev[96], ftype[32] = { 0 };
+    EebusAddrSeg(strstr(json, "\"clientAddress\""), &ce, &cf, cdev, sizeof(cdev));
+    EebusAddrSeg(strstr(json, "\"serverAddress\""), &se, &sf, sdev, sizeof(sdev));
+    EebusJsonStr(json, "serverFeatureType", ftype, sizeof(ftype));   // C2: Leerraum erlaubt
+    uint32_t fehler = 0;
+    const char *grund = "";
+    if (!(c_sreq || c_sdel || c_breq || c_bdel)) { fehler = 6; grund = "unbekannter Call"; }
+    else if (!nm_ziel) { fehler = 6; grund = "Ziel ist nicht NodeManagement 0/0 (SPINE TS FC_001)"; }
+    else if (c_breq && ((((se <= 0) && (sf <= 0))) || (0 == strcmp(ftype, "NodeManagement")))) {
+      fehler = 7; grund = "Binding auf NodeManagement nicht erlaubt (SPINE TS BIND_001)";
+    }
+    if (fehler) {
+      char r[48]; snprintf(r, sizeof(r), "{\"resultData\":[{\"errorNumber\":%u}]}", fehler);
+      EebusSpineSendAddr("result", true, their_ctr, r, our_ent, our_feat, peer_ent, peer_feat);
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: Call von %s abgelehnt (Fehler %u): %s"), ESp->peer_ip, fehler, grund);
+    }
+    const int hbf = (1 == eebus_role) ? 5 : 2;    // unser DeviceDiagnosis-Server (Entity 1) = Herzschlag-Quelle
+    const int lcf = (1 == eebus_role) ? -2 : 6;   // unser LoadControl-Server (Entity 1); Rolle 1 hat keinen
+   // v239 (LPC TS Z. 1475-1477) + v246 (B1): Abo geloescht -> Liste bereinigen, betroffene Merker zuruecksetzen.
+   // Fehlt Entity/Feature im Loeschauftrag, gilt er fuer alle passenden Abos.
+    if (!fehler && c_sdel) {
+      const uint8_t n = EebusGbDel(0, ce, cf, se, sf);
+   // Merker nur zuruecksetzen, wenn der Loeschauftrag sie trifft (nicht aus der Liste ableiten: ein Abo ohne
+   // Adressangabe steht dort als 0/0 und wuerde sonst bei jedem fremden Loeschen den Herzschlag abschalten).
+      const bool tr_hb = ((se < 0) || (1 == se)) && ((sf < 0) || (hbf == sf));
+      const bool tr_lc = ((se < 0) || (1 == se)) && ((sf < 0) || (lcf == sf));
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: %s loescht Abo (Server ent%d/feat%d, -1 = alle): %u Eintrag/Eintraege entfernt"),
+             ESp->peer_ip, se, sf, (uint32_t)n);
+      if (tr_hb && ESp->hb_sub) { ESp->hb_sub = false; AddLog(LOG_LEVEL_INFO, PSTR("EBG: %s hat das Abo auf unseren Herzschlag geloescht"), ESp->peer_ip); }
+      if (tr_lc && ESp->lc_sub) { ESp->lc_sub = false; AddLog(LOG_LEVEL_INFO, PSTR("EBG: %s hat das Abo auf unser LoadControl geloescht"), ESp->peer_ip); }
+      if ((se <= 0) && (sf <= 0)) { ESp->peer_subscribed = false; }
+    }
+   // v246 (B2): Binding geloescht. Betrifft es UNSER Binding auf die LoadControl der Anlage, beim naechsten Write neu binden.
+    if (!fehler && c_bdel) {
+      char own[80]; EebusOwnDevice(own, sizeof(own));
+      const bool unser = sdev[0] ? (0 == strcmp(sdev, ESp->peer_dev)) : (cdev[0] && (0 == strcmp(cdev, own)));
+      if (unser) {
+        if (ESp->lpc_bound && ((sf < 0) || ((se == ESp->lpc_peer_ent) && (sf == ESp->lpc_peer_feat)))) {
+          ESp->lpc_bound = false;
+          AddLog(LOG_LEVEL_INFO, PSTR("EBG: %s hat unser LoadControl-Binding geloescht - beim naechsten Write neu binden"), ESp->peer_ip);
+          EebusLbLog("Binding geloescht", ESp->peer_ski, ESp->peer_ip, -1, "", 0, "Anlage hat das LoadControl-Binding geloescht - naechster Write bindet neu");
+        }
+      } else {
+        const uint8_t n = EebusGbDel(1, ce, cf, se, sf);
+        AddLog(LOG_LEVEL_INFO, PSTR("EBG: %s loescht Binding bei uns (Server ent%d/feat%d): %u entfernt"), ESp->peer_ip, se, sf, (uint32_t)n);
+      }
+    }
+    if (!fehler && c_breq) { EebusGbAdd(1, ce, cf, se, sf); }   // v246: Binding auf ein Feature von uns merken
    // z.B. nodeManagementSubscriptionRequestCall: der Peer abonniert uns -> quittieren + merken
     bool nm_sub = false;   // frisches Abo auf UNSER NodeManagement?
-    if (strstr(json, "SubscriptionRequestCall")) {
-      nm_sub = !ESp->peer_subscribed && (nullptr != strstr(json, "\"serverFeatureType\":\"NodeManagement\""));
+    if (!fehler && c_sreq) {
+   // v246 (B3): Ziel-Feature auch aus serverAddress - serverFeatureType ist nur empfohlen
+      const bool z_nm = (0 == strcmp(ftype, "NodeManagement")) || (!ftype[0] && (se <= 0) && (sf <= 0));
+      const bool z_dd = (0 == strcmp(ftype, "DeviceDiagnosis")) || ((1 == se) && (hbf == sf));
+      const bool z_lc = (0 == strcmp(ftype, "LoadControl")) || ((1 == se) && (lcf == sf));
+      EebusGbAdd(0, ce, cf, (se < 0) ? 0 : se, (sf < 0) ? 0 : sf);
+      nm_sub = !ESp->peer_subscribed && z_nm;
       ESp->peer_subscribed = true;
    // Abo auf UNSER DeviceDiagnosis (ent1/feat2)? -> Heartbeat-NOTIFY an den Abonnenten (HEMS 4 s, SteuVE 20 s)
-      if (strstr(json, "\"serverFeatureType\":\"DeviceDiagnosis\"")) {
+      if (z_dd) {   // v246 (B3/C2)
         ESp->hb_cli_ent = 0; ESp->hb_cli_feat = 0;
         EebusAddrParse(strstr(json, "\"clientAddress\""), &ESp->hb_cli_ent, &ESp->hb_cli_feat);
         ESp->hb_sub = true;
@@ -5010,7 +6101,7 @@ void EebusSpineHandle(const char *json) {
       }
    // Abo auf UNSER LoadControl (ent1/feat6)? -> HEMS liest hier unser §14a-Limit.
    // Absenderadresse merken; sofort den aktuellen Limit-Zustand als NOTIFY nachschieben.
-      if (strstr(json, "\"serverFeatureType\":\"LoadControl\"")) {
+      if (z_lc) {   // v246 (B3/C2)
         ESp->lc_cli_ent = 0; ESp->lc_cli_feat = 0;
         EebusAddrParse(strstr(json, "\"clientAddress\""), &ESp->lc_cli_ent, &ESp->lc_cli_feat);
         ESp->lc_sub = true;
@@ -5030,7 +6121,7 @@ void EebusSpineHandle(const char *json) {
    // nimmt ein normkonformes ControllableSystem kein Limit an.
    // Unsere replies waren schon korrekt adressiert (EebusSpineAnswerFeatureRead bekommt peer_ent/feat) —
    // nur die result-Quittung auf Calls war fest verdrahtet.
-    if (ack) { EebusSpineSendAddr("result", true, their_ctr, "{\"resultData\":[{\"errorNumber\":0}]}", 0, 0, peer_ent, peer_feat); }
+    if (!fehler && ack) { EebusSpineSendAddr("result", true, their_ctr, "{\"resultData\":[{\"errorNumber\":0}]}", our_ent, our_feat, peer_ent, peer_feat); }   // v246: Ablehnung schon oben
     if (nm_sub && !eebus_hems_mode) {
    // wie Referenz-Umsetzung dem frischen NodeManagement-Abonnenten unsere Entity-Liste aktiv
    // als NOTIFY liefern — alte, abo-orientierte Stacks (Waermepumpen-Hersteller) warten evtl. genau darauf.
@@ -5063,6 +6154,7 @@ void EebusSpineHandle(const char *json) {
       if (ESp->lpc_disco) { free(ESp->lpc_disco); ESp->lpc_disco = nullptr; }
       { size_t dl = strlen(json); char *dc = (char*)special_malloc(dl + 1);
         if (dc) { memcpy(dc, json, dl + 1); ESp->lpc_disco = dc; } }
+      EebusLernMrd(ESp->lpc_disco);   // v241
       EebusModeApply(ESp->peer_ski);   // v209: Betriebsart jetzt auch aus der Discovery (ohne Fundliste)
       EebusSpineSend("read", false, 0, "{\"nodeManagementUseCaseData\":[]}");   // [] statt {} (EEBUS-Array-Form, Energiemanager-strikt), konsistent mit Discovery-Read
    // LoadControl-Ziel bekannt -> im HEMS-Modus SOFORT onboarden (Bind/ReadDesc/ReadData/
@@ -5084,6 +6176,7 @@ void EebusSpineHandle(const char *json) {
       char *uc = (char*)special_malloc(ul + 1);
       if (uc) {
         memcpy(uc, json, ul + 1); ESp->lpc_uc = uc;
+        EebusUcAuswerten(uc);   // v243
         AddLog(LOG_LEVEL_INFO, PSTR("EBG: Use-Case-Auskunft des Peers gemerkt (%u B)"), (unsigned)ul);
       }
     }
@@ -5101,8 +6194,10 @@ void EebusSpineHandle(const char *json) {
         EebusLpcSetResult(LPC_READDESC, t);
         EebusLpcReadData();   // erst Ist-LimitData lesen, DANN schreiben
       } else {
-        EebusLpcSetResult(LPC_FAIL, (1 == ESp->lpc_dir) ? "keine produce-Grenze (EEG9) in Beschreibung"
-                                                        : "keine limitId in Beschreibung");
+        EebusLpcSetResult(LPC_FAIL, (1 == ESp->lpc_dir) ? "keine gueltige produce-Grenze in Beschreibung (LPP TS / LPC IG 3.4)"
+                                                        : "keine gueltige consume-Grenze in Beschreibung (LPC TS Tab. 22 / IG 3.4)");
+        EebusLbLog("Grenzenbeschreibung ungueltig", ESp->peer_ski, ESp->peer_ip, (1 == ESp->lpc_dir) ? 1 : 0, "", 0,
+                   "keine Grenze nach LPC TS Tab. 22 / IG 3.4 - nicht geschrieben");
       }
     }
    // Antwort auf den Ist-LimitData-Read (VOR dem Write). isLimitChangeable pruefen wie Referenz-Umsetzung:
@@ -5111,13 +6206,19 @@ void EebusSpineHandle(const char *json) {
     else if ((LPC_READDATA == ESp->lpc_state) && strstr(json, "loadControlLimitListData")) {
    // Der Energiemanager hat jetzt unsere LimitData-Anfrage gesehen (= volle Referenz-Umsetzung-Sequenz). isLimitChangeable
    // NUR zur Diagnose; NICHT hart abbrechen (sonst Regressions-Risiko am funktionierenden Waermepumpen-Gateway-Pfad).
-      bool ro = (nullptr != strstr(json, "\"isLimitChangeable\":false"));
-      if (eebus_hems_mode && (0 == ESp->lpc_sel_step)) {
+      bool ro = EebusLimitBlockHas(json, ESp->lpc_limit_id, "\"isLimitChangeable\":false");   // v241: nur UNSERE Grenze
+      if (ro) {   // v241 (LPC TS Tab. 23): isLimitChangeable false -> timePeriod/value/isLimitActive nicht beschreibbar
+        AddLog(LOG_LEVEL_INFO, PSTR("EBG: Grenze limitId %d @ %s laut Anlage nicht beschreibbar (isLimitChangeable false) - kein Write"),
+               ESp->lpc_limit_id, ESp->peer_ip);
+        EebusLbLog("Grenze nicht beschreibbar", ESp->peer_ski, ESp->peer_ip, (1 == ESp->lpc_dir) ? 1 : 0, "", 0,
+                   "isLimitChangeable false (LPC TS Tab. 23) - nicht geschrieben");
+        EebusLpcSetResult(LPC_FAIL, "Grenze laut Anlage nicht beschreibbar (isLimitChangeable false)");
+      } else if (eebus_hems_mode && (0 == ESp->lpc_sel_step)) {
    // limitId-0-Read beantwortet -> jetzt limitId 1 lesen (2 getrennte Selektor-Reads
    // wie die Vergleichs-Steuerbox), DANN erst weiter. Bleibt in LPC_READDATA (frische Deadline).
         ESp->lpc_sel_step = 1;
         EebusLpcReadLimitSel(1);
-        ESp->lpc_deadline = Eebus126At(EEBUS_LPC_PHASE_TIMEOUT_MS);
+        ESp->lpc_deadline = Eebus126At(EebusLpcFristMs());
         EebusLpcSetResult(LPC_READDATA, "LimitData limitId0 -> lese limitId1");
       } else {
    // v223: die Beschreibung kann hoehere Nummern nennen (HEMS: Bezug 1, Einspeisung 2). Auch diese lesen, sonst
@@ -5133,7 +6234,7 @@ void EebusSpineHandle(const char *json) {
         }
         if (extra >= 0) {
           EebusLpcReadLimitSel(extra);
-          ESp->lpc_deadline = Eebus126At(EEBUS_LPC_PHASE_TIMEOUT_MS);
+          ESp->lpc_deadline = Eebus126At(EebusLpcFristMs());
           char t[48]; snprintf(t, sizeof(t), "LimitData -> lese limitId%d", extra);
           EebusLpcSetResult(LPC_READDATA, t);
         } else {
@@ -5155,7 +6256,7 @@ void EebusSpineHandle(const char *json) {
       EebusLpcLearnFailsafeKeys(json);   // keyIds der Failsafe-Keys aus der Beschreibung merken (Schreibziele)
       EebusSpineSendAddr("read", false, 0, "{\"deviceConfigurationKeyValueListData\":[]}",
                          EEBUS_LPC_CLIENT_ENT, 3, ESp->lpc_peer_ent, ESp->lpc_peer_dcfg_feat);   // gelernte Adresse statt feat24
-      ESp->lpc_deadline = Eebus126At(EEBUS_LPC_PHASE_TIMEOUT_MS);
+      ESp->lpc_deadline = Eebus126At(EebusLpcFristMs());
       EebusLpcSetResult(LPC_READCFG, "DeviceConfig-Werte angefragt");
     }
     else if ((LPC_READCFG == ESp->lpc_state) && (peer_ent == ESp->lpc_peer_ent) &&
@@ -5227,7 +6328,7 @@ void EebusSpineHandle(const char *json) {
    // Ladestation quittiert unser Binding/Write als "reply" mit resultData (NICHT als "result") ->
    // hier abfangen, sonst haengt die LPC-Sequenz im Timeout (bewiesen : errorNumber:0 "Binding request was successful").
     else if (((LPC_BIND == ESp->lpc_state) || (LPC_FAILSAFE == ESp->lpc_state) || (LPC_WRITE == ESp->lpc_state)) && strstr(json, "resultData") &&
-             ((LPC_BIND == ESp->lpc_state) || Eebus126LpcRefOk(json))) {   // v231 (4.8)
+             ((LPC_BIND == ESp->lpc_state) ? Eebus126BindRefOk(json) : Eebus126LpcRefOk(json))) {   // v231 (4.8), v240 Binding
       bool ok = (nullptr != strstr(json, "\"errorNumber\":0")) || (nullptr == strstr(json, "errorNumber"));
       if (LPC_BIND == ESp->lpc_state) {
         if (ok) { ESp->lpc_bound = true; EebusLpcSetResult(LPC_BIND, "Binding bestaetigt"); EebusLpcReadDesc(); }
@@ -5236,7 +6337,7 @@ void EebusSpineHandle(const char *json) {
         EebusLpcFailsafeResult(ok);
       } else {   // LPC_WRITE
         if (ok) { EebusLpcVerifySchedule(true); }   // Read-Back verzoegert
-        else    { EebusLpcWriteRejected(); }   // err7 -> Heartbeat+Retry (HEMS), sonst FAIL
+        else    { EebusErr9Pruefen(json); EebusLpcWriteRejected(); }   // err7 -> Heartbeat+Retry (HEMS), sonst FAIL; v246: err9 -> neu binden
       }
     }
   } else if (0 == strcmp(cls, "result")) {
@@ -5262,17 +6363,27 @@ void EebusSpineHandle(const char *json) {
    // LPC-Controller: Ergebnis (errorNumber) auf unser Binding (call) bzw. Write.
     bool ok = (nullptr != strstr(json, "\"errorNumber\":0")) || (nullptr == strstr(json, "errorNumber"));
     if (((LPC_FAILSAFE == ESp->lpc_state) || (LPC_WRITE == ESp->lpc_state)) && !Eebus126LpcRefOk(json)) {   // v231 (4.8): Antwort auf eine andere Nachricht - nicht als LPC-Ergebnis werten
-    } else if (LPC_BIND == ESp->lpc_state) {
+    } else if ((LPC_BIND == ESp->lpc_state) && Eebus126BindRefOk(json)) {   // v240: nur die Quittung auf unser Binding
       if (ok) { ESp->lpc_bound = true; EebusLpcSetResult(LPC_BIND, "Binding bestaetigt"); EebusLpcReadDesc(); }
       else    { EebusLpcSetResult(LPC_FAIL, "Binding abgelehnt"); }
     } else if (LPC_FAILSAFE == ESp->lpc_state) {   // Failsafe-Write quittiert -> Dauer bzw. Limit
       EebusLpcFailsafeResult(ok);
     } else if (LPC_WRITE == ESp->lpc_state) {
       if (ok) { EebusLpcVerifySchedule(true); }   // Write quittiert -> Read-Back verzoegert
-      else    { EebusLpcWriteRejected(); }   // err7 -> Heartbeat+Retry (HEMS), sonst FAIL
+      else    { EebusErr9Pruefen(json); EebusLpcWriteRejected(); }   // err7 -> Heartbeat+Retry (HEMS), sonst FAIL; v246: err9 -> neu binden
     }
   }
    // notify vom Peer: nur mitschneiden (bereits im Log)
+   // v239 (SPINE TS Z. 1107-1109, 1134-1145): notify mit ackRequest -> Quittung an das Absender-Feature
+  if (((0 == strcmp(cls, "notify")) || (0 == strcmp(cls, "reply"))) && ack) {   // v246 (B4): auch reply
+    EebusSpineSendAddr("result", true, their_ctr, "{\"resultData\":[{\"errorNumber\":0}]}", our_ent, our_feat, peer_ent, peer_feat);
+  }
+   // v239 (LPC TS Z. 1455-1456, 1470-1477): GEAENDERTE Geraeteliste der Anlage (Teil-Meldung) -> neu lesen
+  if ((0 == strcmp(cls, "notify")) && strstr(json, "nodeManagementDetailedDiscoveryData") &&
+      (strstr(json, "\"partial\"") || strstr(json, "\"delete\""))) {
+    ESp->peer_disco_read = false;
+    AddLog(LOG_LEVEL_INFO, PSTR("EBG: Geraeteliste von %s hat sich geaendert - neu lesen"), ESp->peer_ip);
+  }
 }
 
 // v231 (Pruefung 4.8): gehoert diese Antwort zu unserem letzten Write (Failsafe oder Grenze)? SPINE ordnet Antworten
@@ -5281,6 +6392,14 @@ void EebusSpineHandle(const char *json) {
 // Ohne msgCounterReference in der Antwort (tolerante Gegenstellen) bleibt es beim bisherigen Verhalten. Das Binding
 // bleibt bewusst wie bisher: dort gehen mehrere Bindings hinaus (LoadControl + DeviceConfiguration), die erste
 // Quittung gilt - so ist es mit dem Energiemanager erprobt.
+// v240 (LPC TS Z. 1450-1452): die Quittung auf UNSER LoadControl-Binding erkennen. Bis v239 galt die erste beliebige
+// Quittung im Zustand BIND (oft die eines Abos oder des DeviceConfiguration-Bindings). Ohne msgCounterReference in der
+// Antwort (tolerante Gegenstellen) bzw. ohne gemerkte Nummer wie bisher.
+bool Eebus126BindRefOk(const char *json) {
+  uint32_t r = 0;
+  if (!ESp->bind_mc || !EebusJsonInt(json, "msgCounterReference", &r)) { return true; }
+  return (r == ESp->bind_mc);
+}
 bool Eebus126LpcRefOk(const char *json) {
   uint32_t r = 0;
   if (!ESp->lpc_mc || !EebusJsonInt(json, "msgCounterReference", &r)) { return true; }
@@ -5360,33 +6479,39 @@ void EebusSmeDispatch(const uint8_t *rx, int n) {
   }
   if (1 != classifier) { return; }   // CMI(0) o.ae. hier nicht erwartet
 
-  if (strstr(json, "\"connectionHello\"")) {
+   // v242 (SHIP 13.4.4.1 Z. 2202-2215): im Zustand Hello zaehlt nur ein Hello, alles andere ist Abbruch.
+  const bool ist_hello = (nullptr != strstr(json, "\"connectionHello\""));
+  if ((SME_HELLO == ESp->sme) && !ist_hello) { EebusSmeAbbruch("hello: unerwartete Nachricht", 0); return; }
+  if (ist_hello) {
     char phase[12] = { 0 };
     EebusJsonStr(json, "phase", phase, sizeof(phase));
-    if (0 == strcmp(phase, "ready")) {
-      if (SME_HELLO == ESp->sme) {
-   // Peer ist ready -> ProtocolHandshake (wir = Client -> announceMax, SHIP 13.4.4.2)
-        if (!EebusShipSendJson("{\"messageProtocolHandshake\":[{\"handshakeType\":\"announceMax\"},"
-                               "{\"version\":[{\"major\":1},{\"minor\":0}]},"
-                               "{\"formats\":[{\"format\":[\"JSON-UTF8\"]}]}]}", 1)) {
-          EebusSmeFail("prot send"); return;
-        }
-        ESp->sme = SME_PROT;
-        ESp->sme_deadline = Eebus126At(EEBUS_SME_PROT_TIMEOUT_MS);
+    if (SME_HELLO != ESp->sme) {   // spaeteres Hello: nur ein Abbruch zaehlt
+      if (0 == strcmp(phase, "aborted")) { EebusSmeFail("hello aborted vom peer"); }
+      return;
+    }
+    if (0 == strcmp(phase, "ready")) {   // HELLO_OK -> ProtocolHandshake (wir = Client -> announceMax, SHIP 13.4.4.2)
+      if (!EebusShipSendJson("{\"messageProtocolHandshake\":[{\"handshakeType\":\"announceMax\"},"
+                             "{\"version\":[{\"major\":1},{\"minor\":0}]},"
+                             "{\"formats\":[{\"format\":[\"JSON-UTF8\"]}]}]}", 1)) {
+        EebusSmeFail("prot send"); return;
       }
+      ESp->sme = SME_PROT;
+      ESp->sme_deadline = Eebus126At(EEBUS_SME_PROT_TIMEOUT_MS);
     } else if (0 == strcmp(phase, "pending")) {
-   // Peer kennt unsere SKI noch nicht -> Pairing: SKI im Geraete-UI bestaetigen!
       if (!ESp->sme_pending_logged) {
         AddLog(LOG_LEVEL_INFO, PSTR("EBG: Peer %s meldet PENDING - unsere SKI %s im Geraete-UI bestaetigen (Pairing)"),
                ESp->peer_ip, Eebus.own_ski);
         ESp->sme_pending_logged = true;
       }
-      ESp->sme_deadline = Eebus126At(EEBUS_SME_HELLO_TIMEOUT_MS);   // Peer lebt -> weiter warten
-      if (strstr(json, "prolongation")) {   // Verlaengerung gewuenscht ->
-        EebusShipSendJson("{\"connectionHello\":[{\"phase\":\"ready\"},{\"waiting\":60000}]}", 1);
-      }   // Update-Message (wir bleiben ready)
-    } else {   // aborted / unbekannt
-      EebusSmeFail("hello aborted");
+      if (strstr(json, "prolongationRequest") && strstr(json, "true")) {   // SHIP Z. 2208-2211, 2307-2313
+        if ((millis() - ESp->sme_hello_start) < EEBUS_SME_HELLO_MAX_MS) {
+          ESp->sme_deadline += EEBUS_SME_HELLO_TIMEOUT_MS;   // T_hello_inc = T_hello_init
+          AddLog(LOG_LEVEL_INFO, PSTR("EBG: %s bittet um Verlaengerung - Wartezeit +60 s"), ESp->peer_ip);
+        }
+        EebusSmeHelloUpdate();
+      }   // ohne Verlaengerungswunsch: ignorieren (SHIP Z. 2206-2207)
+    } else {   // aborted oder unbekannt -> gemeinsamer Abbruch (SHIP Z. 2212-2213)
+      EebusSmeAbbruch("hello aborted", 0);
     }
     return;
   }
@@ -5396,24 +6521,27 @@ void EebusSmeDispatch(const uint8_t *rx, int n) {
     return;
   }
 
-  if (strstr(json, "\"messageProtocolHandshake\"")) {
+  if (SME_PROT == ESp->sme) {   // v242 (SHIP Z. 2400-2416): Auswahl des Servers pruefen
+    if (nullptr == strstr(json, "\"messageProtocolHandshake\"")) { EebusSmeAbbruch("prot: unerwartete Nachricht", 2); return; }
     char ht[16] = { 0 };
     EebusJsonStr(json, "handshakeType", ht, sizeof(ht));
-    if ((SME_PROT == ESp->sme) && (0 == strcmp(ht, "select"))) {
-   // NICHT mehr vorpreschen. Auswahl bestaetigen (select 1:1 zurueckspiegeln,
-   // SHIP 13.4.4.2.3) + pinState:none senden — DANN auf den pinState des Peers warten (SME_PIN),
-   // erst nach dessen accessMethods die Datenphase erreichen (Referenz-Umsetzung-Gate). Frueher wurde hier
-   // sofort accessMethodsRequest + SME_DONE + erster Read gefeuert -> Ueberstuerzen (err7-Ursache).
-      if (!EebusShipSendJson(json, 1)) { EebusSmeFail("prot confirm send"); return; }
-      EebusShipSendJson("{\"connectionPinState\":[{\"pinState\":\"none\"}]}", 1);
-      ESp->sme = SME_PIN;
-      ESp->sme_deadline = Eebus126At(EEBUS_SME_GATE_TIMEOUT_MS);
-      AddLog(LOG_LEVEL_INFO, PSTR("EBG: select bestaetigt + pinState:none @ %s - warte auf Peer-pinState"), ESp->peer_ip);
-    } else {
-      EebusSmeFail("prot unerwartet");
+    uint32_t ma = 99, mi = 99;
+    EebusJsonInt(json, "major", &ma);
+    EebusJsonInt(json, "minor", &mi);
+    if ((0 != strcmp(ht, "select")) || (1 != ma) || (0 != mi) || !EebusFormatNurJson(json)) {
+      EebusSmeAbbruch("prot: Auswahl passt nicht", 3);
+      return;
     }
+   // Auswahl bestaetigen (select 1:1 zurueckspiegeln, SHIP Z. 2411-2412) + pinState:none senden - dann auf den pinState
+   // des Peers warten (SME_PIN), erst danach accessMethods und Datenphase.
+    if (!EebusShipSendJson(json, 1)) { EebusSmeFail("prot confirm send"); return; }
+    EebusShipSendJson("{\"connectionPinState\":[{\"pinState\":\"none\"}]}", 1);
+    ESp->sme = SME_PIN;
+    ESp->sme_deadline = Eebus126At(EEBUS_SME_PIN_TIMEOUT_MS);
+    AddLog(LOG_LEVEL_INFO, PSTR("EBG: select bestaetigt + pinState:none @ %s - warte auf Peer-pinState"), ESp->peer_ip);
     return;
   }
+  if (strstr(json, "\"messageProtocolHandshake\"")) { return; }   // ausserhalb des Handshakes: nicht mehr auswerten
 
   if (strstr(json, "\"connectionPinState\"")) {
     char pin[12] = { 0 };
@@ -5422,8 +6550,7 @@ void EebusSmeDispatch(const uint8_t *rx, int n) {
       EebusSmeFail("peer verlangt PIN");
       return;
     }
-   // none/optional/leer: ok. dies ist das 1. Peer-Gate -> JETZT (nicht schon beim
-   // select) accessMethodsRequest senden und auf die accessMethods des Peers warten (SME_ACCESS).
+   // none/optional: Datenphase ist frei (SHIP Z. 2747-2754) -> jetzt accessMethodsRequest (erst ab Datenphase, Z. 2882-2884)
     if (SME_PIN == ESp->sme) {
       EebusShipSendJson("{\"accessMethodsRequest\":[]}", 1);
       ESp->sme = SME_ACCESS;
@@ -5435,11 +6562,9 @@ void EebusSmeDispatch(const uint8_t *rx, int n) {
   }
 
   if (strstr(json, "\"accessMethodsRequest\"")) {   // Peer fragt UNSERE Kennung ab
-   // accessMethods.id = unsere mDNS-id (eebus_adv_id). Vorher wich der SHIP-Identifier
-   // ("Tasmota-EEBusGuard-<hostname>") von der mDNS-id ab -> der Energiemanager sah zwei verschiedene Kennungen.
-   // Referenz (Referenz-Umsetzung): mDNS-id == accessMethods.id == SPINE-deviceCode = EINE sd.Identifier().
-    char am[80];
-    snprintf_P(am, sizeof(am), PSTR("{\"accessMethods\":[{\"id\":\"%s\"}]}"), eebus_adv_id);
+   // accessMethods.id = unsere mDNS-id (eebus_adv_id). v242 (SHIP Tab. 22): dnsSd_mDns, weil wir per mDNS auffindbar sind.
+    char am[96];
+    snprintf_P(am, sizeof(am), PSTR("{\"accessMethods\":[{\"id\":\"%s\"},{\"dnsSd_mDns\":[]}]}"), eebus_adv_id);
     EebusShipSendJson(am, 1);
     return;
   }
@@ -5447,7 +6572,6 @@ void EebusSmeDispatch(const uint8_t *rx, int n) {
   if (strstr(json, "\"accessMethods\"")) {   // Kennung des Peers (Antwort auf unseren Request)
     EebusJsonStr(json, "id", ESp->peer_id, sizeof(ESp->peer_id));
     AddLog(LOG_LEVEL_INFO, PSTR("EBG: Peer AccessMethods id=%s"), ESp->peer_id);
-   // letztes Referenz-Umsetzung-Gate erfuellt -> jetzt erst Datenphase (Done) + erster Read.
     if (SME_ACCESS == ESp->sme) { EebusSmeReachDone("accessMethods"); }
     return;
   }
@@ -5494,19 +6618,19 @@ void EebusSmePoll(void) {
   uint8_t *rx = ESp->rxbuf;
   size_t rxmax = ESp->rxbuf_size ? ESp->rxbuf_size : 0;
   if ((nullptr == rx) || (0 == rxmax)) { return; }
-  while (ESp->client && (ESp->client->available() > 0)) {
-    int n = EebusWsRecv(rx, rxmax - 1, 1000);
+  for (uint8_t nrx = 0; ESp->client && (nrx < 16); nrx++) {   // v241: ohne Blockieren, hoechstens 16 Nachrichten je Durchlauf
+    int n = EebusWsRecvNb(rx, rxmax - 1);
     if (-2 == n) {   // WS-Close-Frame
       EebusSmeDispatch((const uint8_t*)"\x03{}", 3);   // wie connectionClose behandeln
       return;
     }
-    if (n < 0) {   // Timeout/Fehler mitten im Frame
+    if (n < 0) {   // v241: Rest eines Frames kam nicht binnen EEBUS_WS_REST_MS (oder Fehler)
        // v231 (Pruefung 4.9): Bytes dieses Frames sind schon gelesen, der Rest kam nicht. Bis v230 ging es im naechsten
        // Tick weiter - das naechste Byte wurde dann als Frame-Kopf gelesen, der Strom war aus dem Takt (Schein-Frames,
        // zerhackte JSON). Jetzt wie ein Abbruch behandeln: abbauen, der Keep-Alive bzw. die Gegenstelle baut neu auf.
       if (SME_DONE == ESp->sme) {
-        AddLog(LOG_LEVEL_INFO, PSTR("EBG: *** Empfang von %s mitten im Frame abgebrochen - Verbindung wird abgebaut und neu aufgebaut ***"),
-               ESp->peer_ip);
+        AddLog(LOG_LEVEL_INFO, PSTR("EBG: *** Empfang von %s: %s - Verbindung wird abgebaut und neu aufgebaut ***"),
+               ESp->peer_ip, (-3 == n) ? "unzulaessiger Frame-Typ" : "Rest des Frames kam nicht binnen 10 s");
         EebusStatSet(ESp->peer_ski, SHIP_CMI_OK, "");
         ESp->sme = SME_OFF;
         ESp->state = SHIP_IDLE;
@@ -5518,10 +6642,15 @@ void EebusSmePoll(void) {
       }
       return;
     }
-    if (0 == n) { EebusHeapCheck("rx_ctrl"); continue; }   // nach Ping/Pong/Skip (schrieb rxbuf?)
+    if (0 == n) { break; }   // v241: nichts (mehr) vollstaendig - Rest im naechsten Durchlauf
     EebusHeapCheckN("rx_recv", (uint32_t)n);   // ROH nach WsRecv, VOR Verarbeitung
     rx[n] = '\0';
     ESp->last_rx = millis();
+    if (SME_CMI == ESp->sme) {   // v242: erste Nachricht = CMI des Servers
+      EebusCmiAntwort(rx, n);
+      if ((SME_OFF == ESp->sme) || (SME_FAIL == ESp->sme)) { return; }
+      continue;
+    }
     EebusShipLog('R', rx[0], (const char*)rx + 1);
     EebusSmeDispatch(rx, n);
     EebusHeapCheck("rx_dispatch");   // Checkpunkt: nach Verarbeitung jeder Empfangs-Nachricht
@@ -5548,48 +6677,35 @@ void EebusSmePoll(void) {
    // Handschlag-Gates. Antwortet der Peer nicht rechtzeitig mit seinem
    // pinState/accessMethods, NICHT abbrechen — in die Datenphase weitergehen (Alt-Verhalten als
    // Fallback -> schuetzt tolerante Peers Ladestation/Waermepumpen-Gateway, falls sie ein Gate auslassen).
-  if ((SME_PIN == ESp->sme) || (SME_ACCESS == ESp->sme)) {
+  if ((SME_CMI == ESp->sme) && TimeReached(ESp->sme_deadline)) {   // v242 (SHIP Z. 2082-2083)
+    EebusSmeFail("cmi timeout (15 s)");
+    return;
+  }
+  if (SME_PIN == ESp->sme) {   // v242 (SHIP Z. 2663-2664): ohne pinState des Peers binnen 10 s schliessen
+    if (TimeReached(ESp->sme_deadline)) { EebusSmeFail("kein pinState des Peers binnen 10 s"); }
+    return;
+  }
+  if (SME_ACCESS == ESp->sme) {   // accessMethods sind kein Tor der Norm (SHIP Z. 2882): nach 5 s trotzdem weiter
     if (TimeReached(ESp->sme_deadline)) {
-      AddLog(LOG_LEVEL_INFO, PSTR("EBG: Handschlag-Gate (%s) Timeout @ %s - gehe trotzdem in Datenphase"),
-             (SME_PIN == ESp->sme) ? "pinState" : "accessMethods", ESp->peer_ip);
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: keine accessMethods von %s binnen 5 s - Datenphase trotzdem"), ESp->peer_ip);
       EebusSmeReachDone("gate-timeout");
     }
     return;
   }
 
-   // Timeouts
-  if ((SME_HELLO == ESp->sme) || (SME_PROT == ESp->sme)) {
-   // Obergrenze ZUERST pruefen (sonst wird unten endlos verlaengert)
-    if ((SME_HELLO == ESp->sme) &&
-        (millis() - ESp->sme_hello_start > EEBUS_SME_HELLO_MAX_MS)) {
-      EebusSmeFail("pairing nicht bestaetigt");
-      return;
-    }
-    if (TimeReached(ESp->sme_deadline)) {
-   // (live bewiesen ): Steht der Peer auf "pending" (er kennt unsere SKI noch
-   // nicht und wartet auf die Freigabe im Bedien-UI), dann darf die Verbindung NICHT nach 60 s
-   // sterben. Genau das passierte: der Peer sendet "pending" EINMAL, die Verlaengerung unten im
-   // Empfangspfad greift aber nur, wenn eine WEITERE pending-Nachricht eintrifft -> Deadline lief
-   // ab -> "hello timeout" nach exakt 60 s. Das Bedien-UI braucht aber allein bis zu 60 s fuer den
-   // Verbindungsaufbau und oeffnet ERST DANN sein 2-Minuten-Freigabefenster: unsere Verbindung
-   // starb also regelmaessig in dem Moment, in dem das Fenster aufging — Pairing unmoeglich.
-   // Jetzt halten wir die Wartephase aktiv und melden uns beim Peer periodisch als weiter
-   // wartebereit (SHIP 13.4.4.1.3 Update-Message), bis die Obergrenze oben erreicht ist.
-      if ((SME_HELLO == ESp->sme) && ESp->sme_pending_logged) {
-   // NUR das eigene "ready" wiederholen (Update-Message). KEIN prolongationRequest: das darf
-   // nach SHIP nur senden, wer SELBST wartet — also die Gegenstelle im Zustand "pending".
-   // Wir sind bereits ready; eine Verlaengerungsbitte von dieser Seite ist protokollwidrig und
-   // wird mit "aborted" quittiert (live gesehen: Abbruch 90 ms nach dem Senden).
-        EebusShipSendJson("{\"connectionHello\":[{\"phase\":\"ready\"},{\"waiting\":60000}]}", 1);
-        ESp->sme_deadline = Eebus126At(EEBUS_SME_HELLO_TIMEOUT_MS);
-        AddLog(LOG_LEVEL_INFO, PSTR("EBG: Pairing laeuft noch (%s) - Wartezeit verlaengert (%lu s bisher)"),
-               ESp->peer_ip, (unsigned long)((millis() - ESp->sme_hello_start) / 1000));
-        return;
-      }
-      EebusSmeFail((SME_HELLO == ESp->sme) ? "hello timeout" : "prot timeout");
-      return;
-    }
+   // Timeouts - v242 (SHIP Z. 2216-2218, 2429-2431): Wait-For-Ready bzw. Wait-Timer abgelaufen -> Abbruch. Keine eigene
+   // Verlaengerung mehr: wer wartet (pending), muss selbst um Verlaengerung bitten (SHIP Z. 2266-2276).
+  if (((SME_HELLO == ESp->sme) || (SME_PROT == ESp->sme)) && TimeReached(ESp->sme_deadline)) {
+    EebusSmeAbbruch((SME_HELLO == ESp->sme) ? "hello timeout" : "prot timeout", 1);
+    return;
   }
+  EebusLpcPhasenFrist();   // v239: ausgelagert, gilt jetzt auch fuer eingehende Verbindungen
+}
+
+// v239 (Normpruefung 22.11., SPINE TS 5.2.5.3 Z. 1193-1198): Antwortfrist der LPC-Kette. Bis v238 nur in EebusSmePoll,
+// das bei EINGEHENDEN Verbindungen (via_srv) vorher zurueckkehrt - bis auf READCFG hatte die Kette dort KEINE Frist und
+// blieb bei ausbleibender Antwort fuer immer stehen (keine Sicherung, Wiederholung, Vorgabe mehr). Jetzt fuer beide Wege.
+void EebusLpcPhasenFrist(void) {
    // LPC-Sequenz-Timeout (Binding/ReadDesc/Write/Verify haengt)
   if ((ESp->lpc_state >= LPC_BIND) && (ESp->lpc_state <= LPC_VERIFY) &&
       ESp->lpc_deadline && TimeReached(ESp->lpc_deadline)) {
@@ -5672,7 +6788,7 @@ void EebusAutoConnectRun(void) {
    // Drei Bedingungen, alle noetig (Begruendung im Kopf des Abschnitts):
    // Netz steht · Uhr ist synchronisiert · eine SKI ist gemerkt.
       if (!(WifiHasIP() || ((uint32_t)EthernetLocalIP() != 0))) { return; }
-      if (!RtcTime.valid) { return; }
+      if (!RtcTime.valid && (TasmotaGlobal.uptime < 60)) { return; }   // v241: ohne Uhr spaetestens nach 60 s (seit v231 kein 1970-Zeitstempel mehr)
       if (!EebusPeerRecall()) { eebus_ac_state = AC_DONE; return; }   // nichts gemerkt
       eebus_ac_cur   = 0;   // v202
       eebus_ac_try   = 0;
@@ -5738,9 +6854,14 @@ void EebusAutoConnectRun(void) {
         }
       }
       if (eebus_ac_try >= EEBUS_AC_MAX_TRY) {
-        AddLog(LOG_LEVEL_INFO, PSTR("EBG: Wiederaufbau zu %s aufgegeben - bitte von Hand scannen und verbinden"), eebus_ac_ski);
+        AddLog(LOG_LEVEL_INFO, PSTR("EBG: Wiederaufbau zu %s nach %u Versuchen erfolglos - weiter alle %u s"), eebus_ac_ski,
+               (uint32_t)EEBUS_AC_MAX_TRY, (uint32_t)(EEBUS_AC_ENDLOS_MS / 1000));
         eebus_ac_cur++; eebus_ac_try = 0;   // v202: naechster Partner
-        if (EebusAcNaechster()) { eebus_ac_next = Eebus126At(3000); eebus_ac_state = AC_WAIT; }
+        if (EebusAcNaechster()) { eebus_ac_next = Eebus126At(3000); eebus_ac_state = AC_WAIT; return; }
+   // v241 (LPC-Testspezifikation EGConnection_003: "EG automatically reconnects after a black start"): nicht aufgeben -
+   // alle Partner durch, dann von vorn, solange einer fehlt.
+        eebus_ac_cur = 0;
+        if (EebusAcNaechster()) { eebus_ac_next = Eebus126At(EEBUS_AC_ENDLOS_MS); eebus_ac_state = AC_WAIT; }
         return;
       }
       uint16_t warte_s = pgm_read_word(&kEebusAcRetryS[eebus_ac_try - 1]);
@@ -5886,7 +7007,7 @@ void CmndEebusConnect(void) {
                                   : PSTR("Kein Zertifikat (EEBusCert)"));
     return;
   }
-  bool ok = (SHIP_CMI_OK == ESp->state);
+  bool ok = (SHIP_CMI_OK == ESp->state) || (SME_CMI == ESp->sme);   // v242: CMI laeuft ohne Blockieren
   const char *stname = (ESp->state == SHIP_CMI_OK) ? "cmi_ok" :
                        (ESp->state == SHIP_WS_OK)  ? "ws_ok"  :
                        (ESp->state == SHIP_TLS_OK) ? "tls_ok" : "error";
@@ -5915,8 +7036,12 @@ void EebusDisconnectNow(void) {
    // Eine Steuerbox muss sich auch nach einem Update selbst verbinden. Wer die Merkung wirklich
    // loswerden will, sagt es ausdruecklich: EEBusAutoConn -1 (zum blossen Stilllegen: 0).
   if (!ESp->via_srv && (0 == strcasecmp(eebus_ac_ski, ESp->peer_ski))) { eebus_ac_state = AC_DONE; }
+  if (ESp->active && ESp->client && (SME_HELLO == ESp->sme)) {   // v242 (SHIP Z. 2292-2297): im Hello abbrechen
+    EebusShipSendJson("{\"connectionHello\":[{\"phase\":\"aborted\"}]}", 1);
+    delay(50);
+  }
   if (ESp->active && (ESp->client || ESp->via_srv) &&   // auch Server-Slots verabschieden sich
-      (ESp->sme != SME_OFF) && (ESp->sme != SME_FAIL)) {
+      (SME_DONE == ESp->sme)) {   // v242 (SHIP Z. 3103-3105): connectionClose erst in der Datenphase
    // Sauberer SHIP-Abschied (13.4.7): connectionClose als End-Message (classifier 3)
      // v231 (Pruefung 3.9): reason "unspecific" statt "unplug" - die XSD kennt nur unspecific/removedConnection
      // (SHIP 13.4.8.1.1 Z. 3127-3138, ConnectionCloseReasonType); "unspecific" = voruebergehende Trennung.
@@ -6009,9 +7134,40 @@ void CmndEebusStatus(void) {
   ResponseAppend_P(PSTR("]}}"));
 }
 
+// v242 (SHIP Z. 2125-2126): Liste der erlaubten Anrufer. EEBusTrust = Liste zeigen, EEBusTrust <SKI> = aufnehmen,
+// EEBusTrust 0 = Liste leeren. Vertraut sind ausserdem gemerkte Partner und SKIs mit Betriebsart-Zuordnung.
 void CmndEebusTrust(void) {
-   // Platzhalter fuer M2b (Peer-SKI in Trust-Liste aufnehmen). Aktuell nur Quittung.
-  ResponseCmndChar_P(PSTR("Trust-Liste kommt mit M2b (SHIP-Hello-Pairing)"));
+#ifdef USE_UFILESYS
+  char buf[EEBUS_AC_MAX * 41 + 1] = { 0 };
+  int n = 0;
+  if (TfsFileExists(EEBUS_TRUST_FILE)) {
+    File f = ffsp->open(EEBUS_TRUST_FILE, "r");
+    if (f) { n = f.read((uint8_t*)buf, sizeof(buf) - 42); f.close(); }
+    if (n < 0) { n = 0; }
+    buf[n] = '\0';
+  }
+  if (XdrvMailbox.data_len > 0) {
+    const char *a = XdrvMailbox.data;
+    if ((1 == XdrvMailbox.data_len) && ('0' == a[0])) {
+      if (TfsFileExists(EEBUS_TRUST_FILE)) { TfsDeleteFile(EEBUS_TRUST_FILE); }
+      buf[0] = '\0'; n = 0;
+    } else {
+      bool ok = (40 == XdrvMailbox.data_len);
+      for (int i = 0; ok && (i < 40); i++) { ok = isxdigit((unsigned char)a[i]); }
+      if (!ok) { ResponseCmndChar_P(PSTR("SKI mit 40 Hex-Zeichen angeben")); return; }
+      if (!EebusSkiInDatei(EEBUS_TRUST_FILE, a)) {
+        if ((size_t)n + 41 >= sizeof(buf)) { ResponseCmndChar_P(PSTR("Liste voll")); return; }
+        for (int i = 0; i < 40; i++) { buf[n++] = (char)tolower((unsigned char)a[i]); }
+        buf[n++] = '\n'; buf[n] = '\0';
+        TfsSaveFile(EEBUS_TRUST_FILE, (const uint8_t*)buf, n);
+      }
+    }
+  }
+  for (int i = 0; i < n; i++) { if ('\n' == buf[i]) { buf[i] = ' '; } }
+  Response_P(PSTR("{\"%s\":\"%s\"}"), XdrvMailbox.command, buf);
+#else
+  ResponseCmndChar_P(PSTR("ohne Dateisystem nicht verfuegbar"));
+#endif
 }
 
 // Peer-/Betriebsart fuer den §14a-Write — 0 = SteuVE (Wallbox, Waermepumpen-Gateway),
@@ -6253,7 +7409,7 @@ bool EebusSelectPeerArg(const char *arg) {
 // Ergebnis je Platz. Ein verbundener Energiemanager wird uebersprungen: er bekommt seinen gesamthaften Sollwert einzeln.
 // watt_je_platz: Freigaben ohne Wertangabe nehmen wie bisher den letzten Wert DIESER Verbindung (lpc_value).
 // v203: Beschreibung gelesen und sie fuehrt nur eine Bezugsgrenze -> das Geraet hat keine Einspeisegrenze
-bool EebusOhneEinspeisung(void) { return (ESp->lpc_lid_dir[0] >= 0) && (ESp->lpc_lid_dir[1] < 0); }
+bool EebusOhneEinspeisung(void) { return ((ESp->lpc_lid_dir[0] >= 0) && (ESp->lpc_lid_dir[1] < 0)) || (0 == ESp->lpp_uc); }   // v243: LPP nicht angeboten
 bool EebusIstAlle(const char *sel) { return (0 == strcasecmp(sel, "alle")) || (0 == strcasecmp(sel, "all")); }
 void EebusAlleStart(uint32_t watt, bool active, uint8_t dir, long dauer, bool watt_je_platz) {
   int n = 0, hems = 0;   // "alle" = alle DIREKT gesteuerten; ein Energiemanager wird uebersprungen (FNN-Hinweis 2025 Kap. 3: Mischbetrieb zulaessig)
@@ -6790,6 +7946,14 @@ void CmndEebusData(void) {
       }
       ResponseAppend_P(PSTR("]"));
     }
+    if (cc->mll_have[0] || cc->mll_have[1] || cc->mll_have[2]) {   // v243: L1-L2, L2-L3, L3-L1
+      ResponseAppend_P(PSTR(",\"VoltageLL\":["));
+      for (int f = 0; f < 3; f++) {
+        if (cc->mll_have[f]) { ResponseAppend_P(PSTR("%s[%ld,%d]"), f ? "," : "", cc->mll_val[f], cc->mll_sc[f]); }
+        else                 { ResponseAppend_P(PSTR("%snull"), f ? "," : ""); }
+      }
+      ResponseAppend_P(PSTR("]"));
+    }
     if (cc->fs_cons_ok) { ResponseAppend_P(PSTR(",\"FsCons\":[%ld,%d]"), cc->fs_cons, cc->fs_cons_sc); }
     if (cc->fs_prod_ok) { ResponseAppend_P(PSTR(",\"FsProd\":[%ld,%d]"), cc->fs_prod, cc->fs_prod_sc); }
     if (cc->fs_dur[0])  { ResponseAppend_P(PSTR(",\"FsDur\":\"%s\""), cc->fs_dur); }
@@ -7022,7 +8186,7 @@ const char EEBUS_UI_FILE[] = "/steuerbox.html";
 void EebusWebPage(void) {
   if (!HttpCheckPriviledgedAccess()) { return; }
   File f;
-   // v231 (06.11., Andreas, wie HEMS v033): zuerst die gepackte Fassung /steuerbox.html.gz. streamFile setzt bei
+   // v231 (06.11., meierchen006, wie HEMS v033): zuerst die gepackte Fassung /steuerbox.html.gz. streamFile setzt bei
    // Dateinamen auf ".gz" selbst "Content-Encoding: gzip". Kuerzere Uebertragung = Webserver schneller wieder frei.
    // Ohne .gz wie bisher die ungepackte Seite. WICHTIG: bei jeder neuen Seite BEIDE Dateien hochladen.
   if (ufsp) { f = ufsp->open("/steuerbox.html.gz", "r"); }
@@ -7253,11 +8417,13 @@ typedef struct {
   uint8_t  n_cert;
   bool     have;
   char     ski[41];
+  uint8_t  der[1024];   // v242: erstes Zertifikat (fuer die SKI-Erweiterung)
+  size_t   dl;
 } EebusSrvX509;
 
 void EebusSrvX509StartChain(const br_x509_class **ctx, const char *server_name) {
   EebusSrvX509 *x = (EebusSrvX509 *)ctx;
-  x->n_cert = 0; x->have = false; x->ski[0] = '\0';
+  x->n_cert = 0; x->have = false; x->ski[0] = '\0'; x->dl = 0;
 }
 void EebusSrvX509StartCert(const br_x509_class **ctx, uint32_t length) {
   EebusSrvX509 *x = (EebusSrvX509 *)ctx;
@@ -7265,7 +8431,12 @@ void EebusSrvX509StartCert(const br_x509_class **ctx, uint32_t length) {
 }
 void EebusSrvX509Append(const br_x509_class **ctx, const unsigned char *buf, size_t len) {
   EebusSrvX509 *x = (EebusSrvX509 *)ctx;
-  if (0 == x->n_cert) { br_x509_decoder_push(&x->dc, buf, len); }
+  if (0 == x->n_cert) {
+    br_x509_decoder_push(&x->dc, buf, len);
+    size_t n = sizeof(x->der) - x->dl;   // v242
+    if (n > len) { n = len; }
+    memcpy(x->der + x->dl, buf, n); x->dl += n;
+  }
 }
 void EebusSrvX509EndCert(const br_x509_class **ctx) {
   EebusSrvX509 *x = (EebusSrvX509 *)ctx;
@@ -7279,6 +8450,11 @@ void EebusSrvX509EndCert(const br_x509_class **ctx) {
       br_sha1_out(&sc, h);
       for (uint32_t i = 0; i < 20; i++) { snprintf_P(x->ski + (i * 2), 3, PSTR("%02x"), h[i]); }
       x->have = true;
+      uint8_t ext[20];   // v242 (SHIP Z. 1265-1269): SKI-Erweiterung muss zum Schluessel passen
+      if (!EebusDerSkiExt(x->der, x->dl, ext) || (0 != memcmp(ext, h, 20))) {
+        AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV Anrufer %s: SKI-Erweiterung im Zertifikat fehlt oder passt nicht - abgewiesen"), x->ski);
+        x->have = false;
+      }
     }
   }
   x->n_cert++;
@@ -7321,7 +8497,9 @@ typedef struct {
   uint8_t *abuf = nullptr;   // Ansammelpuffer (HTTP-Request, dann WS-Frames)
   size_t   abuf_len = 0;
    // Etappe 3: SME-Handshake als Server (Geraet = SHIP-Client)
-  uint8_t  sme_state = 0;   // 0=warte Hello, 1=warte announceMax, 2=warte select-Spiegel, 3=DONE
+  uint8_t  sme_state = 0;   // 0=Hello, 1=warte announceMax, 2=warte select-Spiegel, 4=warte Peer-pinState (v242), 3=DONE
+  uint32_t sme_frist = 0;   // v242: Wait-For-Ready / Wait-Timer / pinState-Frist (0 = keine)
+  uint32_t hello_start = 0; // v242: Beginn des Hello (Obergrenze fuer Verlaengerungen)
    // Etappe 4: Verknuepfung mit einem EConn-Slot (SPINE-Datenphase)
   int      conn_idx = -1;   // Index in EConn[] (-1 = nicht verknuepft)
   EebusSrvX509 *x509 = nullptr;   // v190: Zertifikat des Anrufers (DRAM, ~0,8 KB)
@@ -7371,7 +8549,7 @@ void EebusSrvFree(void) {
   ESrv.ws_state = 0;
   ESrv.cmi_done = false;
   ESrv.abuf_len = 0;
-  ESrv.sme_state = 0;
+  ESrv.sme_state = 0; ESrv.sme_frist = 0;   // v242
 }
 
 // BearSSL-SERVER-Kontext aufsetzen und Handshake starten. Socket + peer_ip stehen
@@ -7392,7 +8570,7 @@ bool EebusSrvStart(void) {
   ESrv.hold_len = 0;
   ESrv.ws_state = 0;
   ESrv.cmi_done = false;
-  ESrv.sme_state = 0;
+  ESrv.sme_state = 0; ESrv.sme_frist = 0;   // v242
   ESrv.conn_idx = -1;
   if ((nullptr == ESrv.sc) || (nullptr == ESrv.ibuf) || (nullptr == ESrv.abuf) ||
       (nullptr == ESrv.obuf) || (nullptr == ESrv.cert_der) || (nullptr == ESrv.x509)) { why = "malloc"; goto fail; }   // v190: x509
@@ -7443,7 +8621,7 @@ bool EebusSrvStart(void) {
     br_ssl_engine_set_x509(eng, &ESrv.x509->vtable);
     br_ssl_engine_set_ecdsa(eng, br_ecdsa_vrfy_asn1_get_default());   // CertificateVerify des Anrufers pruefen
     br_ssl_server_set_trust_anchor_names(ESrv.sc, eebus_srv_dn, 1);
-    br_ssl_engine_add_flags(eng, BR_OPT_TOLERATE_NO_CLIENT_AUTH);
+     // v242 (SHIP Z. 692-693): gegenseitige Authentisierung ist Pflicht - kein BR_OPT_TOLERATE_NO_CLIENT_AUTH mehr.
     if (!br_ssl_server_reset(ESrv.sc)) {
       AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV reset fehlgeschlagen, err=%d"),
              br_ssl_engine_last_error(eng));
@@ -7489,6 +8667,7 @@ bool EebusSrvAppWrite(const uint8_t *data, size_t len) {
       size_t alen;
       unsigned char *buf = br_ssl_engine_sendapp_buf(eng, &alen);
       size_t n = (len - off > alen) ? alen : (len - off);
+      if (n > 1024) { n = 1024; }   // v242 (SHIP Z. 714-716): TLS-Records hoechstens 1024 B Klartext
       memcpy(buf, data + off, n);
       br_ssl_engine_sendapp_ack(eng, n);
       off += n;
@@ -7648,6 +8827,7 @@ void EebusSrvLinkConn(void) {
   cc->peer_disco_read = false;
   cc->we_nm_subscribed = false;   // 
   cc->peer_subscribed = false;
+  cc->gb_n = 0;   // v246
   cc->lc_sub = false; cc->lc_cli_ent = 0; cc->lc_cli_feat = 0;   // 
   cc->hb_sub = false;
   cc->hb_cli_ent = 0;
@@ -7682,6 +8862,8 @@ void EebusSrvLinkConn(void) {
   cc->reconnect_at = 0;
   cc->peer_idx = -1;
   cc->last_rx = millis();
+  cc->conn_at = millis(); if (!cc->conn_at) { cc->conn_at = 1; }   // v242
+  cc->pong_wait_at = 0; cc->dbl_at = 0; cc->ws_ping_next = 0;
   strlcpy(cc->peer_ip, ESrv.peer_ip, sizeof(cc->peer_ip));
   strlcpy(cc->peer_ski, ESrv.peer_ip, sizeof(cc->peer_ski));   // Pseudo-SKI (s.o.)
   cc->ski_quelle = 2;   // v190: erst einmal Rueckfall (Adresse)
@@ -7745,6 +8927,10 @@ void EebusSrvSkiFromId(int ci, const char *pid) {   // Slotnummer statt EebusCon
 // "select" beantworten (Server waehlt Version, SHIP 13.4.4.2) -> Geraet spiegelt
 // select -> Pin none + AccessMethods -> Done (Datenphase; SPINE via EebusSrvLinkConn).
 // ACHTUNG: kann bei Fehlern EebusSrvFree() rufen — Aufrufer muss danach ESrv.active pruefen!
+void EebusSrvAbbruch(const char *why, int prot_err);   // 24.11.2026 (gemu): Vorwaertsdeklarationen wie in 128/129 (stehen weiter unten)
+bool EebusSrvHelloStart(void);
+const char eebus_srv_select[] = "{\"messageProtocolHandshake\":[{\"handshakeType\":\"select\"},"
+                                "{\"version\":[{\"major\":1},{\"minor\":0}]},{\"formats\":[{\"format\":[\"JSON-UTF8\"]}]}]}";   // v242
 void EebusSrvSmeHandle(int classifier, const char *json) {
   if (3 == classifier) {   // connectionClose des Geraets
     AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV %s hat die SHIP-Verbindung geschlossen"), ESrv.peer_ip);
@@ -7768,25 +8954,34 @@ void EebusSrvSmeHandle(int classifier, const char *json) {
   }
   if (1 != classifier) { return; }
 
-  if (strstr(json, "\"connectionHello\"")) {
+   // v242 (SHIP 13.4.4.1): Zustand 0 = Hello. Nur ein Hello zaehlt, alles andere ist Abbruch.
+  const bool ist_hello = (nullptr != strstr(json, "\"connectionHello\""));
+  if (0 == ESrv.sme_state) {
+    if (!ist_hello) { EebusSrvAbbruch("Hello: unerwartete Nachricht", 0); return; }
     char phase[12] = { 0 };
     EebusJsonStr(json, "phase", phase, sizeof(phase));
-    if (0 == strcmp(phase, "ready")) {
-      if (0 == ESrv.sme_state) {   // unser Hello schicken -> beidseitig ready
-        if (EebusSrvShipSendJson("{\"connectionHello\":[{\"phase\":\"ready\"},{\"waiting\":60000}]}")) {
-          ESrv.sme_state = 1;
-          AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV SME-Hello mit %s beidseitig ready — warte auf ProtocolHandshake"),
-                 ESrv.peer_ip);
-        }
-      }
+    if (0 == strcmp(phase, "ready")) {   // HELLO_OK -> ProtocolHandshake, Wait-Timer 10 s (SHIP Z. 2371-2374)
+      ESrv.sme_state = 1;
+      ESrv.sme_frist = Eebus126At(EEBUS_SME_PROT_TIMEOUT_MS);
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV SME-Hello mit %s beidseitig ready — warte auf ProtocolHandshake"), ESrv.peer_ip);
     } else if (0 == strcmp(phase, "pending")) {
-   // Geraet kennt unsere SKI noch nicht -> im Geraete-UI bestaetigen (Pairing)
-      AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV %s meldet PENDING — unsere SKI %s im Geraete-UI bestaetigen"),
-             ESrv.peer_ip, Eebus.own_ski);
-    } else {   // aborted o.ae.
-      AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV %s Hello-Abbruch (%s)"), ESrv.peer_ip, phase);
-      EebusSrvFree();
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV %s meldet PENDING — unsere SKI %s im Geraete-UI bestaetigen"), ESrv.peer_ip, Eebus.own_ski);
+      if (strstr(json, "prolongationRequest") && strstr(json, "true")) {   // SHIP Z. 2307-2313
+        if ((millis() - ESrv.hello_start) < EEBUS_SME_HELLO_MAX_MS) { ESrv.sme_frist += EEBUS_SME_HELLO_TIMEOUT_MS; }
+        int32_t rest = (int32_t)(ESrv.sme_frist - millis());
+        if (rest < 0) { rest = 0; }
+        char h[64]; snprintf(h, sizeof(h), "{\"connectionHello\":[{\"phase\":\"ready\"},{\"waiting\":%ld}]}", (long)rest);
+        EebusSrvShipSendJson(h);
+      }   // ohne Verlaengerungswunsch: ignorieren
+    } else {
+      EebusSrvAbbruch("Hello aborted", 0);
     }
+    return;
+  }
+  if (ist_hello) {   // spaeteres Hello: nur ein Abbruch zaehlt
+    char phase[12] = { 0 };
+    EebusJsonStr(json, "phase", phase, sizeof(phase));
+    if (0 == strcmp(phase, "aborted")) { AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV %s Hello-Abbruch"), ESrv.peer_ip); EebusSrvFree(); }
     return;
   }
 
@@ -7796,28 +8991,24 @@ void EebusSrvSmeHandle(int classifier, const char *json) {
     return;
   }
 
-  if (strstr(json, "\"messageProtocolHandshake\"")) {
+  if ((1 == ESrv.sme_state) || (2 == ESrv.sme_state)) {   // v242 (SHIP Z. 2385-2428)
+    if (nullptr == strstr(json, "\"messageProtocolHandshake\"")) { EebusSrvAbbruch("ProtocolHandshake: unerwartete Nachricht", 2); return; }
     char ht[16] = { 0 };
     EebusJsonStr(json, "handshakeType", ht, sizeof(ht));
-    if ((1 == ESrv.sme_state) && (0 == strcmp(ht, "announceMax"))) {
-   // Wir (Server) waehlen: SHIP 1.0, JSON-UTF8 (wie alle bekannten Geraete)
-      if (EebusSrvShipSendJson("{\"messageProtocolHandshake\":[{\"handshakeType\":\"select\"},"
-                               "{\"version\":[{\"major\":1},{\"minor\":0}]},"
-                               "{\"formats\":[{\"format\":[\"JSON-UTF8\"]}]}]}")) {
-        ESrv.sme_state = 2;   // Geraet muss unser select spiegeln
+    if (1 == ESrv.sme_state) {
+      uint32_t ma = 0;
+      EebusJsonInt(json, "major", &ma);
+      if (0 != strcmp(ht, "announceMax")) { EebusSrvAbbruch("ProtocolHandshake: announceMax erwartet", 2); return; }
+      if ((ma < 1) || (nullptr == strstr(json, "JSON-UTF8"))) { EebusSrvAbbruch("ProtocolHandshake: keine gemeinsame Version/Format", 3); return; }
+      if (EebusSrvShipSendJson(eebus_srv_select)) {   // wir waehlen SHIP 1.0, JSON-UTF8
+        ESrv.sme_state = 2;
+        ESrv.sme_frist = Eebus126At(EEBUS_SME_PROT_TIMEOUT_MS);
       }
-    } else if ((2 == ESrv.sme_state) && (0 == strcmp(ht, "select"))) {
-   // Geraet bestaetigt die Auswahl -> PinCheck + Kennungs-Austausch -> Datenphase
-      EebusSrvShipSendJson("{\"connectionPinState\":[{\"pinState\":\"none\"}]}");
-      EebusSrvShipSendJson("{\"accessMethodsRequest\":[]}");
-      ESrv.sme_state = 3;
-      ESrv.deadline = Eebus126At(EEBUS_SRV_DATA_TIMEOUT_MS);
-      AddLog(LOG_LEVEL_INFO, PSTR("EBG: *** SRV SHIP-HANDSHAKE KOMPLETT (Server-Rolle) mit %s — Datenphase erreicht ***"),
-             ESrv.peer_ip);
-      EebusSrvLinkConn();   // SPINE-Slot verknuepfen -> Datenphase antwortet
     } else {
-      AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV %s ProtocolHandshake unerwartet (Zustand %d, Typ %s)"),
-             ESrv.peer_ip, ESrv.sme_state, ht);
+      if (!EebusJsonGleich(json, eebus_srv_select)) { EebusSrvAbbruch("ProtocolHandshake: Spiegel passt nicht", 3); return; }
+      EebusSrvShipSendJson("{\"connectionPinState\":[{\"pinState\":\"none\"}]}");
+      ESrv.sme_state = 4;   // auf den pinState des Geraets warten (SHIP Z. 2658-2664)
+      ESrv.sme_frist = Eebus126At(EEBUS_SME_PIN_TIMEOUT_MS);
     }
     return;
   }
@@ -7828,16 +9019,23 @@ void EebusSrvSmeHandle(int classifier, const char *json) {
     if (0 == strcmp(pin, "required")) {   // PIN unterstuetzen wir nicht
       AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV %s verlangt PIN — nicht unterstuetzt, Verbindung beendet"), ESrv.peer_ip);
       EebusSrvFree();
-    }   // none/optional: ok
+      return;
+    }
+    if (4 == ESrv.sme_state) {   // beide pinStates bekannt, keiner "required" -> Datenphase (SHIP Z. 2747-2754)
+      ESrv.sme_state = 3;
+      ESrv.sme_frist = 0;
+      ESrv.deadline = Eebus126At(EEBUS_SRV_DATA_TIMEOUT_MS);
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: *** SRV SHIP-HANDSHAKE KOMPLETT (Server-Rolle) mit %s — Datenphase erreicht ***"), ESrv.peer_ip);
+      EebusSrvLinkConn();   // SPINE-Slot verknuepfen -> Datenphase antwortet
+      EebusSrvShipSendJson("{\"accessMethodsRequest\":[]}");   // erst in der Datenphase (SHIP Z. 2882-2884)
+    }
     return;
   }
 
   if (strstr(json, "\"accessMethodsRequest\"")) {   // Geraet fragt UNSERE Kennung ab
-   // accessMethods.id MUSS die mDNS-id sein (eebus_adv_id), wie im Client-Weg. Frueher stand hier
-   // "Tasmota-EEBusGuard-<hostname>" -> passte nicht zur Ankuendigung, der Energiemanager legte nach
-   // seinem eigenen Anruf sofort auf (05.10. 17:27 und 20:51 belegt, Portal "konnte nicht verbunden werden").
+   // accessMethods.id MUSS die mDNS-id sein (eebus_adv_id), wie im Client-Weg. v242 (SHIP Tab. 22): dnsSd_mDns dazu.
     char reply[128];
-    snprintf_P(reply, sizeof(reply), PSTR("{\"accessMethods\":[{\"id\":\"%s\"}]}"), eebus_adv_id);
+    snprintf_P(reply, sizeof(reply), PSTR("{\"accessMethods\":[{\"id\":\"%s\"},{\"dnsSd_mDns\":[]}]}"), eebus_adv_id);
     EebusSrvShipSendJson(reply);
     return;
   }
@@ -7854,21 +9052,54 @@ void EebusSrvSmeHandle(int classifier, const char *json) {
   }
 }
 
+// v242: Abbruch als Server (SHIP Z. 2292-2297, 2441-2446): erst die passende Meldung, dann schliessen.
+void EebusSrvAbbruch(const char *why, int prot_err) {
+  AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV %s: %s - Abbruch"), ESrv.peer_ip, why);
+  if (0 == ESrv.sme_state) {
+    EebusSrvShipSendJson("{\"connectionHello\":[{\"phase\":\"aborted\"}]}");
+  } else if ((1 == ESrv.sme_state) || (2 == ESrv.sme_state)) {
+    char e[64]; snprintf(e, sizeof(e), "{\"messageProtocolHandshakeError\":[{\"error\":%d}]}", prot_err ? prot_err : 2);
+    EebusSrvShipSendJson(e);
+  }
+  EebusSrvFree();
+}
+
+// v242 (SHIP Z. 2125-2126, 2194-2199): nach der CMI sofort das eigene Hello - "ready" nur fuer vertraute Anrufer.
+bool EebusSrvHelloStart(void) {
+  const char *ski = (ESrv.x509 && ESrv.x509->have) ? ESrv.x509->ski : "";
+  if (!EebusSkiVertraut(ski)) {
+    AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV %s (SKI %s) ist nicht vertraut - abgewiesen (zulassen: EEBusTrust <SKI>)"),
+           ESrv.peer_ip, ski[0] ? ski : "-");
+    EebusLbLog("Anrufer abgewiesen - nicht vertraut", ski, ESrv.peer_ip, -1, "", 0, "SKI nicht in Partner-/Vertrauensliste (EEBusTrust)");
+    EebusSrvShipSendJson("{\"connectionHello\":[{\"phase\":\"aborted\"}]}");
+    EebusSrvFree();
+    return false;
+  }
+  if (!EebusSrvShipSendJson("{\"connectionHello\":[{\"phase\":\"ready\"},{\"waiting\":60000}]}")) { EebusSrvFree(); return false; }
+  ESrv.sme_state = 0;
+  ESrv.hello_start = millis();
+  ESrv.sme_frist = Eebus126At(EEBUS_SME_HELLO_TIMEOUT_MS);   // Wait-For-Ready-Timer (T_hello_init 60 s)
+  return true;
+}
+
 // v231: eine vollstaendige WS-Nachricht (aus einem Frame oder zusammengesetzt) verarbeiten. pl[len] muss beschreibbar
 // sein (wird kurz NUL-terminiert). Rueckgabe false = Verbindung wurde beendet, Puffer nicht mehr anfassen.
 bool EebusSrvMsgHandle(uint8_t *pl, size_t len) {
-  if (!ESrv.cmi_done && (2 == len) && (0x00 == pl[0])) {
-   // SHIP 13.4.3 CMI: Geraet (WS-Client) sendet [0x00,0x00], wir antworten gleich
+  if (!ESrv.cmi_done) {
+   // SHIP 13.4.3 CMI. v242 (SHIP Z. 2052-2067): nur MessageType und CmiHead auswerten; ist es keine CMI mit Kopf 0,
+   // trotzdem eine CMI senden und dann schliessen.
       uint8_t cmi[2] = { 0x00, 0x00 };
-      if (EebusSrvWsSendOp(cmi, 2, 0x2)) {
-        ESrv.cmi_done = true;
-        AddLog(LOG_LEVEL_INFO, PSTR("EBG: *** SRV CMI mit %s beantwortet — SHIP-Kanal steht, warte auf SME-Hello ***"),
-               ESrv.peer_ip);
-      } else {
-        AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV CMI-Antwort an %s fehlgeschlagen"), ESrv.peer_ip);
+      const bool gut = (len >= 2) && (0x00 == pl[0]) && (0x00 == pl[1]);
+      const bool gesendet = EebusSrvWsSendOp(cmi, 2, 0x2);
+      if (!gut || !gesendet) {
+        AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV %s: %s - Verbindung beendet"), ESrv.peer_ip,
+               gut ? "CMI-Antwort fehlgeschlagen" : "keine gueltige CMI (SHIP 13.4.3)");
         EebusSrvFree();
         return false;
       }
+      ESrv.cmi_done = true;
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: *** SRV CMI mit %s beantwortet — SHIP-Kanal steht ***"), ESrv.peer_ip);
+      if (!EebusSrvHelloStart()) { return false; }
     } else if (len > 0) {
    // SHIP-Nachricht: [0]=Klassifizierer (1=control/SME, 2=data/SPINE, 3=close), dann JSON.
    // Payload liegt komplett im abuf -> temporaer NUL-terminieren fuer strstr-Parsing.
@@ -7906,6 +9137,21 @@ void EebusSrvAppData(void) {
         EebusSrvFree();
       }
       return;   // Request noch unvollstaendig
+    }
+    {   // v242 (SHIP Z. 802, 818-821, RFC 6455 4.2.1): Anfrage pruefen, sonst 400
+      char v[64];
+      const char *h = (const char*)ESrv.abuf;
+      const bool gut = EebusHdrWert(h, "Upgrade", v, sizeof(v)) && EebusTextHatI(v, "websocket") &&
+                       EebusHdrWert(h, "Sec-WebSocket-Version", v, sizeof(v)) && (0 == strcmp(v, "13")) &&
+                       EebusHdrWert(h, "Sec-WebSocket-Protocol", v, sizeof(v)) && EebusTextHatI(v, "ship") &&
+                       EebusHdrWert(h, "Sec-WebSocket-Key", v, sizeof(v));
+      if (!gut) {
+        AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV %s: WS-Anfrage ohne websocket/Version 13/ship - 400, Verbindung beendet"), ESrv.peer_ip);
+        static const char r400[] = "HTTP/1.1 400 Bad Request\r\nSec-WebSocket-Version: 13\r\nContent-Length: 0\r\n\r\n";
+        EebusSrvAppWrite((const uint8_t*)r400, sizeof(r400) - 1);
+        EebusSrvFree();
+        return;
+      }
     }
     bool ok = EebusSrvWsUpgradeReply();
     AddLog(LOG_LEVEL_INFO, PSTR("EBG: %s SRV WS-Upgrade von %s (101, Subprotocol ship)"),
@@ -7956,7 +9202,14 @@ void EebusSrvAppData(void) {
       return;
     } else if (0x9 == opcode) {   // Ping -> Pong gleiche Payload
       EebusSrvWsSendOp(pl, len, 0xA);
-    } else if (0xA == opcode) {   // v231: Pong - nichts zu tun (lief bisher als SHIP-Nachricht in den Parser)
+    } else if (0xA == opcode) {   // v231: Pong (lief bisher als SHIP-Nachricht in den Parser)
+      if (ESrv.conn_idx >= 0) { EConn[ESrv.conn_idx].pong_wait_at = 0; }   // v242
+    } else if ((0x0 != opcode) && (0x2 != opcode)) {   // v242 (SHIP Z. 826-830): Text -> 1003, reserviert -> 1002
+      const uint8_t cs[2] = { 0x03, (uint8_t)((0x1 == opcode) ? 0xEB : 0xEA) };
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV %s sendet WS-Opcode %u - Close %u"), ESrv.peer_ip, opcode, (0x1 == opcode) ? 1003 : 1002);
+      EebusSrvWsSendOp(cs, 2, 0x8);
+      EebusSrvFree();
+      return;
     } else if (!fin || (0x0 == opcode)) {
        // v231 (Pruefung 4.10): zerstueckelte WS-Nachricht zusammensetzen (RFC 6455 5.4), wie im Client-Weg
        // (EebusWsRecv). Bis v230 wurde jedes Fragment verworfen - eine grosse Nachricht der Gegenstelle ging verloren.
@@ -8000,7 +9253,13 @@ void EebusSrvPoll(void) {
     EebusSrvFree();
     return;
   }
-  if (TimeReached(ESrv.deadline)) {
+  if (ESrv.sme_frist && TimeReached(ESrv.sme_frist)) {   // v242: Wait-For-Ready / Wait-Timer / pinState
+    ESrv.sme_frist = 0;
+    EebusSrvAbbruch((0 == ESrv.sme_state) ? "Hello: Wait-For-Ready abgelaufen" :
+                    (4 == ESrv.sme_state) ? "kein pinState binnen 10 s" : "ProtocolHandshake: Wait-Timer abgelaufen", 1);
+    return;
+  }
+  if (TimeReached(ESrv.deadline) && !(ESrv.cmi_done && (0 == ESrv.sme_state) && ESrv.sme_frist)) {   // v242: im Hello gilt die Hello-Frist
     AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV Timeout %s (Handshake %s)"),
            ESrv.peer_ip, ESrv.hs_done ? "fertig, keine Daten mehr" : "unvollstaendig");
     EebusSrvFree();
@@ -8108,6 +9367,20 @@ void EebusInboundAccept(void) {
   EebusSrvPoll();
 }
 
+// v244: eigenes Netz wieder da -> wartende Keep-Alive-Verbindungen sofort nachsehen lassen (Kopf v244).
+static bool eebus_netz_da = false;
+void EebusNetzZurueck(void) {
+  for (int ci = 0; ci < EEBUS_MAX_CONN; ci++) {
+    EebusConn *c = &EConn[ci];
+    if ((SME_OFF != c->sme) || !c->keepalive || c->via_srv || (c->peer_idx < 0)) { continue; }
+    c->ka_lost_at = millis(); if (!c->ka_lost_at) { c->ka_lost_at = 1; }   // schnelle Phase (5 s) neu
+    if (3 == c->ka_ping_res) { c->ka_ping_res = 0; }   // altes "keine Antwort" verwerfen; laufenden Ping nicht anfassen
+    c->reconnect_at = Eebus126At(500);
+    AddLog(LOG_LEVEL_INFO, PSTR("EBG: Netz wieder da - Wiederaufbau sofort (Slot %d @ %s)"), ci, c->peer_ip);
+    EebusLbLog("Netz wieder da - Wiederaufbau sofort", c->peer_ski, c->peer_ip, -1, "", 0, "");
+  }
+}
+
 bool Xdrv126(uint32_t function) {
   bool result = false;
 
@@ -8139,6 +9412,7 @@ bool Xdrv126(uint32_t function) {
       EebusWebClickRun();   // vorgemerkte Verbinden/Trennen-Klicks (NIE im HTTP-Handler)
 #endif
       EebusLpcExpireCheck();   // "BESTAETIGT aktiv" -> "ausgelaufen", sobald die Dauer um ist
+      EebusDoppelPruefen();    // v242 (SHIP Z. 1353-1366)
    // Vorgemerkte Leseanfragen (EEBusRead) absetzen — bewusst HIER und nicht im Kommando selbst:
    // wird waehrend der Kommandobearbeitung gesendet, kommt der gesendete Rahmen vermischt mit der
    // Kommandoantwort aus /cm heraus (gemessen 29.07.). Die Verzoegerung von bis zu einer Sekunde
@@ -8249,13 +9523,8 @@ bool Xdrv126(uint32_t function) {
           ESp->lpc_verify_at = 0;
           EebusLpcVerify();   // sendet Read-Back, setzt LPC_VERIFY + frische Deadline
         }
-   // DeviceConfig-Read-Timeout auch fuer via_srv (Waermepumpen-Gateway) best-effort -> trotzdem schreiben
-   // (EebusSmePoll kehrt fuer via_srv frueh zurueck, deckt den READCFG-Timeout dort nicht ab)
-        if ((LPC_READCFG == ESp->lpc_state) && ESp->lpc_deadline && TimeReached(ESp->lpc_deadline)) {
-          ESp->lpc_deadline = 0;
-          EebusLpcSetResult(LPC_READCFG, "DeviceConfig-Read Timeout (via_srv) -> schreibe trotzdem");
-          EebusLpcWrite();
-        }
+   // v239: ALLE Antwortfristen der LPC-Kette auch fuer via_srv (bisher nur READCFG) - EebusSmePoll kehrt dort frueh zurueck
+        if (ESp->via_srv) { EebusLpcPhasenFrist(); }
    // faelliger err7-Retry -> Heartbeat+Write erneut. EebusLpcWrite() sendet im
    // HEMS-Modus selbst den Heartbeat unmittelbar vor dem Write, daher hier nur den Write erneut anstossen.
         if ((LPC_WRITE == ESp->lpc_state) && ESp->lpc_write_retry_at && TimeReached(ESp->lpc_write_retry_at)) {
@@ -8303,23 +9572,59 @@ bool Xdrv126(uint32_t function) {
    // v197: erst NACH der Anmeldung (lpc_reg_step 0 = keine, 3 = fertig). LPC Z.372-375: im Zustand "init"
    // wertet die Anlage andere Datenpunkte erst nach Herzschlag + erstem Limit-Write aus.
         if (!ESp->lpc_fs_done && (ESp->lpc_onboarded || ESp->sess_vorgabe) && ESp->hb_sub && kette_ruht &&   // v209: auch nach Sicherung
+            (!ESp->fs_wdh_at || TimeReached(ESp->fs_wdh_at)) &&   // v239: Wartezeit nach abgelehnten Failsafe-Werten
             (ESp->reg_dir_running < 0) &&
             ((0 == ESp->lpc_reg_step) || (ESp->lpc_reg_step >= 3)) &&
-            (ESp->lpc_peer_dcfg_feat >= 0) &&
+            (ESp->lpc_peer_dcfg_feat >= 0) && EebusFsGrenzenDa() &&   // v243: erst nach den Grenzen beider Richtungen
             ((ESp->lpc_fs_val_key >= 0) || (ESp->lpc_fs_prod_key >= 0) || (ESp->lpc_fs_dur_key >= 0))) {
           if (!eebus_fs_loaded) { EebusFsLoad(); }
           EebusLpcFailsafeNext(0);
           kette_ruht = false;   // die Kette laeuft jetzt
         }
+   // v239 ([LPC-913], LPC TS Z. 369-371): nach (Wieder-)Herstellung der Verbindung binnen 60 s Herzschlag und Grenze.
+   // Kommt bis 60 s nach Beginn der Datenphase keine Vorgabe, einmal in Log und Betriebslogbuch melden (Nachweis).
+        if (ESp->sess_at && ((millis() - ESp->sess_at) > 60000UL)) {   // v243: je Richtung (LPC-913 / LPP-913)
+          if (!ESp->lpc913_warn && !ESp->sess_dir_w[0] && ((ESp->lpc_lid_dir[0] >= 0) || !ESp->sess_write_at)) {
+            ESp->lpc913_warn = true;
+            AddLog(LOG_LEVEL_INFO, PSTR("EBG: *** LPC-913: %s - 60 s nach dem Verbinden noch keine Bezugs-Grenze ***"), ESp->peer_ip);
+            EebusLbLog("LPC-913 Frist verfehlt", ESp->peer_ski, ESp->peer_ip, 0, "", 0, "60 s ohne Bezugs-Grenze nach dem Verbinden");
+          }
+          if (!ESp->lpp913_warn && !ESp->sess_dir_w[1] && (ESp->lpc_lid_dir[1] >= 0) && !EebusOhneEinspeisung()) {
+            ESp->lpp913_warn = true;
+            AddLog(LOG_LEVEL_INFO, PSTR("EBG: *** LPP-913: %s - 60 s nach dem Verbinden noch keine Einspeise-Grenze ***"), ESp->peer_ip);
+            EebusLbLog("LPP-913 Frist verfehlt", ESp->peer_ski, ESp->peer_ip, 1, "", 0, "60 s ohne Einspeise-Grenze nach dem Verbinden");
+          }
+        }
+   // v239 (LPC TS 3.4.3.1 Nr. 3 Z. 1682, IG Z. 291-301): hat die Anlage 60 s nach Beginn der Datenphase unseren Herzschlag
+   // weder abonniert noch gelesen, bekommt sie keinen und faellt nach 120 s in den Failsafe -> einmal melden.
+        if (ESp->sess_at && !ESp->hb_sub && !ESp->hbabo_warn && ((millis() - ESp->sess_at) > 60000UL)) {
+          ESp->hbabo_warn = true;
+          AddLog(LOG_LEVEL_INFO, PSTR("EBG: *** %s hat unseren Herzschlag nicht abonniert - faellt nach 120 s in den Failsafe ***"), ESp->peer_ip);
+          EebusLbLog("Herzschlag nicht abonniert", ESp->peer_ski, ESp->peer_ip, -1, "", 0, "Anlage abonniert unseren Herzschlag nicht (LPC TS 3.4.3.1)");
+        }
    // v200: Sicherungs-Freigabe (s. Kopf v200)
         const bool sich_bereit = ESp->active && (SME_DONE == ESp->sme) && (nullptr != ESp->lpc_disco);   // v201: statt Onboarding
         if (sich_bereit && !ESp->sess_at) { ESp->sess_at = millis(); if (!ESp->sess_at) { ESp->sess_at = 1; } }
-        if (sich_bereit && kette_ruht && (ESp->reg_dir_running < 0) && !ESp->sich_stufe &&
+        if (sich_bereit && kette_ruht && ESp->hb_sub && (ESp->reg_dir_running < 0) && !ESp->sich_stufe &&   // v241: hb_sub (LPC-913)
             (!ESp->sich_wdh_at || TimeReached(ESp->sich_wdh_at)) &&   // v214: Wartezeit nach Ablehnung
             ESp->sess_at && ((millis() - ESp->sess_at) >=
                              ((0 == EebusModeEffective(ESp->peer_ski)) ? EEBUS_SICHERUNG_DIREKT_MS : EEBUS_SICHERUNG_MS))) {
           ESp->sich_stufe = 1;
-          if (ESp->sess_vorgabe) {
+          if (ESp->wdh_offen) {
+   // v237 (Test 22.11.): WIEDERHOLUNG nach Ablehnung/Abbruch - nur die Richtungen, die es brauchen (eigene Grenze oder offene
+   // Freigabe). Bis v236 wurde hier wie bei der ersten Sicherung BEIDE Richtungen geplant; die Freigabe der anderen Richtung
+   // setzte sess_vorgabe, die naechste Wiederholung entfiel still ("nichts zu tun") - nach dem 1. Versuch kam keiner mehr.
+            ESp->wdh_offen = false;
+            for (uint8_t d = 0; d < 2; d++) {
+              uint32_t own_watt; long own_rest;
+              if (ESp->frei_offen[d]) { ESp->sich_plan[d] = 1; }
+              else if (EebusEigeneGrenze(d, &own_watt, &own_rest)) { ESp->sich_plan[d] = 2; }
+              else { ESp->sich_plan[d] = 0; }
+            }
+            AddLog(LOG_LEVEL_INFO, PSTR("EBG: Wiederholung @ %s (%u.) - Bezug %s, Einspeisung %s"), ESp->peer_ip, ESp->wdh_n,
+                   (2 == ESp->sich_plan[0]) ? "eigene Grenze erneut" : (ESp->sich_plan[0] ? "Freigabe" : "nichts"),
+                   (2 == ESp->sich_plan[1]) ? "eigene Grenze erneut" : (ESp->sich_plan[1] ? "Freigabe" : "nichts"));
+          } else if (ESp->sess_vorgabe) {
             AddLog(LOG_LEVEL_DEBUG, PSTR("EBG: Sicherung @ %s: Vorgabe in dieser Sitzung geschrieben - nichts zu tun"), ESp->peer_ip);
           } else {
             for (uint8_t d = 0; d < 2; d++) {
@@ -8352,7 +9657,7 @@ bool Xdrv126(uint32_t function) {
           }
         }
    // v200: Sicherungs-Plan abarbeiten, je Takt eine Richtung, nur bei ruhender Kette
-        if ((ESp->sich_plan[0] || ESp->sich_plan[1]) && sich_bereit && kette_ruht && (ESp->reg_dir_running < 0)) {
+        if ((ESp->sich_plan[0] || ESp->sich_plan[1]) && sich_bereit && kette_ruht && ESp->hb_sub && (ESp->reg_dir_running < 0)) {   // v241: hb_sub
           const uint8_t d = ESp->sich_plan[0] ? 0 : 1;
           const uint8_t was = ESp->sich_plan[d];
           ESp->sich_plan[d] = 0;
@@ -8442,6 +9747,11 @@ bool Xdrv126(uint32_t function) {
           else if (TimeReached(ESp->ws_ping_next)) {
             ESp->ws_ping_next = Eebus126At(EEBUS_WS_PING_MS);
             EebusWsSendOp(nullptr, 0, 0x9);   // Ping; die Gegenstelle antwortet mit Pong
+            if (!ESp->pong_wait_at) { ESp->pong_wait_at = millis(); if (!ESp->pong_wait_at) { ESp->pong_wait_at = 1; } }   // v242
+          }
+          if (ESp->pong_wait_at && ((millis() - ESp->pong_wait_at) > EEBUS_WS_PONG_MS)) {   // v242 (SHIP Z. 854-855)
+            AddLog(LOG_LEVEL_INFO, PSTR("EBG: *** %s: kein Pong binnen 10 s (SHIP 10.4) - Verbindung wird abgebaut ***"), ESp->peer_ip);
+            EebusVerbindungWeg(false);
           }
         } else {
           ESp->ws_ping_next = 0;
@@ -8492,7 +9802,7 @@ bool Xdrv126(uint32_t function) {
    // Pruefung scharf (Geraete, die Ping sperren, bleiben unberuehrt). Abgebaut wird nur, wenn EEBUS_LIFE_LOST_MS lang
    // weder eine Ping-Antwort noch irgendeine Nachricht kam - ein verlorener Ping allein reicht nie. Danach baut der
    // Wiederaufbau (v229/v230, Ping vor dem Anruf) neu auf.
-   // v233 (07.11., Andreas): KEIN Dauer-Ping mehr. Box v231/v232 stuerzte im Testnetz viermal ab (07.11. ~10:09, 11:02,
+   // v233 (07.11., meierchen006): KEIN Dauer-Ping mehr. Box v231/v232 stuerzte im Testnetz viermal ab (07.11. ~10:09, 11:02,
    // 11:10, 13:41: DebugException in vTaskSwitchContext, EPC 4037e9bd - dieselbe Adresse wie der Ping-Absturz von v229),
    // Box v224 (ohne Ping) lief 2 Tage 16 h ohne Absturz. Der Lebenszeichen-Ping legte alle 3 s eine neue esp_ping-Task an
    // und loeschte sie wieder (rund 1200 je Stunde). Ersatz ohne eigene Task: Schickt die Gegenstelle Herzschlaege
@@ -8500,7 +9810,8 @@ bool Xdrv126(uint32_t function) {
    // tot -> abbauen, der Wiederaufbau (Ping vor dem Anruf, v229/v230) baut neu auf. Gegenstellen ohne eigenen Herzschlag
    // bleiben bei EEBUS_SILENT_S (180 s), damit eine stille SteuVE nicht faelschlich getrennt wird.
         if ((SME_DONE == ESp->sme) && !ESp->via_srv && ESp->keepalive && ESp->peer_ip[0] &&
-            ESp->peer_hb_at && ESp->last_rx && ((millis() - ESp->last_rx) >= EEBUS_LIFE_SILENT_MS)) {
+            ESp->peer_hb_at && ESp->last_rx &&
+            ((millis() - ESp->last_rx) >= ((ESp->peer_hb_tmo_s * 2000UL > EEBUS_LIFE_SILENT_MS) ? ESp->peer_hb_tmo_s * 2000UL : EEBUS_LIFE_SILENT_MS))) {   // v239: mind. 2x ihre Zusage
           AddLog(LOG_LEVEL_INFO, PSTR("EBG: *** %s seit %u s ohne jede Nachricht (Herzschlag bleibt aus) - Verbindung wird abgebaut und neu aufgebaut ***"),
                  ESp->peer_ip, (uint32_t)(EEBUS_LIFE_SILENT_MS / 1000));
           EebusStatSet(ESp->peer_ski, SHIP_CMI_OK, "");
@@ -8509,6 +9820,11 @@ bool Xdrv126(uint32_t function) {
           ESp->last_rx = 0;
           if (ESp->peer_idx >= 0) { ESp->reconnect_at = Eebus126At(EebusKaWaitMs()); }
           EebusTeardownLater();
+        }
+   // v241 (LPC TS Z. 1466): abgelehnte Abos regelmaessig lesen
+        if ((SME_DONE == ESp->sme) && ESp->abo_poll_at && TimeReached(ESp->abo_poll_at)) {
+          ESp->abo_poll_at = Eebus126At(EEBUS_ABO_POLL_MS);
+          EebusAboPoll();
         }
    // HERZSCHLAG DER GEGENSTELLE UEBERWACHEN — die Gegenprobe zum Senden oben.
    // Bewertet wird IHRE EIGENE Zusage (heartbeatTimeout), verdoppelt als Reserve: ein einzelner
@@ -8527,6 +9843,7 @@ bool Xdrv126(uint32_t function) {
               char lbg[32]; snprintf(lbg, sizeof(lbg), "ueber %u s kein Herzschlag", frist_s);
               EebusLbLog("Kommunikationsstoerung - Herzschlag aus", ESp->peer_ski, ESp->peer_ip, -1, "", 0, lbg);
             }
+            EebusAboErneuern(1);   // v241 (SPINE Z. 2406-2409 a): Herzschlag-Abo erneuern und einmal lesen
    // ⚠️ ANMELDUNG NUR ERNEUERN, SOLANGE KEINE EIGENE GRENZE AKTIV IST. Die Anmeldung ist eine
    // FREIGABE (isLimitActive:false) — sie wuerde eine gesetzte Begrenzung aufheben. Geprueft wird
    // beides: der eigene Merker aus dem letzten Schreibauftrag UND der zuletzt zurueckgelesene
@@ -8621,6 +9938,12 @@ bool Xdrv126(uint32_t function) {
           }
         }
       }
+      break;
+    case FUNC_NETWORK_UP:     // v244: kommt jede Sekunde, solange das Netz steht - nur der Wechsel zaehlt
+      if (!eebus_netz_da) { eebus_netz_da = true; EebusNetzZurueck(); }
+      break;
+    case FUNC_NETWORK_DOWN:
+      eebus_netz_da = false;
       break;
     case FUNC_COMMAND:
       // Gegenpruefung 06.11.: bei EEBus-Befehlen Leerzeichen am Ende abschneiden (Tasmota entfernt nur fuehrende). Die strenge

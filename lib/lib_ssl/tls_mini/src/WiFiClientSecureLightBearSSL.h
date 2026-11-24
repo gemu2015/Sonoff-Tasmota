@@ -230,6 +230,8 @@ const uint8_t *ShipPeerPubKey(const void *client, size_t *len);
 // and the server name used. Empty strings if none. Read right after connect(); the next connect overwrites it.
 void TlsPeerCertInfo(const char **von, const char **bis, const char **fuer, const char **snr_hex,
                      const char **snr_dez, const char **host);
+// 22.11.2026 (Steuerbox v242): DER of that certificate (first 1024 bytes), e.g. for the SHIP SubjectKeyIdentifier check.
+const uint8_t *TlsPeerCertDer(size_t *len);
 
 #define ERR_OOM             -1000
 #define ERR_CANT_RESOLVE_IP -1001

@@ -6,7 +6,94 @@
   sie nach aussen (Tasmota-Ereignis/Befehl), damit z. B. ein Skript Verbraucher schaltet.
 
   Abgeleitet aus xdrv_126_eebus_guard.ino v184 (Steuerbox). Eigene Versionszaehlung ab SteuVE v001.
-  SteuVE v032 (21.11.2026, Andreas: Rueckmeldung, dass geschaltet wurde): das ACK auf eine Grenze ist eine Zusage, sie
+  SteuVE Firmware v040 (23.11.2026, Normrest SHIP 13.4.8.1): eigenes connectionClose mit reason "unspecific" statt
+  "unplug" (XSD ConnectionCloseReasonType kennt nur unspecific/removedConnection, Z. 3127-3138); auf "announce" der
+  Gegenstelle mit phase "confirm" antworten, dann schliessen (Z. 3158-3162) - wie Steuerbox v231.
+
+  SteuVE v038 = Firmware v039 (23.11.2026, meierchen006):
+  (1) Binding-Pflicht EINGESCHALTET (SPINE PS Z. 2419, LPC Z. 1488-1490, TS BIND_002): Grenze (LoadControl) und Failsafe-Werte
+      (DeviceConfiguration) nur vom Binding-Partner des beschriebenen Features, sonst Fehler 9 ("Binding noetig", immer
+      gesendet). Voraussetzung am Geraet belegt (23.11. 16:20): HEMS Firmware v039 bindet LoadControl 1/6 UND
+      DeviceConfiguration 1/10 und bindet nach Fehler 9 neu. Bisher (v036/v037) nur protokolliert.
+  (2) Eigener Wiederaufbau auch nach einer EINGEHENDEN Verbindung: trennt der Energy Guard eine Verbindung, die ER aufgebaut
+      hatte (wir Server, z. B. HEMS-Neustart), ruft die SteuVE nach 10 s selbst beim gemerkten Partner an (EEBusAutoConn-
+      Ablauf; ruft er vorher selbst an, entfaellt es). Bisher wartete sie, bis der Energy Guard anrief (~40 s statt ~20 s,
+      Messung 23.11. 16:24: .24 als Client nach 19 s, .23 als Server nach 44 s). Doppelte Verbindungen raeumt das HEMS ab.
+
+  SteuVE v037 = Firmware v038 (23.11.2026, SHIP-Pruefung wie Steuerbox v242, SHIP TS 1.1.0 + SHIP-Testspezifikation 1.0.0):
+  (1) CMI als Client ohne Blockieren, CmiTimeout 15 s, nur MessageType+CmiHead auswerten (SHIP Z. 2052-2084,
+      TC_SHIP_CMI_002/004/006); als Server: falsche CMI -> trotzdem CMI senden, dann schliessen (Z. 2061-2067,
+      TC_SHIP_CMI_001/005). Bis v036 wartete der Client blockierend 8 s.
+  (2) Hello nach SHIP 13.4.4.1 (Z. 2202-2313, TC_SHIP_HELLO_001-004): Wait-For-Ready 60 s; "pending" ohne
+      prolongationRequest wird ignoriert, mit prolongationRequest +60 s (hoechstens 10 min) und Hello-Update mit der
+      Restzeit; im Zustand Hello zaehlt nur ein Hello; Abbruch sendet "aborted" (Z. 2292-2297). Als Server schickt die
+      SteuVE ihr Hello sofort nach der CMI (Z. 2194-2199), nicht erst nach dem Hello des Anrufers. Die eigene
+      Endlos-Verlaengerung bei "pending" (bis v036) entfaellt - wer wartet, muss selbst um Verlaengerung bitten.
+  (3) Protocol Handshake (Z. 2385-2446, TC_SHIP_PROT_001-006): Client prueft das select (Version 1.0, genau JSON-UTF8),
+      Server prueft announceMax und den Spiegel des select; Wait-Timer 10 s; Fehler 1 (Timeout), 2 (unerwartete
+      Nachricht), 3 (Auswahl passt nicht) werden als messageProtocolHandshakeError gesendet.
+  (4) PIN (Z. 2658-2664, 2747-2754, TC_SHIP_PIN_001): ohne pinState des Peers binnen 10 s wird geschlossen (bis v036:
+      nach 5 s trotzdem Datenphase); als Server erst nach dem pinState des Anrufers in die Datenphase, accessMethods-
+      Request erst dort (Z. 2882-2884).
+  (5) Anrufer nur mit Zertifikat (Z. 692-693; kein BR_OPT_TOLERATE_NO_CLIENT_AUTH mehr, ausser im Testbetrieb
+      EEBusCsStreng 0) und nur, wenn vertraut (Z. 2125-2126, 2255-2256): in Rolle 3 nur der Energy Guard aus
+      EEBusCsTrust (SKI aus dem Zertifikat). Andere Anrufer bekommen Hello "aborted". Folge: eine neue SteuVE braucht
+      ZUERST EEBusCsTrust <SKI>|hm, sonst kann das HEMS sie nicht anrufen (bis v036 durfte es ohne Rechte verbinden).
+      Rollen 0-2: zusaetzlich gemerkter Partner, Betriebsart-Zuordnung (EEBusPeerMode), eigener laufender Anruf.
+  (6) SubjectKeyIdentifier-Erweiterung im Zertifikat muss zur SKI des Schluessels passen (Z. 1265-1269,
+      TC_SHIP_SEC_001/002), in beiden Richtungen (Client: BearSSL::TlsPeerCertDer, Server: EebusSrvX509 merkt das DER).
+  (8) Server-Records hoechstens 1024 B Klartext (Z. 714-716).
+  (9) SNI = mDNS-Hostname der Gegenstelle mit ".local" (Z. 723, 804), nie eine Adresse.
+  (10) WebSocket (Z. 802, 818-830, RFC 6455): Client prueft Sec-WebSocket-Accept und Subprotokoll "ship", Server
+      prueft Upgrade/Version 13/ship/Key (sonst 400); Text-Frames -> Close 1003, reservierte Opcodes -> Close 1002;
+      ein Close der Gegenstelle wird im Client-Weg mit ihrem Statuscode beantwortet.
+  (12) accessMethods mit {"dnsSd_mDns":[]} (Tab. 22); connectionClose nur in der Datenphase, im Hello "aborted"
+      (Z. 3103-3105, 2292-2297).
+  (14) mDNS-Eintraege ohne txtvers=1 werden verworfen (Z. 570-573, TC_SHIP_MDNS_001).
+  Folgeaenderung (wie Steuerbox v231): ein ausgehender Slot, dessen Handshake scheiterte (SME_FAIL), kommt nach der
+  Freigabe wieder nach SME_OFF, damit der Keep-Alive neu aufbaut (sonst blieb er nach CMI-/PIN-Fehler fuer immer still).
+  Schon erfuellt: (11) Pong-Frist 10 s (v035), (13) JSON mit Leerraum (v036). Bewusst NICHT: (7) Doppelverbindung
+  (SHIP Z. 1353-1366) - ohne Doppel-Sperre im Keep-Alive und ohne die Regel im HEMS koennten sich beide Seiten die
+  Verbindungen gegenseitig abbauen.
+
+  SteuVE v036 (23.11.2026, Normpruefung SPINE-TS V1.1.0 / LPC-TS V1.0.2, wie HEMS v047 / Steuerbox v246; meierchen006: "Grenze
+  ohne Skript ablehnen"):
+  (1) Skript-Lebenszeichen: eine aktive Grenze wird nur zugesagt, wenn das Skript per EEBusCsReady frisch (< 60 s) meldet,
+      wie weit es herunter kann - auch wenn es NIE gemeldet hat (bisher "altes Skript -> ACK"). Laeuft das Skript nicht
+      (z. B. TinyC-Boot-Schutz nach zwei Stromausfaellen binnen 30 s schaltet den Autostart ab), waere ein ACK eine falsche
+      Zusage (LPC IG Z. 222-223 "an ACK is NOT only an acknowledgement of receipt"). Ein Messwert (EEBusCsPower), der
+      laenger als 60 s nicht erneuert wurde, gilt als unbekannt (valueState error). EEBusCs meldet "Skript".
+  (2) Negative Grenze im Anlauf/Failsafe/autonom (nach gueltigem Herzschlag): NACK UND gesteuert/frei (CSConnection_003,
+      CSTransition*_001, [LPC-902]/[LPC-918]); bisher blieb der Zustand.
+  (3) Dauer 0 mit "aktiv" = Freigabe mit ACK, nie NACK (LPC IG Z. 175-177, 187-189).
+  (4) SPINE-NodeManagement: Liste der Abos/Bindings je Verbindung (EEBUS_GB_MAX), nodeManagementSubscriptionData/
+      BindingData beantwortet (TS SUBS_001/002, BIND_001); Binding auf NodeManagement -> Fehler 7, unbekannter Call ->
+      Fehler 6, NodeManagement-Befehl an Ziel ungleich 0/0 -> Fehler 6 (FC_001); SubscriptionDelete mit Platzhaltern
+      setzt alle betroffenen Merker zurueck; Abo-Ziel auch aus serverAddress; reply mit ackRequest wird quittiert;
+      Quittungen mit dem angeschriebenen Feature als Absender (PS Z. 1166-1167).
+  (5) Binding-Pflicht fuer Writes (PS Z. 2419, TS BIND_002): VORERST NUR PROTOKOLLIERT ("nicht gebunden"), nicht
+      abgelehnt - der Rueckfallweg des HEMS ohne Discovery bindet nur LoadControl. Erzwingen erst nach sauberem Test.
+  (6) Herzschlag-Notify als gesteuerte Einrichtung (Rolle 3) nur an Abonnenten; ein blosses Lesen wird nur beantwortet
+      (PS Z. 2417-2418). Rollen 1/2 unveraendert.
+  (7) Herzschlag-Abo beim Energy Guard abgesichert (LPC Z. 1466, 1470-1472): Quittung ausgewertet, bei Ablehnung alle
+      30 s lesen; nach geaenderter Discovery (Teil-Notify) und nach Herzschlagverlust neu abonnieren; nach der Discovery
+      auch ohne LoadControl-Abo anstossen.
+  (8) Nennleistung (EEBusCsMax) im Flash (/eebus_cs_max.txt): ohne laufendes Skript wird der letzte bekannte Wert
+      gemeldet statt 0 W (LPC Z. 657-659, CSUnlCntrl_003).
+  (9) JSON mit Leerraum um ':' (EebusJsonStr/EebusJsonInt wie Steuerbox v242, ackRequest, isLimitActive, serverFeatureType).
+
+  SteuVE v035 (22.11.2026, Normpruefung, Bericht 2026-11-22--1800): (1) Grenze in Anlauf/Failsafe/autonom nur mit
+    Herzschlag binnen 60 s davor (LPC TS Z. 372-375); (2) Failsafe-Werte dort erst nach Herzschlag + Grenze (Z. 342-346);
+    (3) nicht einhaltbare Grenze dort -> gesteuert, frei (LPC-902/918); (4) Failsafe-Dauer > 24 h: NACK, auf 24 h setzen,
+    melden (LPC-022/4,5), EEBusCsFs nur 2..24 h; (5) Teil-Write ohne endTime laesst die Endzeit stehen, Endzeit auch bei
+    deaktivierter Grenze (Z. 1551-1553, 546-547); (6) Notify DeviceConfiguration/ElectricalConnection an Abonnenten
+    (Z. 1641, 1771); (7) unbekannter Read -> result errorNumber 6, notify mit ackRequest quittiert (SPINE Z. 1088-1093,
+    1134-1145); (8) heartbeatTimeout PT60S (Tab. 26); (9) kein Pong 10 s nach Ping -> abbauen (SHIP Z. 853-855).
+  SteuVE v034 (22.11.2026, NUR TEST): Befehl EEBusCsHbTest 1 - Herzschlag des Energy Guard weder abonnieren noch lesen,
+    um den Wallbox-Fall vom 21.11. im Testnetz nachzustellen (HEMS v035). Nach Neustart aus.
+  SteuVE v033 (22.11.2026): Nachricht als Server (an das HEMS) in EINEM TLS-Record statt Kopf und Inhalt getrennt -
+    das HEMS bekam sonst bei einer Pause der SteuVE den Kopf ohne Inhalt und baute nach 1 s ab (EebusSrvWsSendOp).
+  SteuVE v032 (21.11.2026, meierchen006: Rueckmeldung, dass geschaltet wurde): das ACK auf eine Grenze ist eine Zusage, sie
     einzuhalten - nicht nur eine Empfangsbestaetigung (LPC TS 2.2 [LPC-002]/[LPC-003], LPC IG 2.4). Bisher ging es immer
     sofort raus, auch wenn das Skript nichts abschalten konnte. Neu, nur wenn das Skript sie benutzt (alte Skripte wie bisher):
       EEBusCsReady <W>|unbekannt  Skript meldet laufend, auf welche Leistung es gerade herunter kann. Eine AKTIVE Grenze
@@ -16,7 +103,7 @@
                                   Energy Guard per Notify informieren (isLimitActive false, [LPC-923], [LPC-009]).
       EEBusCsQuelle m|c|e         valueSource der gemeldeten Leistung: measuredValue / calculatedValue / empiricalValue
                                   (SPINE MeasurementValueSourceEnumType) - z. B. e bei Relais ohne Messung.
-  SteuVE v031 (20.11.2026, Andreas: "Wir muessen uns mit allen Geraeten an die Norm halten"; Firmware-Nummer beim Bau):
+  SteuVE v031 (20.11.2026, meierchen006: "Wir muessen uns mit allen Geraeten an die Norm halten"; Firmware-Nummer beim Bau):
     Eingehende Verbindungen setzen zerstueckelte WebSocket-Nachrichten zusammen (RFC 6455 5.4; SHIP TS 1.1.0 Z. 834-836),
     wie der Client-Weg (EebusWsRecv) und der Server-Weg der Steuerbox (126 v231). Bis v030 verwarf EebusSrvAppData jedes
     Fragment ("Etappe 2 verworfen") - eine grosse Nachricht einer anrufenden Gegenstelle (z. B. Detailed Discovery in
@@ -49,7 +136,7 @@
     passt sie nicht: keine Verbindung. EEBusStatus zeigt je Slot "SkiQuelle". Damit weist die SteuVE ein HEMS, das
     sie vor ihrer Fundliste anruft, nicht mehr als Pseudo-SKI (Adresse) ab (22.10. 10:16).
     Ausserdem: ein Write auf eine andere limitId als 1 (unsere einzige Grenze) wird ignoriert und ins Log geschrieben.
-  SteuVE v026 (01.11.2026, Vorschlag Andreas 31.10.): als Wiederaufbau-Partner wird nur noch ein VERTRAUTER Energy Guard
+  SteuVE v026 (01.11.2026, Vorschlag meierchen006 31.10.): als Wiederaufbau-Partner wird nur noch ein VERTRAUTER Energy Guard
     gemerkt (EebusCsTrusted). Sonst rief die SteuVE nach "Vertrauen entziehen" + Trennen die alte Gegenstelle selbst wieder an.
     Neu: EEBusCsPower unbekannt (Verbrauch nicht bekannt: valueState error, einmal gemeldet, bis wieder ein Wert kommt);
     EEBusCs zeigt "Bekannt":0/1.
@@ -311,7 +398,7 @@ const char kEebusCommands[] PROGMEM = D_PRFX_EEBUS "|"   // Prefix
   "Scan|Peers|Cert|Connect|Disconnect|Status|Trust|ConnectIp|Advertise|Log|"
   "Role|Lpc|ReleaseAll|Release|Target|Probe|Provide|Open|Hems|PeerMode|DelDur|"
   "LppFrei|Lpp|Anmeld|Data|Mess|Struct|Read|AutoConn|"
-  "CsPower|CsMax|CsFs|CsSim|CsTrust|CsStreng|CsTyp|CsMsg|CsReady|CsFail|CsQuelle|Cs";   // ReleaseAll VOR Release, LppFrei VOR Lpp, Cs* VOR Cs (Praefix-Match!)
+  "CsPower|CsMax|CsFs|CsSim|CsTrust|CsStreng|CsTyp|CsMsg|CsReady|CsFail|CsQuelle|CsHbTest|Cs";   // ReleaseAll VOR Release, LppFrei VOR Lpp, Cs* VOR Cs (Praefix-Match!)
 
 void (* const EebusCommand[])(void) PROGMEM = {
   &CmndEebusScan, &CmndEebusPeers, &CmndEebusCert,
@@ -323,7 +410,7 @@ void (* const EebusCommand[])(void) PROGMEM = {
   &CmndEebusLppFrei, &CmndEebusLpp, &CmndEebusAnmeld, &CmndEebusData,
   &CmndEebusMess, &CmndEebusStruct, &CmndEebusRead, &CmndEebusAutoConn,
   &CmndEebusCsPower, &CmndEebusCsMax, &CmndEebusCsFs, &CmndEebusCsSim, &CmndEebusCsTrust, &CmndEebusCsStreng, &CmndEebusCsTyp, &CmndEebusCsMsg,
-  &CmndEebusCsReady, &CmndEebusCsFail, &CmndEebusCsQuelle, &CmndEebusCs };   // SteuVE v004, CsTrust v006, CsTyp v007, CsMsg v009, CsReady/CsFail/CsQuelle v032
+  &CmndEebusCsReady, &CmndEebusCsFail, &CmndEebusCsQuelle, &CmndEebusCsHbTest, &CmndEebusCs };   // CsHbTest v034   // SteuVE v004, CsTrust v006, CsTyp v007, CsMsg v009, CsReady/CsFail/CsQuelle v032
 
 // Blind-Adressierung (Waermepumpen-Gateway liefert ihre Discovery nicht — Gateway-Karte als Vorlage:
 // LoadControl/server auf entity 3 "HeatPumpAppliance"):
@@ -448,12 +535,17 @@ int32_t  eebus_cs_pwr_sent   = 0;       // zuletzt per Notify gesendeter Wert
 uint32_t eebus_cs_pwr_sent_at = 0;      // millis() des letzten Messwert-Notify
 // SteuVE v032: Rueckmeldung des Skripts (siehe Kopf)
 int32_t  eebus_cs_ready_w    = -1;      // kleinste Leistung, die das Skript gerade erreichen kann (W); -1 = unbekannt
-uint32_t eebus_cs_ready_at   = 0;       // millis() der letzten EEBusCsReady-Meldung; 0 = nie (altes Skript -> ACK wie bisher)
+uint32_t eebus_cs_ready_at   = 0;       // millis() der letzten EEBusCsReady-Meldung; 0 = nie (SteuVE v036: dann KEINE Zusage)
+uint32_t eebus_cs_pwr_at     = 0;       // SteuVE v036: millis() der letzten EEBusCsPower-Meldung mit Wert
+#define EEBUS_CS_PWR_MAX_MS   60000UL   // SteuVE v036: aelterer Messwert -> unbekannt (Skript laeuft nicht)
+#define EEBUS_CS_MAX_FILE     "/eebus_cs_max.txt"   // SteuVE v036: Nennleistung im Flash
+#define EEBUS_GB_MAX          10        // SteuVE v036: Abos/Bindings der Gegenstelle bei UNS je Verbindung
 uint8_t  eebus_cs_pwr_src    = 0;       // valueSource der Leistung: 0 measuredValue, 1 calculatedValue, 2 empiricalValue
 #define EEBUS_CS_READY_MAX_MS 60000UL   // aeltere Meldung: Skript haelt nicht Schritt -> aktive Grenze nicht zusagen
 #define EEBUS_CS_MEAS_MIN_MS   10000UL
 #define EEBUS_CS_MEAS_KEEP_MS  60000UL
 void EebusCsMeasNotify(void);           // SteuVE v003: Vorwaertsdeklaration
+void EebusCsNotifyCfg(bool dc, bool ec);   // SteuVE v035: Vorwaertsdeklaration
 void EebusCsEventCheck(void);           // SteuVE v004: Vorwaertsdeklaration
 
 // Steuerbox-Rolle (Grundtor): 0 = nur Lesen (Prüfmodus, sicher),
@@ -592,6 +684,25 @@ long EebusCsRestS(void) {
   return (rest > 0) ? rest : 0;
 }
 
+// SteuVE v035: Inhalte fuer Read-Antwort UND Notify (LPC TS Z. 1641, 1771: Server meldet Aenderungen an Abonnenten).
+void EebusCsDcBody(char *kv, size_t n) {
+  char iso[24];
+  EebusSecsToIso(eebus_cs_fs_dur_s, iso, sizeof(iso));
+  snprintf(kv, n,
+    "{\"deviceConfigurationKeyValueListData\":[{\"deviceConfigurationKeyValueData\":["
+    "[{\"keyId\":1},{\"value\":[{\"scaledNumber\":[{\"number\":%u},{\"scale\":0}]}]},{\"isValueChangeable\":true}],"
+    "[{\"keyId\":2},{\"value\":[{\"duration\":\"%s\"}]},{\"isValueChangeable\":true}]"
+    "]}]}", eebus_cs_fs_w, iso);
+}
+void EebusCsEcBody(char *cb, size_t n) {
+  snprintf(cb, n,
+    "{\"electricalConnectionCharacteristicListData\":[{\"electricalConnectionCharacteristicData\":["
+    "[{\"electricalConnectionId\":0},{\"parameterId\":1},{\"characteristicId\":1},"
+    "{\"characteristicContext\":\"entity\"},{\"characteristicType\":\"powerConsumptionNominalMax\"},"
+    "{\"value\":[{\"number\":%u},{\"scale\":0}]},{\"unit\":\"W\"}]"
+    "]}]}", eebus_cs_max_w);
+}
+
 // SteuVE v001: loadControlLimitListData mit dem ECHTEN Zustand der empfangenen Grenze (Rolle 3) — fuer die
 // Antwort auf einen Read und fuer das Notify an Abonnenten. Die Geltungsdauer wird als RESTLAUFZEIT
 // gemeldet (so liest sie auch der Energy Guard zurueck: "PT4M58S").
@@ -600,7 +711,7 @@ void EebusCsLimitBody(char *body, size_t n) {
    // SteuVE v030: aktiv nur im Zustand "gesteuert" (bzw. Simulation). In Anlauf, Failsafe und autonom SHALL die
    // Grenze deaktiviert sein (LPC Z. 426-439, [LPC-009/2]) - bisher wurde die alte Grenze dort als aktiv gemeldet.
   const bool akt = eebus_cs_lim_active && ((CS_CTRL == eebus_cs_state) || eebus_cs_sim);
-  if (akt) {
+  if (akt || ((CS_CTRL == eebus_cs_state) && (eebus_cs_lim_dur_s >= 0))) {   // SteuVE v035: Dauer laeuft auch deaktiviert weiter (Z. 546-547)
     long rest = EebusCsRestS();
     if (rest >= 0) {
       char iso[24]; EebusSecsToIso(rest, iso, sizeof(iso));
@@ -1361,11 +1472,13 @@ void EebusPollScan(void) {
       EebusPeer *p = &Eebus.peers[Eebus.peer_count];
       memset(p, 0, sizeof(EebusPeer));
       strlcpy(p->path, "/ship/", sizeof(p->path));   // SHIP-Default
+      bool txtvers1 = false;   // SteuVE v037 (SHIP Z. 570-573): ohne txtvers=1 verwerfen
       for (size_t i = 0; i < cur->txt_count; i++) {
         const char *k = cur->txt[i].key;
         const char *v = cur->txt[i].value;
         if ((nullptr == k) || (nullptr == v)) { continue; }
-        if (0 == strcmp(k, "ski"))        { strlcpy(p->ski, v, sizeof(p->ski)); }
+        if (0 == strcmp(k, "txtvers"))    { txtvers1 = (0 == strcmp(v, "1")); }   // SteuVE v037
+        else if (0 == strcmp(k, "ski"))   { strlcpy(p->ski, v, sizeof(p->ski)); }
         else if (0 == strcmp(k, "id"))    { strlcpy(p->id, v, sizeof(p->id)); }
         else if (0 == strcmp(k, "path"))  { strlcpy(p->path, v, sizeof(p->path)); }
         else if (0 == strcmp(k, "model")) { strlcpy(p->model, v, sizeof(p->model)); }
@@ -1391,6 +1504,7 @@ void EebusPollScan(void) {
       }
    // SKI ist die Identitaet — ohne SKI ist der Eintrag fuer uns wertlos (SHIP 7.3.2 Pflichtfeld)
       if ('\0' == p->ski[0]) { continue; }
+      if (!txtvers1) { AddLog(LOG_LEVEL_DEBUG, PSTR("EBG: mDNS-Eintrag %s ohne txtvers=1 verworfen"), p->ski); continue; }   // SteuVE v037 (SHIP Z. 570-573)
    // Dedup nach SKI. mDNS liefert denselben Dienst mitunter MEHRFACH (mehrere Interfaces/
    // Adressen — z.B. der Referenz-CS an 169.254 doppelt). Jedes Geraet soll genau einmal in der
    // Liste stehen (SKI = Identitaet), sonst ist die Geraeteauswahl uneindeutig.
@@ -1545,8 +1659,12 @@ enum EebusSmeState : uint8_t {
   SME_PIN,   // select bestaetigt + pinState:none gesendet, warte auf Peer-pinState (Referenz-Umsetzung-Gate)
   SME_ACCESS,   // accessMethodsRequest gesendet, warte auf Peer-accessMethods (Referenz-Umsetzung-Gate)
   SME_DONE,   // Handshake komplett -> Datenphase (SPINE = M3)
-  SME_FAIL
+  SME_FAIL,
+  SME_CMI   // SteuVE v037: CMI gesendet, warte auf die CMI des Servers (ohne Blockieren, SHIP Z. 2068-2084)
 };
+
+#define EEBUS_CMI_TIMEOUT_MS         15000UL   // SteuVE v037: CmiTimeout (SHIP Z. 2084: 10-30 s)
+#define EEBUS_SME_PIN_TIMEOUT_MS     10000UL   // SteuVE v037: Peer-pinState (SHIP Z. 2663-2664)
 
 #define EEBUS_SME_HELLO_TIMEOUT_MS   60000UL   // SHIP SME_INIT_TIMEOUT (wird bei Pending verlaengert)
 #define EEBUS_SME_HELLO_MAX_MS      600000UL   // Obergrenze Pairing-Wartezeit gesamt (10 min).
@@ -1705,7 +1823,23 @@ typedef struct {
   bool     lc_sub = false;   // hat der Peer unser LoadControl (ent1/feat6) abonniert?
   bool     cs_hb_want = false;   // SteuVE v002: Rolle 3 — Herzschlag des Energy Guard abonnieren (im Sekundentakt)
   bool     cs_hb_sub = false;    // SteuVE v002: Abo auf seinen Herzschlag ist gesendet
+  bool     cs_hb_fail = false;   // SteuVE v036: Abo auf seinen Herzschlag abgelehnt -> alle 30 s lesen
+  uint32_t cs_hb_mc = 0;         // SteuVE v036: msgCounter unserer Abo-Anfrage (0 = keine offen)
+  int      cs_hb_ent = -1;       // SteuVE v036: Adresse seines Herzschlag-Servers (zum Lesen)
+  int      cs_hb_feat = -1;
+  uint32_t cs_hb_rd_at = 0;      // SteuVE v036: letztes Ersatz-Lesen
+  uint8_t  gb_n = 0;             // SteuVE v036: Abos (typ 0) / Bindings (typ 1) der Gegenstelle bei UNS (wir = Server)
+  uint8_t  gb_typ[EEBUS_GB_MAX] = { 0 };
+  int16_t  gb_ce[EEBUS_GB_MAX] = { 0 };   // Client-Entity/-Feature (Gegenstelle), -1 = nicht angegeben
+  int16_t  gb_cf[EEBUS_GB_MAX] = { 0 };
+  int16_t  gb_se[EEBUS_GB_MAX] = { 0 };   // Server-Entity/-Feature (bei uns)
+  int16_t  gb_sf[EEBUS_GB_MAX] = { 0 };
   bool     cs_meas_sub = false;  // SteuVE v003: hat der Peer unser Measurement (ent1/feat8) abonniert?
+  bool     cs_dc_sub = false;    // SteuVE v035: Abo auf unser DeviceConfiguration (ent1/feat10, Failsafe-Werte)
+  int      cs_dc_ent = 0, cs_dc_feat = 0;
+  bool     cs_ec_sub = false;    // SteuVE v035: Abo auf unser ElectricalConnection (ent1/feat9, Nennleistung)
+  int      cs_ec_ent = 0, cs_ec_feat = 0;
+  uint32_t ws_pong_wait = 0;     // SteuVE v035: millis() des letzten Pings ohne Pong (0 = keiner offen), SHIP Z. 853-855
   int      cs_meas_ent = 0;      // SteuVE v003: Client-Adresse des Messwert-Abonnenten
   int      cs_meas_feat = 0;
   int      lc_cli_ent = 0;   // Client-Adresse des LoadControl-Abonnenten (fuer NOTIFY)
@@ -2074,7 +2208,20 @@ int EebusWsRecv(uint8_t *out, size_t max, uint32_t timeout_ms) {
     uint8_t mask[4] = { 0, 0, 0, 0 };
     if (masked && (4 != EebusStreamRead(mask, 4, timeout_ms))) { return -1; }
 
-    if (0x8 == opcode) { return -2; } // Close-Frame (Payload egal, Verbindung endet)
+    if (0x8 == opcode) {   // SteuVE v037 (RFC 6455 5.5.1, SHIP Z. 802): Close mit dem Statuscode beantworten, Verbindung endet
+      uint8_t cp[125];
+      size_t cl = (len > sizeof(cp)) ? sizeof(cp) : len;
+      if (cl && ((int)cl != EebusStreamRead(cp, cl, timeout_ms))) { cl = 0; }
+      if (masked) { for (size_t i = 0; i < cl; i++) { cp[i] ^= mask[i & 3]; } }
+      EebusWsSendOp(cp, (cl >= 2) ? 2 : 0, 0x8);
+      return -2;
+    }
+    if ((0x0 != opcode) && (0x2 != opcode) && (0x9 != opcode) && (0xA != opcode)) {   // SteuVE v037 (SHIP Z. 826-830)
+      const uint8_t cs[2] = { 0x03, (uint8_t)((0x1 == opcode) ? 0xEB : 0xEA) };   // Text -> 1003, reserviert -> 1002
+      EebusWsSendOp(cs, 2, 0x8);
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: %s sendet WS-Opcode %u - Close %u (SHIP Z. 826-830)"), ESp->peer_ip, opcode, (0x1 == opcode) ? 1003 : 1002);
+      return -3;
+    }
 
     if ((0x9 == opcode) || (0xA == opcode)) {
    // Control-Frames (Ping/Pong) duerfen ZWISCHEN Fragmenten kommen (RFC 6455 5.4) ->
@@ -2091,6 +2238,7 @@ int EebusWsRecv(uint8_t *out, size_t max, uint32_t timeout_ms) {
       }
       if (masked) { for (size_t i = 0; i < cl; i++) { ctl[i] ^= mask[i & 3]; } }
       if (0x9 == opcode) { EebusWsSendOp(ctl, cl, 0xA); }   // Ping -> Pong gleiche Payload
+      if (0xA == opcode) { ESp->ws_pong_wait = 0; }        // SteuVE v035: Pong angekommen
       if (!in_msg) { return 0; }   // kein Zusammenbau aktiv -> fertig fuer diesen Aufruf
       continue;   // sonst: auf das naechste Fragment warten
     }
@@ -2166,6 +2314,70 @@ void EebusHeapCheckN(const char *where, uint32_t num) {
   }
 }
 
+// SteuVE v037 (wie Steuerbox v242): Hilfen fuer die SHIP-Pruefungen
+// Kopfzeile "name: wert" (Gross-/Kleinschreibung egal) aus einem HTTP-Kopf lesen.
+bool EebusHdrWert(const char *h, const char *name, char *out, size_t outlen) {
+  const size_t nl = strlen(name);
+  for (const char *p = h; p && *p; ) {
+    if ((0 == strncasecmp(p, name, nl)) && (':' == p[nl])) {
+      const char *v = p + nl + 1;
+      while ((' ' == *v) || ('\t' == *v)) { v++; }
+      size_t k = 0;
+      while (v[k] && ('\r' != v[k]) && ('\n' != v[k]) && (k < outlen - 1)) { out[k] = v[k]; k++; }
+      while (k && ((' ' == out[k - 1]) || ('\t' == out[k - 1]))) { k--; }
+      out[k] = '\0';
+      return true;
+    }
+    p = strchr(p, '\n');
+    if (p) { p++; }
+  }
+  return false;
+}
+// enthaelt s den Text t (Gross-/Kleinschreibung egal)?
+bool EebusTextHatI(const char *s, const char *t) {
+  const size_t tl = strlen(t);
+  for (; s && *s; s++) { if (0 == strncasecmp(s, t, tl)) { return true; } }
+  return false;
+}
+// zwei JSON-Texte gleich bis auf Leerraum? (SHIP Z. 2422-2424: Spiegel des select)
+bool EebusJsonGleich(const char *a, const char *b) {
+  for (;;) {
+    while ((' ' == *a) || ('\t' == *a) || ('\r' == *a) || ('\n' == *a)) { a++; }
+    while ((' ' == *b) || ('\t' == *b) || ('\r' == *b) || ('\n' == *b)) { b++; }
+    if (*a != *b) { return false; }
+    if ('\0' == *a) { return true; }
+    a++; b++;
+  }
+}
+// SHIP Z. 2409-2410: genau EIN Format und das ist JSON-UTF8?
+bool EebusFormatNurJson(const char *json) {
+  const char *f = strstr(json, "\"format\"");
+  if (nullptr == f) { return false; }
+  f = strchr(f + 8, '[');
+  if (nullptr == f) { return false; }
+  const char *e = strchr(f, ']');
+  if (nullptr == e) { return false; }
+  char inh[24]; size_t k = 0;
+  for (const char *c = f + 1; (c < e) && (k < sizeof(inh) - 1); c++) {
+    if ((' ' != *c) && ('\t' != *c) && ('\r' != *c) && ('\n' != *c)) { inh[k++] = *c; }
+  }
+  inh[k] = '\0';
+  return (0 == strcmp(inh, "\"JSON-UTF8\""));
+}
+// SubjectKeyIdentifier (OID 2.5.29.14) aus einem DER-Zertifikat lesen (SHIP Z. 1265-1269).
+bool EebusDerSkiExt(const uint8_t *der, size_t len, uint8_t *out20) {
+  if ((nullptr == der) || (len < 32)) { return false; }
+  for (size_t i = 0; i + 5 + 4 + 20 <= len; i++) {
+    if ((0x06 != der[i]) || (0x03 != der[i + 1]) || (0x55 != der[i + 2]) || (0x1D != der[i + 3]) || (0x0E != der[i + 4])) { continue; }
+    size_t p = i + 5;
+    if ((p + 3 <= len) && (0x01 == der[p]) && (0x01 == der[p + 1])) { p += 3; }   // critical (BOOLEAN)
+    if ((p + 4 + 20 > len) || (0x04 != der[p]) || (0x16 != der[p + 1]) || (0x04 != der[p + 2]) || (0x14 != der[p + 3])) { return false; }
+    memcpy(out20, der + p + 4, 20);
+    return true;
+  }
+  return false;
+}
+
 // Verbindungsaufbau bis CMI. idx = Index in Eebus.peers. true = Erfolg.
 // (Signatur bewusst nur mit int — kein eigener Typ, wegen .ino-Prototypen-Falle.)
 bool EebusShipConnect(int idx) {
@@ -2204,7 +2416,8 @@ bool EebusShipConnect(int idx) {
   ESp->peer_subscribed = false;
   ESp->lc_sub = false; ESp->lc_cli_ent = 0; ESp->lc_cli_feat = 0;   //
   ESp->cs_hb_want = false; ESp->cs_hb_sub = false;   // SteuVE v002
-  ESp->cs_meas_sub = false; ESp->cs_meas_ent = 0; ESp->cs_meas_feat = 0;   // SteuVE v003
+  ESp->cs_hb_fail = false; ESp->cs_hb_mc = 0; ESp->cs_hb_ent = -1; ESp->cs_hb_feat = -1; ESp->cs_hb_rd_at = 0; ESp->gb_n = 0;   // SteuVE v036
+  ESp->cs_meas_sub = false; ESp->cs_dc_sub = false; ESp->cs_ec_sub = false; ESp->ws_pong_wait = 0; ESp->cs_meas_ent = 0; ESp->cs_meas_feat = 0;   // SteuVE v003
   ESp->hb_sub = false;
   ESp->hb_cli_ent = 0;
   ESp->hb_cli_feat = 0;
@@ -2272,7 +2485,7 @@ bool EebusShipConnect(int idx) {
   ESp->br_key.x = ESp->key_scalar;
   ESp->br_key.xlen = 32;
 
-   // Sendepuffer 1024, Empfang 2048 (Andreas, 16.11.2026). SHIP TS 1.1.0 Kap. 9.2: ausgehende Pakete duerfen
+   // Sendepuffer 1024, Empfang 2048 (meierchen006, 16.11.2026). SHIP TS 1.1.0 Kap. 9.2: ausgehende Pakete duerfen
    // 1024 Byte (TLSPlaintext.length) NICHT ueberschreiten. setBufferSizes() in tls_mini rechnet den Overhead selbst
    // dazu: aus (2048, 2048) wurden 2373/2133 Byte, BearSSL waehlte daraus 2^11 (ssl_engine.c Z. 429-447) und bat im
    // ClientHello um 2048; gemessen: Datenbloecke von 2072 B (= 2048 + 24 B GCM). Die Fragment-Bitte richtet sich nach
@@ -2300,6 +2513,18 @@ bool EebusShipConnect(int idx) {
    // Der IPAddress-connect() nutzt _domain (leer) fuer SNI -> es wird KEIN SNI gesendet.
    // NIE ein IP-Literal als SNI setzen — mbedtls-Gegenstellen lehnen das mit err=296 ab.
   {
+     // SteuVE v037 (SHIP Z. 723, 804, wie Steuerbox v242): SNI = mDNS-Hostname des Servers (ohne Schlusspunkt), nie eine Adresse.
+    if (p->host[0]) {
+      bool nur_ziffern = true;
+      for (const char *c = p->host; *c; c++) { if (!isdigit((unsigned char)*c) && ('.' != *c) && (':' != *c)) { nur_ziffern = false; break; } }
+      if (!nur_ziffern) {
+        char sni[48]; size_t hl = strlen(p->host);
+        while (hl && ('.' == p->host[hl - 1])) { hl--; }
+        if ((hl > 6) && (0 == strncasecmp(p->host + hl - 6, ".local", 6))) { snprintf(sni, sizeof(sni), "%.*s", (int)hl, p->host); }
+        else { snprintf(sni, sizeof(sni), "%.*s.local", (int)hl, p->host); }
+        ESp->client->setDomainName(sni);
+      }
+    }
     if (!ESp->client->connect(dst_addr, p->port)) {   // SteuVE v020: Adresse oben geprueft (IPv4 oder IPv6)
       snprintf(ESp->err, sizeof(ESp->err), "tls connect err=%d", (int)ESp->client->getLastError());
       goto fail;
@@ -2340,26 +2565,33 @@ bool EebusShipConnect(int idx) {
     }
   }
 
+  {   // SteuVE v037 (SHIP Z. 1265-1269 Fussnote 1, TC_SHIP_SEC_001/002): die SKI-Erweiterung des Zertifikats muss dieselbe SKI tragen
+    size_t dl = 0;
+    const uint8_t *der = BearSSL::TlsPeerCertDer(&dl);
+    uint8_t ext[20];
+    char eh[41] = { 0 };
+    if (EebusDerSkiExt(der, dl, ext)) { for (uint32_t i = 0; i < 20; i++) { snprintf_P(eh + (i * 2), 3, PSTR("%02x"), ext[i]); } }
+    if (!eh[0] || (0 != strcasecmp(eh, ESp->peer_ski))) {
+      AddLog(LOG_LEVEL_ERROR, PSTR("EBG: %s: SKI-Erweiterung im Zertifikat %s (Schluessel-SKI %s) - NICHT verbunden"),
+             ESp->peer_ip, eh[0] ? eh : "fehlt", ESp->peer_ski);
+      strlcpy(ESp->err, "SKI-Erweiterung passt nicht", sizeof(ESp->err));
+      goto fail;
+    }
+  }
+
    // WebSocket-Upgrade (Subprotocol "ship")
   if (!EebusWsUpgrade(dst_host, p->port, p->path)) { goto fail; }   // err bereits gesetzt (SteuVE v020: IPv6 in [])
   ESp->state = SHIP_WS_OK;
   EebusHeapCheck("ws_upgrade");   // Checkpunkt: nach HTTP-Upgrade
 
-   // CMI-Handshake (SHIP 13.4.3): [0x00,0x00] senden, [0x00,0x00] erwarten
+   // CMI-Handshake (SHIP 13.4.3): [0x00,0x00] senden, die Antwort kommt ohne Blockieren im Empfang (EebusCmiAntwort).
+   // SteuVE v037 (SHIP Z. 2082-2084): CmiTimeout 15 s - bis v036 wartete die SteuVE blockierend 8 s.
   {
     uint8_t cmi[2] = { 0x00, 0x00 };
     if (!EebusWsSend(cmi, 2)) { strlcpy(ESp->err, "cmi send", sizeof(ESp->err)); goto fail; }
-    uint8_t rx[8];
-    int n = EebusWsRecv(rx, sizeof(rx), 8000);   // Geraet antwortet sofort; 8 s reicht (WDT-schonend)
-    if (n != 2 || rx[0] != 0x00 || rx[1] != 0x00) {
-      snprintf(ESp->err, sizeof(ESp->err), "cmi resp n=%d", n); goto fail; }
   }
-  ESp->state = SHIP_CMI_OK;
-  EebusHeapCheck("cmi");   // Checkpunkt: nach CMI-Austausch
-  EebusStatSet(ESp->peer_ski, SHIP_CMI_OK, "");
-  AddLog(LOG_LEVEL_INFO, PSTR("EBG: SHIP verbunden %s:%u, CMI ok, Peer-SKI %s"),
-         ESp->peer_ip, ESp->peer_port, ESp->peer_ski);
-  EebusSmeStart();   // M2b: SME-Handshake asynchron weiterfuehren
+  ESp->sme = SME_CMI;
+  ESp->sme_deadline = millis() + EEBUS_CMI_TIMEOUT_MS;
   return true;
 
 fail:
@@ -2411,6 +2643,23 @@ bool EebusWsUpgrade(const char *ip, uint16_t port, const char *path_in) {
   resp[ri] = '\0';
   if (nullptr == strstr(resp, " 101")) {
     strlcpy(ESp->err, "ws no 101", sizeof(ESp->err)); return false; }
+  {   // SteuVE v037 (SHIP Z. 802, 818-821, RFC 6455 4.1): Sec-WebSocket-Accept und Subprotokoll "ship" pruefen
+    uint8_t sha[20];
+    SHA1Builder s1;
+    s1.begin();
+    s1.add(key_b64, key_len);
+    s1.add((uint8_t*)"258EAFA5-E914-47DA-95CA-C5AB0DC85B11", 36);
+    s1.calculate();
+    s1.getBytes(sha);
+    unsigned char erw[32]; size_t el = 0;
+    mbedtls_base64_encode(erw, sizeof(erw), &el, sha, 20);
+    erw[el] = '\0';
+    char v[64];
+    if (!EebusHdrWert(resp, "Sec-WebSocket-Accept", v, sizeof(v)) || (0 != strcmp(v, (const char*)erw))) {
+      strlcpy(ESp->err, "ws accept falsch", sizeof(ESp->err)); return false; }
+    if (!EebusHdrWert(resp, "Sec-WebSocket-Protocol", v, sizeof(v)) || (0 != strcasecmp(v, "ship"))) {
+      strlcpy(ESp->err, "ws protocol nicht ship", sizeof(ESp->err)); return false; }
+  }
   return true;
 }
 
@@ -2538,31 +2787,72 @@ void EebusLogDump(void) {
 // Naiver String-Extraktor "key":"value" — reicht fuer die winzigen SHIP-Control-Messages
 // (kontrolliertes Vokabular, keine Escapes). Kein vollwertiger JSON-Parser noetig.
 bool EebusJsonStr(const char *json, const char *key, char *out, size_t outlen) {
+   // SteuVE v036 (wie Steuerbox v242, SHIP-Test TC_SHIP_MSG_003): Leerraum um den Doppelpunkt zulassen. Ein Treffer, dessen
+   // Wert kein Text ist (oder der gar kein Schluessel ist), wird uebersprungen - wie bisher beim Muster "key":".
   char pat[48];
-  snprintf(pat, sizeof(pat), "\"%s\":\"", key);
-  const char *p = strstr(json, pat);
-  if (nullptr == p) { return false; }
-  p += strlen(pat);
-  const char *e = strchr(p, '"');
-  if (nullptr == e) { return false; }
-  size_t l = e - p;
-  if (l >= outlen) { l = outlen - 1; }
-  memcpy(out, p, l);
-  out[l] = '\0';
-  return true;
+  snprintf(pat, sizeof(pat), "\"%s\"", key);
+  const size_t pl = strlen(pat);
+  const char *p = json;
+  while (nullptr != (p = strstr(p, pat))) {
+    const char *q = p + pl;
+    while ((' ' == *q) || ('\t' == *q) || ('\r' == *q) || ('\n' == *q)) { q++; }
+    if (':' == *q) {
+      q++;
+      while ((' ' == *q) || ('\t' == *q) || ('\r' == *q) || ('\n' == *q)) { q++; }
+      if ('"' == *q) {
+        q++;
+        const char *e = strchr(q, '"');
+        if (nullptr == e) { return false; }
+        size_t l = e - q;
+        if (l >= outlen) { l = outlen - 1; }
+        memcpy(out, q, l);
+        out[l] = '\0';
+        return true;
+      }
+    }
+    p += pl;
+  }
+  return false;
 }
 
 // Naiver Integer-Extraktor "key":<zahl> (keine Anfuehrungszeichen). true wenn gefunden.
 bool EebusJsonInt(const char *json, const char *key, uint32_t *out) {
   char pat[48];
-  snprintf(pat, sizeof(pat), "\"%s\":", key);
-  const char *p = strstr(json, pat);
-  if (nullptr == p) { return false; }
-  p += strlen(pat);
-  while ((*p == ' ') || (*p == '\t')) { p++; }
-  if ((*p < '0') || (*p > '9')) { return false; }
-  *out = (uint32_t)strtoul(p, nullptr, 10);
-  return true;
+  snprintf(pat, sizeof(pat), "\"%s\"", key);   // SteuVE v036 (wie Steuerbox v242): Leerraum vor dem Doppelpunkt zulassen
+  const size_t pl = strlen(pat);
+  const char *p = json;
+  while (nullptr != (p = strstr(p, pat))) {
+    const char *q = p + pl;
+    while ((' ' == *q) || ('\t' == *q) || ('\r' == *q) || ('\n' == *q)) { q++; }
+    if (':' == *q) {
+      q++;
+      while ((' ' == *q) || ('\t' == *q) || ('\r' == *q) || ('\n' == *q)) { q++; }
+      if ((*q < '0') || (*q > '9')) { return false; }
+      *out = (uint32_t)strtoul(q, nullptr, 10);
+      return true;
+    }
+    p += pl;
+  }
+  return false;
+}
+// SteuVE v036: Wahrheitswert eines Schluessels, Leerraum erlaubt. 1 = true, 0 = false, -1 = nicht vorhanden.
+int EebusJsonBool(const char *json, const char *key) {
+  char k[40]; snprintf(k, sizeof(k), "\"%s\"", key);
+  const size_t kl = strlen(k);
+  const char *p = json;
+  while (nullptr != (p = strstr(p, k))) {
+    const char *q = p + kl;
+    while ((' ' == *q) || ('\t' == *q) || ('\r' == *q) || ('\n' == *q)) { q++; }
+    if (':' == *q) {
+      q++;
+      while ((' ' == *q) || ('\t' == *q) || ('\r' == *q) || ('\n' == *q)) { q++; }
+      if (0 == strncmp(q, "true", 4)) { return 1; }
+      if (0 == strncmp(q, "false", 5)) { return 0; }
+      return -1;
+    }
+    p = q;
+  }
+  return -1;
 }
 
 // Control-/End-Message senden: [classifier][JSON] als WS-Binaerframe + Mitschnitt.
@@ -2593,6 +2883,7 @@ const char* EebusSmeName(int sme) {
     case SME_ACCESS:return "access_gate";
     case SME_DONE:  return "done";
     case SME_FAIL:  return "fail";
+    case SME_CMI:   return "cmi";   // SteuVE v037
     default:        return "off";
   }
 }
@@ -2619,6 +2910,57 @@ void EebusSmeStart(void) {
   ESp->sme = SME_HELLO;
   ESp->sme_hello_start = millis();
   ESp->sme_deadline = millis() + EEBUS_SME_HELLO_TIMEOUT_MS;
+}
+
+// SteuVE v037 (SHIP Z. 2292-2297, 2441-2446): gemeinsamer Abbruch - erst "aborted" bzw. protocolHandshakeError senden,
+// dann schliessen. prot_err: 1 Timeout, 2 unerwartete Nachricht, 3 Auswahl passt nicht.
+void EebusSmeAbbruch(const char *why, int prot_err) {
+  if (SME_HELLO == ESp->sme) {
+    EebusShipSendJson("{\"connectionHello\":[{\"phase\":\"aborted\"}]}", 1);
+  } else if (SME_PROT == ESp->sme) {
+    char e[64]; snprintf(e, sizeof(e), "{\"messageProtocolHandshakeError\":[{\"error\":%d}]}", prot_err ? prot_err : 2);
+    EebusShipSendJson(e, 1);
+  }
+  EebusSmeFail(why);
+}
+// SteuVE v037 (SHIP Z. 2298-2306): Hello-Update - "ready" mit der Restzeit des Wait-For-Ready-Timers.
+void EebusSmeHelloUpdate(void) {
+  int32_t rest = (int32_t)(ESp->sme_deadline - millis());
+  if (rest < 0) { rest = 0; }
+  char h[64]; snprintf(h, sizeof(h), "{\"connectionHello\":[{\"phase\":\"ready\"},{\"waiting\":%ld}]}", (long)rest);
+  EebusShipSendJson(h, 1);
+}
+// SteuVE v037 (SHIP Z. 2068-2075): CMI-Antwort des Servers auswerten - nur MessageType und CmiHead.
+void EebusCmiAntwort(const uint8_t *rx, int n) {
+  if ((n < 2) || (0x00 != rx[0]) || (0x00 != rx[1])) {
+    AddLog(LOG_LEVEL_INFO, PSTR("EBG: %s: ungueltige CMI (Typ %u, Kopf %u) - Verbindung wird geschlossen"),
+           ESp->peer_ip, (n > 0) ? rx[0] : 255, (n > 1) ? rx[1] : 255);
+    EebusSmeFail("cmi ungueltig");
+    return;
+  }
+  ESp->state = SHIP_CMI_OK;
+  EebusHeapCheck("cmi");   // Checkpunkt: nach CMI-Austausch
+  EebusStatSet(ESp->peer_ski, SHIP_CMI_OK, "");
+  AddLog(LOG_LEVEL_INFO, PSTR("EBG: SHIP verbunden %s:%u, CMI ok, Peer-SKI %s"), ESp->peer_ip, ESp->peer_port, ESp->peer_ski);
+  EebusSmeStart();   // M2b: SME-Handshake asynchron weiterfuehren
+}
+// SteuVE v037 (SHIP Z. 2125-2126, 2255-2256): darf diese SKI (aus dem Zertifikat) uns anrufen?
+// Rolle 3: nur der vertraute Energy Guard (EEBusCsTrust). Rollen 0-2 (Steuerbox-Erbe) zusaetzlich: gemerkter Partner,
+// ausdrueckliche Betriebsart-Zuordnung (EEBusPeerMode), eigener laufender Anruf zu dieser SKI.
+// EEBusCsStreng 0 (NUR TEST, nicht gespeichert) laesst jeden Anrufer zu.
+void EebusCsTrustLoad(void);   // Vorwaertsdeklaration (steht weiter unten)
+bool EebusSkiVertraut(const char *ski) {
+  if (!eebus_cs_streng) { return true; }
+  if ((nullptr == ski) || (40 != strlen(ski))) { return false; }
+  if (!eebus_cs_trust_loaded) { EebusCsTrustLoad(); }
+  if (eebus_cs_trust[0] && (0 == strcasecmp(eebus_cs_trust, ski))) { return true; }
+  if (3 == eebus_role) { return false; }
+  if (eebus_ac_ski[0] && (0 == strcasecmp(eebus_ac_ski, ski))) { return true; }
+  if (EebusModeForSki(ski) >= 0) { return true; }
+  for (int i = 0; i < EEBUS_MAX_CONN; i++) {
+    if (EConn[i].active && !EConn[i].via_srv && (0 == strcasecmp(EConn[i].peer_ski, ski))) { return true; }
+  }
+  return false;
 }
 
 /*********************************************************************************************\
@@ -3235,7 +3577,7 @@ void EebusSpineSendHeartbeat(const char *cls, bool has_ref, uint32_t ref, int ds
    // unangetastet.
    // v175: HEMS wieder PT10S wie die echte Steuerbox (Begruendung bei EEBUS_HEMS_HB_MS). Die Reserve
    // kommt jetzt aus dem kuerzeren Sendetakt (4 s), nicht aus einer groesseren Zusage.
-  const char *hb_to = eebus_hems_mode ? "PT10S" : "PT30S";
+  const char *hb_to = (3 == eebus_role) ? "PT60S" : (eebus_hems_mode ? "PT10S" : "PT30S");   // SteuVE v035: als CS 60 s (LPC TS Tab. 26 Z. 1354-1356)
    // ZEITZONEN-KENNUNG "Z" am Zeitstempel (UTC). Der Wert ist ein XSD-dateTime; OHNE Zonen-
    // angabe ist er "unqualifizierte Ortszeit" — ein strenger Empfaenger rechnet ihn als SEINE
    // Ortszeit, unser Wert ist aber UTC. In der Sommerzeit liegt unser Herzschlag damit zwei Stunden
@@ -3364,44 +3706,74 @@ bool EebusCsValueNegative(const char *frag) {
 // mitbringt, bleiben wie sie sind (ein Write darf partiell sein). Eine geloeschte oder fehlende
 // Geltungsdauer bei einer AKTIVEN Grenze heisst "unbefristet". Die Meldung nach aussen (Notify an
 // Abonnenten, Ereignis) folgt im naechsten Sekundentakt — nicht hier im Empfangspfad.
+// SteuVE v035: in Anlauf, Failsafe und autonom darf eine Grenze nur gewertet werden, wenn binnen 60 s davor ein Herzschlag
+// des Energy Guard kam (LPC TS Z. 372-375; LPC IG Z. 396-405, 446-456). Im Zustand "gesteuert" gilt das nicht.
+bool EebusCsHbFensterOk(void) {
+  if (CS_CTRL == eebus_cs_state) { return true; }
+  return ESp->peer_hb_at && ((millis() - ESp->peer_hb_at) <= 60000UL);
+}
+bool eebus_cs_nack_unanwendbar = false;   // SteuVE v035: letzte Ablehnung, weil die Grenze nicht einhaltbar war (LPC-902/918)
+bool EebusCsSkriptLaeuft(void) {   // SteuVE v036: frische EEBusCsReady-Meldung des Skripts
+  return eebus_cs_ready_at && ((millis() - eebus_cs_ready_at) < EEBUS_CS_READY_MAX_MS);
+}
 bool EebusCsLimitWriteOk(const char *json) {
-  if (EebusCsValueNegative(strstr(json, "\"value\""))) {   // SteuVE v030: LPC Z. 313, NACK [LPC-003/1], Zustand bleibt [LPC-907]
+   // SteuVE v036 (LPC IG Z. 175-177, 187-189): Dauer 0 mit "aktiv" heisst sofort deaktivieren - wie eine Freigabe (ACK).
+  char et0[24] = { 0 };
+  const bool dauer0 = EebusJsonStr(json, "endTime", et0, sizeof(et0)) && (0 == EebusIsoDurSecs(et0));
+  if (!dauer0 && EebusCsValueNegative(strstr(json, "\"value\""))) {   // SteuVE v030: LPC Z. 313, NACK [LPC-003/1]
     AddLog(LOG_LEVEL_INFO, PSTR("EBG: SteuVE: Grenze von %s ABGELEHNT - negativer Wert (LPC: unter 0 W ablehnen)"), ESp->peer_ip);
     EebusMsgSetLast("abgelehnt - Grenze unter 0 W", 2);
+    eebus_cs_nack_unanwendbar = true;   // SteuVE v036: im Anlauf/Failsafe/autonom -> gesteuert/frei (CSConnection_003)
     return false;
   }
    // SteuVE v032: ACK = Zusage, die Grenze einzuhalten ([LPC-002]/[LPC-003], LPC IG 2.4 "an ACK is NOT only an
    // acknowledgement of receipt"). Meldet das Skript per EEBusCsReady, wie weit es herunter kann, wird eine AKTIVE Grenze
    // darunter (oder ohne frische Meldung) abgelehnt - vor jeder Aenderung, der Zustand bleibt ([LPC-907]).
    // Aufheben (isLimitActive false) wird immer angenommen. Ohne EEBusCsReady (altes Skript) wie bisher.
-  if (eebus_cs_ready_at) {
+   // SteuVE v036: auch ohne JE eine Meldung (Skript laeuft nicht) keine Zusage - bisher "altes Skript -> ACK".
+  const int ia = EebusJsonBool(json, "isLimitActive");   // SteuVE v036: Leerraum erlaubt
+  {
     bool neu_aktiv = eebus_cs_lim_active;
-    if (strstr(json, "\"isLimitActive\":true")) { neu_aktiv = true; }
-    else if (strstr(json, "\"isLimitActive\":false")) { neu_aktiv = false; }
+    if (ia >= 0) { neu_aktiv = (1 == ia); }
+    if (dauer0) { neu_aktiv = false; }
     uint32_t neu_w = eebus_cs_lim_w;
     EebusCsScaledValue(strstr(json, "\"value\""), &neu_w);   // ohne Wert im Write bleibt der bisherige
     if (neu_aktiv) {
+      if (!EebusCsSkriptLaeuft()) {
+        AddLog(LOG_LEVEL_INFO, PSTR("EBG: SteuVE: Grenze %u W von %s ABGELEHNT - Skript laeuft nicht (%s)"), neu_w, ESp->peer_ip,
+               eebus_cs_ready_at ? "Meldung zu alt" : "nie gemeldet");
+        EebusMsgSetLast("abgelehnt - Skript laeuft nicht", 2);
+        eebus_cs_nack_unanwendbar = true;
+        return false;
+      }
       uint32_t alter = millis() - eebus_cs_ready_at;
-      if ((alter >= EEBUS_CS_READY_MAX_MS) || (eebus_cs_ready_w < 0) || ((uint32_t)eebus_cs_ready_w > neu_w)) {
+      if ((eebus_cs_ready_w < 0) || ((uint32_t)eebus_cs_ready_w > neu_w)) {
         char zb[16];
         AddLog(LOG_LEVEL_INFO, PSTR("EBG: SteuVE: Grenze %u W von %s ABGELEHNT - nicht erreichbar (Skript kann auf %s W, Meldung vor %u s)"),
                neu_w, ESp->peer_ip, (eebus_cs_ready_w < 0) ? "?" : itoa((int)eebus_cs_ready_w, zb, 10), alter / 1000);
         EebusMsgSetLast("abgelehnt - Grenze nicht erreichbar", 2);
+        eebus_cs_nack_unanwendbar = true;   // SteuVE v035
         return false;
       }
     }
   }
   bool had_active = eebus_cs_lim_active;
-  if (strstr(json, "\"isLimitActive\":true")) {
-    eebus_cs_lim_active = true;
-  } else if (strstr(json, "\"isLimitActive\":false")) {
+  if (ia >= 0) { eebus_cs_lim_active = (1 == ia); }
+  if (dauer0 && eebus_cs_lim_active) {   // SteuVE v036 (IG Z. 175-177)
     eebus_cs_lim_active = false;
+    AddLog(LOG_LEVEL_INFO, PSTR("EBG: SteuVE: Grenze mit Dauer 0 - sofort frei (LPC IG 2.2)"));
   }
   uint32_t w = 0;
   if (EebusCsScaledValue(strstr(json, "\"value\""), &w)) { eebus_cs_lim_w = w; }
   char et[24] = { 0 };
   long dur = -1;
+   // SteuVE v035 (LPC TS Z. 1551-1553, "partial"): nur geschriebene Elemente aendern sich. Ohne endTime UND ohne
+   // delete-Filter bleibt die alte Endzeit gueltig (Restdauer weiterzaehlen); mit delete auf timePeriod -> unbefristet.
   if (EebusJsonStr(json, "endTime", et, sizeof(et))) { dur = EebusIsoDurSecs(et); }
+  else if (!(strstr(json, "\"delete\"") && strstr(json, "timePeriod")) && (eebus_cs_lim_dur_s >= 0)) {
+    dur = EebusCsRestS();
+    if (dur < 0) { dur = 0; }
+  }
   if (dur > 86400) { dur = 86400; }   // SteuVE v005: hoechstens 24 h (laenger darf keine Grenze gelten)
   eebus_cs_lim_dur_s = (dur >= 0) ? dur : -1;
   eebus_cs_lim_at = millis();
@@ -3467,6 +3839,13 @@ void EebusCsLoadFs(void) {
     if (d > 86400) { d = 86400; }
     if (d > 0) { eebus_cs_fs_w = (uint32_t)w; eebus_cs_fs_dur_s = d; }   // SteuVE v030: 0 W ist gueltig (LPC Z. 404-405)
     AddLog(LOG_LEVEL_INFO, PSTR("EBG: SteuVE: Failsafe %u W / %ld s aus dem Flash"), eebus_cs_fs_w, eebus_cs_fs_dur_s);
+  }
+  if (0 == eebus_cs_max_w) {   // SteuVE v036: zuletzt bekannte Nennleistung statt 0 W, bis das Skript meldet
+    char m[16] = { 0 };
+    if (TfsLoadFile(EEBUS_CS_MAX_FILE, (uint8_t*)m, sizeof(m) - 1)) {
+      eebus_cs_max_w = (uint32_t)strtoul(m, nullptr, 10);
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: SteuVE: Nennleistung %u W aus dem Flash"), eebus_cs_max_w);
+    }
   }
 #endif
 }
@@ -3559,7 +3938,11 @@ bool EebusCsConfigWriteOk(const char *json) {
                  (sd < 0) ? "nicht lesbar" : "unter 2 h");
           return false;
         }
-        if (sd > 86400) { sd = 86400; }   // SteuVE v005: hoechstens 24 h
+        if (sd > 86400) {   // SteuVE v035: [LPC-022/4] ablehnen, [LPC-022/5] danach auf unser Maximum 24 h setzen und melden
+          AddLog(LOG_LEVEL_INFO, PSTR("EBG: SteuVE: Failsafe-Mindestdauer %s von %s ABGELEHNT - ueber 24 h, gesetzt auf 24 h (LPC-022/4,5)"), d, ESp->peer_ip);
+          if (86400 != eebus_cs_fs_dur_s) { eebus_cs_fs_dur_s = 86400; EebusCsSaveFs(); EebusCsNotifyCfg(true, false); }
+          return false;
+        }
         new_d = sd; have_d = true;
       }
     }
@@ -3577,16 +3960,31 @@ bool EebusCsConfigWriteOk(const char *json) {
     snprintf(eebus_msg_fs, sizeof(eebus_msg_fs), "%u W / %ld s (%02d.%02d. %02d:%02d:%02d)", eebus_cs_fs_w, eebus_cs_fs_dur_s,
              RtcTime.day_of_month, RtcTime.month, RtcTime.hour, RtcTime.minute, RtcTime.second);
     EebusCsSaveFs();
+    EebusCsNotifyCfg(true, false);   // SteuVE v035: Abonnenten informieren (LPC TS Z. 1641)
   }
   return true;
 }
 
 // SteuVE v002: Herzschlag des Energy Guard abonnieren. Server-Feature aus seiner Discovery: zuerst auf der Entity,
 // von der aus er unser LoadControl abonniert/gebunden hat, sonst die erste DeviceDiagnosis mit Server-Rolle.
+// SteuVE v034 (22.11.2026, NUR TEST): EEBusCsHbTest 1 -> diese SteuVE abonniert und liest den Herzschlag ihres Energy Guard
+// NICHT (spielt den Fall der Wallbox vom 21.11. nach: HEMS v035 muss das erkennen und neu aufbauen). Verstoesst gegen
+// LPC TS 3.4.3.1 Nr. 3 - nur im Testnetz benutzen. Nicht gespeichert, nach jedem Neustart aus. Wirkt ab der naechsten Verbindung.
+bool eebus_cs_hb_test_aus = false;
+void CmndEebusCsHbTest(void) {
+  if (XdrvMailbox.data_len > 0) { eebus_cs_hb_test_aus = (1 == XdrvMailbox.payload); }
+  Response_P(PSTR("{\"%s\":{\"OhneHerzschlagAbo\":%d,\"Hinweis\":\"NUR TEST - wirkt ab der naechsten Verbindung, nach Neustart aus\"}}"),
+             XdrvMailbox.command, eebus_cs_hb_test_aus ? 1 : 0);
+}
 void EebusCsHbSubscribe(void) {
    // SteuVE v005: kommt die Bindung VOR der Discovery-Antwort, bleibt der Wunsch stehen und der
    // Sekundentakt versucht es erneut — vorher war er damit endgueltig verworfen (Failsafe trotz Herzschlag).
   if (ESp->cs_hb_sub) { ESp->cs_hb_want = false; return; }
+  if (eebus_cs_hb_test_aus) {   // SteuVE v034: TEST - absichtlich weder abonnieren noch lesen
+    ESp->cs_hb_want = false; ESp->cs_hb_sub = true;
+    AddLog(LOG_LEVEL_INFO, PSTR("EBG: SteuVE: TEST - Herzschlag von %s absichtlich NICHT abonniert und nicht gelesen (EEBusCsHbTest 1)"), ESp->peer_ip);
+    return;
+  }
   if (!ESp->peer_dev[0] || (nullptr == ESp->lpc_disco)) { return; }
   ESp->cs_hb_want = false;
   int ent = ESp->lc_cli_ent;
@@ -3608,6 +4006,8 @@ void EebusCsHbSubscribe(void) {
       "{\"serverFeatureType\":\"DeviceDiagnosis\"}"
     "]}]}", own, ESp->peer_dev, ent, feat);
   EebusSpineSendAddr("call", false, 0, cmd, 0, 0, 0, 0);
+  ESp->cs_hb_mc = ESp->spine_ctr - 1;   // SteuVE v036: Quittung zuordnen (call traegt ackRequest)
+  ESp->cs_hb_fail = false; ESp->cs_hb_ent = ent; ESp->cs_hb_feat = feat; ESp->cs_hb_rd_at = millis();
   EebusSpineSendAddr("read", false, 0, "{\"deviceDiagnosisHeartbeatData\":[]}", 1, 4, ent, feat);   // [] statt {} - der Energiemanager verwirft {} still
   ESp->cs_hb_sub = true;
   AddLog(LOG_LEVEL_INFO, PSTR("EBG: SteuVE: Herzschlag von %s abonniert (ent %d feat %d)"), ESp->peer_ip, ent, feat);
@@ -3629,12 +4029,24 @@ void EebusCsTick(void) {
   if (3 != eebus_role) { return; }
   if (!eebus_cs_loaded) { EebusCsLoadFs(); eebus_cs_state_at = millis(); }
   if (!eebus_cs_trust_loaded) { EebusCsTrustLoad(); }   // SteuVE v006
+   // SteuVE v036: Messwert laenger nicht erneuert -> Skript laeuft nicht -> Leistung unbekannt (valueState error)
+  if (eebus_cs_pwr_have && eebus_cs_pwr_at && ((millis() - eebus_cs_pwr_at) > EEBUS_CS_PWR_MAX_MS)) {
+    eebus_cs_pwr_have = false; eebus_cs_pwr_unk_push = true; eebus_cs_pwr_w = 0;
+    AddLog(LOG_LEVEL_INFO, PSTR("EBG: SteuVE: Messwert seit %u s nicht erneuert - Skript laeuft nicht? Leistung jetzt unbekannt"),
+           (uint32_t)((millis() - eebus_cs_pwr_at) / 1000UL));
+    EebusMsgSetLast("Skript meldet nicht - Leistung unbekannt", 2);
+  }
   EebusConn *save = ESp;
   for (int i = 0; i < EEBUS_MAX_CONN; i++) {
     ESp = &EConn[i];
     if (!ESp->active || (SME_DONE != ESp->sme)) { continue; }
     if (!EebusCsTrusted()) { continue; }   // SteuVE v006: Herzschlag/Abo nur vom vertrauten Energy Guard
     if (ESp->cs_hb_want) { EebusCsHbSubscribe(); }
+     // SteuVE v036 (LPC Z. 1466): Abo abgelehnt -> den Herzschlag alle 30 s lesen
+    if (ESp->cs_hb_sub && ESp->cs_hb_fail && (ESp->cs_hb_feat >= 0) && ((millis() - ESp->cs_hb_rd_at) >= 30000UL)) {
+      ESp->cs_hb_rd_at = millis();
+      EebusSpineSendAddr("read", false, 0, "{\"deviceDiagnosisHeartbeatData\":[]}", 1, 4, ESp->cs_hb_ent, ESp->cs_hb_feat);
+    }
     if (ESp->peer_hb_at && (!eebus_cs_last_hb || (int32_t)(ESp->peer_hb_at - eebus_cs_last_hb) > 0)) {
       eebus_cs_last_hb = ESp->peer_hb_at;
     }
@@ -3734,6 +4146,19 @@ void EebusCsMeasNotify(void) {
   }
 }
 
+// SteuVE v035: Aenderung der Failsafe-Werte (dc) bzw. der Nennleistung (ec) an alle Abonnenten melden.
+void EebusCsNotifyCfg(bool dc, bool ec) {
+  char b[360];
+  EebusConn *save = ESp;
+  for (int i = 0; i < EEBUS_MAX_CONN; i++) {
+    ESp = &EConn[i];
+    if (!ESp->active || (SME_DONE != ESp->sme)) { continue; }
+    if (dc && ESp->cs_dc_sub) { EebusCsDcBody(b, sizeof(b)); EebusSpineSendAddr("notify", false, 0, b, 1, 10, ESp->cs_dc_ent, ESp->cs_dc_feat); }
+    if (ec && ESp->cs_ec_sub) { EebusCsEcBody(b, sizeof(b)); EebusSpineSendAddr("notify", false, 0, b, 1, 9, ESp->cs_ec_ent, ESp->cs_ec_feat); }
+  }
+  ESp = save;
+}
+
 // SteuVE v004: Zustand der Einrichtung als JSON-Inhalt (ohne aeussere Klammer) — fuer den Befehl EEBusCs
 // und das Ereignis bei jeder Aenderung. Ein Skript braucht nur "Begrenzt" und "Grenze".
 void EebusCsJson(char *b, size_t n) {
@@ -3749,11 +4174,12 @@ void EebusCsJson(char *b, size_t n) {
     "{\"Zustand\":\"%s\",\"Begrenzt\":%s,\"Grenze\":%u,\"RestS\":%ld,\"EnergyGuard\":\"%s\","
     "\"Failsafe\":%u,\"FailsafeDauerS\":%ld,\"Max\":%u,\"Leistung\":%d,\"Bekannt\":%d,\"Zaehler\":%u,\"HerzschlagS\":%ld,"
     "\"Vertraut\":\"%s\",\"Abgewiesen\":%u,\"AbgewiesenVon\":\"%s\",\"Ski\":\"%s\",\"Id\":\"%s\",\"Typ\":\"%s\","   // SteuVE v006, Typ v007
-    "\"ZusageW\":%ld,\"ZusageAlterS\":%ld,\"Quelle\":\"%s\"}",   // SteuVE v032
+    "\"ZusageW\":%ld,\"ZusageAlterS\":%ld,\"Quelle\":\"%s\",\"Skript\":\"%s\"}",   // SteuVE v032, Skript v036
     EebusCsStateName(eebus_cs_state), lim ? "true" : "false", w, rest, eebus_cs_lim_from,
     eebus_cs_fs_w, eebus_cs_fs_dur_s, eebus_cs_max_w, (int)eebus_cs_pwr_w, eebus_cs_pwr_have ? 1 : 0, eebus_cs_energy_wh, hb,
     eebus_cs_trust, eebus_cs_rej_cnt, eebus_cs_rej_from, Eebus.own_ski, eebus_adv_id, EebusCsTypName(),
-    (long)eebus_cs_ready_w, eebus_cs_ready_at ? (long)((millis() - eebus_cs_ready_at) / 1000UL) : -1L, EebusCsPwrSrcName());
+    (long)eebus_cs_ready_w, eebus_cs_ready_at ? (long)((millis() - eebus_cs_ready_at) / 1000UL) : -1L, EebusCsPwrSrcName(),
+    EebusCsSkriptLaeuft() ? "laeuft" : "laeuft nicht");
 }
 
 // SteuVE v004: Ereignis {"EEBusCs":{...}} (Regeln/MQTT), sobald sich Zustand oder wirksame Grenze aendern.
@@ -3765,7 +4191,7 @@ void EebusCsEventCheck(void) {
   bool lim = EebusCsEffective(&w);
   if ((eebus_cs_ev_state == eebus_cs_state) && (eebus_cs_ev_lim == lim) && (eebus_cs_ev_w == w)) { return; }
   eebus_cs_ev_state = eebus_cs_state; eebus_cs_ev_lim = lim; eebus_cs_ev_w = w;
-  char j[640];   // SteuVE v006: 360 -> 640 (SKIs + Kennung)
+  char j[704];   // SteuVE v006: 360 -> 640 (SKIs + Kennung), v036: 704 (Skript)
   EebusCsJson(j, sizeof(j));
   Response_P(PSTR("{\"" D_PRFX_EEBUS "Cs\":%s}"), j);
   MqttPublishPrefixTopicRulesProcess_P(RESULT_OR_STAT, PSTR(D_PRFX_EEBUS "Cs"));
@@ -3793,7 +4219,7 @@ void EebusCsJsonAppend(void) {
 
 // EEBusCs — Zustand der steuerbaren Verbrauchseinrichtung.
 void CmndEebusCs(void) {
-  char j[640];   // SteuVE v006: 360 -> 640 (SKIs + Kennung)
+  char j[704];   // SteuVE v006: 360 -> 640 (SKIs + Kennung), v036: 704 (Skript)
   EebusCsJson(j, sizeof(j));
   Response_P(PSTR("{\"%s\":%s}"), XdrvMailbox.command, j);
 }
@@ -3828,6 +4254,7 @@ void CmndEebusCsPower(void) {
     char *e = nullptr;
     strtol(XdrvMailbox.data, &e, 10);
     eebus_cs_pwr_w = (int32_t)w;
+    eebus_cs_pwr_at = millis(); if (!eebus_cs_pwr_at) { eebus_cs_pwr_at = 1; }   // SteuVE v036: Lebenszeichen
     if (!eebus_cs_pwr_have) { eebus_cs_pwr_sent_at = 0; }   // v026: zurueck von unbekannt -> sofort "normal" melden
     eebus_cs_pwr_have = true;
     eebus_cs_pwr_unk_push = false;
@@ -3903,7 +4330,13 @@ void CmndEebusCsMax(void) {
       ResponseCmndChar_P(PSTR("Nennleistung 0..10000000 W"));
       return;
     }
-    eebus_cs_max_w = (uint32_t)w;
+    if ((uint32_t)w != eebus_cs_max_w) {
+      eebus_cs_max_w = (uint32_t)w; EebusCsNotifyCfg(false, true);   // SteuVE v035: melden
+#ifdef USE_UFILESYS
+      char t[16]; int l = snprintf(t, sizeof(t), "%u", eebus_cs_max_w);   // SteuVE v036: im Flash merken (nur bei Aenderung)
+      TfsSaveFile(EEBUS_CS_MAX_FILE, (const uint8_t*)t, l);
+#endif
+    }
   }
   ResponseCmndNumber(eebus_cs_max_w);
 }
@@ -3917,14 +4350,14 @@ void CmndEebusCsFs(void) {
      // SteuVE v030: Zahlen pruefen (bisher "abc" -> nichts geaendert, aber gespeichert; "-5" -> riesige Leistung).
      // 0 W ist gueltig (LPC Z. 404-405 ">= 0"); die Dauer bleibt fuer Tests ab 1 s erlaubt (Norm: 2..24 h, [LPC-022/1]).
     if (!EebusArgLong(XdrvMailbox.data, &w) || (w < 0) || (w > 10000000L) ||
-        (sp && !EebusArgLong(sp, &s)) || (s < 1)) {
-      ResponseCmndChar_P(PSTR("Nutzung: EEBusCsFs <0..10000000 W> [<s>, 1..86400]"));
+        (sp && !EebusArgLong(sp, &s)) || (s < 7200) || (s > 86400)) {   // SteuVE v035: nur 2..24 h ([LPC-022/1])
+      ResponseCmndChar_P(PSTR("Nutzung: EEBusCsFs <0..10000000 W> [<s>, 7200..86400]"));
       return;
     }
-    if (s > 86400) { s = 86400; }   // SteuVE v005
     eebus_cs_fs_w = (uint32_t)w;
     eebus_cs_fs_dur_s = s;
     EebusCsSaveFs();
+    EebusCsNotifyCfg(true, false);   // SteuVE v035: Abonnenten informieren
   }
   Response_P(PSTR("{\"%s\":{\"Failsafe\":%u,\"FailsafeDauerS\":%ld}}"), XdrvMailbox.command, eebus_cs_fs_w, eebus_cs_fs_dur_s);
 }
@@ -4136,6 +4569,13 @@ bool EebusSpineAnswerFeatureRead(const char *json, uint32_t ref, int our_ent, in
   }
   if (strstr(json, "deviceDiagnosisHeartbeatData")) {
     EebusSpineSendHeartbeat("reply", true, ref, peer_ent, peer_feat);   // sofortige Antwort = 1. Heartbeat
+    if (3 == eebus_role) {   // SteuVE v036 (PS Z. 2417-2418): als gesteuerte Einrichtung Notify nur an Abonnenten
+      if (!ESp->hb_sub) {
+        AddLog(LOG_LEVEL_INFO, PSTR("EBG: %s liest unseren Herzschlag (feat %d) ohne Abo - nur beantwortet (SPINE PS Z. 2418)"),
+               ESp->peer_ip, peer_feat);
+      }
+      return true;
+    }
    // Die Ladestation liest unser feat2 nur EINMAL (heartbeat.cpp send_full_read aus ihrem
    // Generic-client feat4) und abonniert unser DeviceDiagnosis NICHT (Mitschnitt: nur
    // NodeManagement-SubscriptionRequestCall). Ohne LAUFENDEN Heartbeat laeuft heartbeat_received bei
@@ -4176,12 +4616,7 @@ bool EebusSpineAnswerFeatureRead(const char *json, uint32_t ref, int our_ent, in
   if ((3 == eebus_role) && strstr(json, "electricalConnectionCharacteristicListData")) {
    // SteuVE v003: Nennleistung — hoechste Bezugsleistung der Einrichtung (0 = unbekannt)
     char cb[360];   // SteuVE v005: Luft (Bedarf bis 311)
-    snprintf(cb, sizeof(cb),
-      "{\"electricalConnectionCharacteristicListData\":[{\"electricalConnectionCharacteristicData\":["
-      "[{\"electricalConnectionId\":0},{\"parameterId\":1},{\"characteristicId\":1},"
-      "{\"characteristicContext\":\"entity\"},{\"characteristicType\":\"powerConsumptionNominalMax\"},"
-      "{\"value\":[{\"number\":%u},{\"scale\":0}]},{\"unit\":\"W\"}]"
-      "]}]}", eebus_cs_max_w);
+    EebusCsEcBody(cb, sizeof(cb));   // SteuVE v035
     EebusSpineSendAddr("reply", true, ref, cb, our_ent, our_feat, peer_ent, peer_feat);
     return true;
   }
@@ -4229,13 +4664,8 @@ bool EebusSpineAnswerFeatureRead(const char *json, uint32_t ref, int our_ent, in
     return true;
   }
   if ((3 == eebus_role) && strstr(json, "deviceConfigurationKeyValueListData")) {
-    char kv[320], iso[24];
-    EebusSecsToIso(eebus_cs_fs_dur_s, iso, sizeof(iso));
-    snprintf(kv, sizeof(kv),
-      "{\"deviceConfigurationKeyValueListData\":[{\"deviceConfigurationKeyValueData\":["
-      "[{\"keyId\":1},{\"value\":[{\"scaledNumber\":[{\"number\":%u},{\"scale\":0}]}]},{\"isValueChangeable\":true}],"
-      "[{\"keyId\":2},{\"value\":[{\"duration\":\"%s\"}]},{\"isValueChangeable\":true}]"
-      "]}]}", eebus_cs_fs_w, iso);
+    char kv[360];
+    EebusCsDcBody(kv, sizeof(kv));   // SteuVE v035
     EebusSpineSendAddr("reply", true, ref, kv, our_ent, our_feat, peer_ent, peer_feat);
     return true;
   }
@@ -4483,7 +4913,9 @@ int EebusLpcSubscribeAll(const char *disco) {
    // wir taten das NIE. Ohne diese beidseitige Herzschlag-Ueberwachung nimmt ein strenger HEMS ein
    // §14a-Limit evtl. nicht an. Passiert in der BIND-Phase (vor dem Write) -> Ueberwachung steht, BEVOR
    // geschrieben wird (erklaert "wir schreiben frueh, Vergleichs-Steuerbox spaet" — nicht die Uhr, die Beziehung).
-      EebusSpineSendAddr("read", false, 0, "{\"deviceDiagnosisHeartbeatData\":[]}", EEBUS_LPC_CLIENT_ENT, cli, ent, feat);
+      if (!eebus_cs_hb_test_aus) {   // SteuVE v034: TEST-Schalter, s. EEBusCsHbTest
+        EebusSpineSendAddr("read", false, 0, "{\"deviceDiagnosisHeartbeatData\":[]}", EEBUS_LPC_CLIENT_ENT, cli, ent, feat);
+      }
     }
     n++;
   }
@@ -4963,7 +5395,7 @@ bool EebusLpcStart(uint32_t watt, bool active, uint8_t dir, long dur_s) {
    // nur ueber entity/feature (der Peer ist auf der SHIP-Verbindung eindeutig).
   ESp->lpc_value = watt;
   ESp->lpc_val_dir[dir ? 1 : 0] = watt;
-   // 06.11. (Andreas, Box .21 bewiesen 22:21:17): Wert JE RICHTUNG - "§14a aufheben" schickte den letzten §9-Wert (11480 W)
+   // 06.11. (meierchen006, Box .21 bewiesen 22:21:17): Wert JE RICHTUNG - "§14a aufheben" schickte den letzten §9-Wert (11480 W)
   ESp->lpc_active_wish = active;
   ESp->lpc_dur_s = (dur_s < 0) ? 0 : dur_s;   // Geltungsdauer dieses Auftrags
   ESp->lpc_write_tries = 0;   // err7-Retry-Zaehler fuer diesen neuen Write-Auftrag zuruecksetzen
@@ -5285,6 +5717,106 @@ void EebusHarvest(const char *json, int src_ent) {
   }
 }
 
+// SteuVE v036: Abschnitt [from, end) nach einem Schluessel durchsuchen (end = nullptr: bis zum Ende).
+const char *EebusSegKey(const char *from, const char *end, const char *k) {
+  if (nullptr == from) { return nullptr; }
+  const char *f = strstr(from, k);
+  return (f && (!end || (f < end))) ? f : nullptr;
+}
+// SteuVE v036: Ende des Adress-Blocks hinter dem Schluessel (Klammern zaehlen), damit fehlende Teile nicht aus dem Rest
+// des Datagramms gelesen werden (EebusAddrParse sucht "feature" ungebremst weiter).
+const char *EebusAddrEnd(const char *frag) {
+  const char *p = strchr(frag + 1, '"');   // Ende des Schluessels
+  if (nullptr == p) { return frag; }
+  p++;
+  while ((' ' == *p) || ('\t' == *p) || ('\r' == *p) || ('\n' == *p) || (':' == *p)) { p++; }
+  if (('[' != *p) && ('{' != *p)) { return p; }
+  int d = 0; bool str = false;
+  for (; *p; p++) {
+    if (str) { if (('\\' == *p) && p[1]) { p++; } else if ('"' == *p) { str = false; } continue; }
+    if ('"' == *p) { str = true; }
+    else if (('[' == *p) || ('{' == *p)) { d++; }
+    else if ((']' == *p) || ('}' == *p)) { if (--d <= 0) { return p; } }
+  }
+  return p;
+}
+// SteuVE v036: Adress-Block (clientAddress/serverAddress/addressDestination) begrenzt lesen; fehlende Teile = -1 bzw. "".
+void EebusAddrSeg(const char *frag, int *ent, int *feat, char *dev = nullptr, size_t devlen = 0) {
+  *ent = -1; *feat = -1;
+  if (dev && devlen) { dev[0] = '\0'; }
+  if (nullptr == frag) { return; }
+  const char *end = EebusAddrEnd(frag);
+  const char *p = EebusSegKey(frag, end, "\"entity\"");
+  if (p) { const char *b = strchr(p + 8, '['); if (b && (b < end)) { *ent = atoi(b + 1); } }
+  p = EebusSegKey(frag, end, "\"feature\"");
+  if (p) { uint32_t f = 0; if (EebusJsonInt(p, "feature", &f)) { *feat = (int)f; } }
+  if (dev && devlen) { p = EebusSegKey(frag, end, "\"device\""); if (p) { EebusJsonStr(p, "device", dev, devlen); } }
+}
+// SteuVE v036 (SPINE TS SUBS_001/002, BIND_001): Abos und Bindings, die die Gegenstelle bei UNS angelegt hat (wir = Server).
+void EebusGbAdd(uint8_t typ, int ce, int cf, int se, int sf) {
+  for (uint8_t i = 0; i < ESp->gb_n; i++) {
+    if ((ESp->gb_typ[i] == typ) && (ESp->gb_ce[i] == ce) && (ESp->gb_cf[i] == cf) &&
+        (ESp->gb_se[i] == se) && (ESp->gb_sf[i] == sf)) { return; }
+  }
+  if (ESp->gb_n >= EEBUS_GB_MAX) {
+    AddLog(LOG_LEVEL_INFO, PSTR("EBG: %s: Liste der %s voll (%u) - Eintrag nicht gemerkt"),
+           ESp->peer_ip, typ ? "Bindings" : "Abos", (uint32_t)EEBUS_GB_MAX);
+    return;
+  }
+  const uint8_t i = ESp->gb_n++;
+  ESp->gb_typ[i] = typ; ESp->gb_ce[i] = ce; ESp->gb_cf[i] = cf; ESp->gb_se[i] = se; ESp->gb_sf[i] = sf;
+}
+// Loeschen: ein nicht angegebener Teil (-1) passt auf alles (Delete ohne Feature = alle).
+uint8_t EebusGbDel(uint8_t typ, int ce, int cf, int se, int sf) {
+  uint8_t n = 0, j = 0;
+  for (uint8_t i = 0; i < ESp->gb_n; i++) {
+    const bool weg = (ESp->gb_typ[i] == typ) && ((ce < 0) || (ESp->gb_ce[i] == ce)) && ((cf < 0) || (ESp->gb_cf[i] == cf)) &&
+                     ((se < 0) || (ESp->gb_se[i] == se)) && ((sf < 0) || (ESp->gb_sf[i] == sf));
+    if (weg) { n++; continue; }
+    ESp->gb_typ[j] = ESp->gb_typ[i]; ESp->gb_ce[j] = ESp->gb_ce[i]; ESp->gb_cf[j] = ESp->gb_cf[i];
+    ESp->gb_se[j] = ESp->gb_se[i]; ESp->gb_sf[j] = ESp->gb_sf[i];
+    j++;
+  }
+  ESp->gb_n = j;
+  return n;
+}
+// SteuVE v036: hat die Gegenstelle dieser Verbindung unser Feature se/sf gebunden?
+bool EebusGbGebunden(int se, int sf) {
+  for (uint8_t i = 0; i < ESp->gb_n; i++) {
+    if ((1 == ESp->gb_typ[i]) && (ESp->gb_se[i] == se) && (ESp->gb_sf[i] == sf)) { return true; }
+  }
+  return false;
+}
+void EebusGbAdr(char *o, size_t n, const char *dev, int e, int f) {
+  size_t l = 0; o[0] = '\0';
+  if (dev && dev[0]) { l += snprintf(o + l, n - l, "{\"device\":\"%s\"}", dev); }
+  if ((e >= 0) && (l < n)) { l += snprintf(o + l, n - l, "%s{\"entity\":[%d]}", l ? "," : "", e); }
+  if ((f >= 0) && (l < n)) { snprintf(o + l, n - l, "%s{\"feature\":%d}", l ? "," : "", f); }
+}
+// Liste ausliefern: nodeManagementSubscriptionData (typ 0) bzw. nodeManagementBindingData (typ 1).
+void EebusGbAntwort(uint8_t typ, uint32_t ref, int peer_ent, int peer_feat) {
+  char own[80]; EebusOwnDevice(own, sizeof(own));
+  const size_t cap = 128 + (size_t)ESp->gb_n * (200 + strlen(own) + strlen(ESp->peer_dev));
+  char *cmd = (char*)special_malloc(cap);
+  if (nullptr == cmd) { return; }
+  const char *nm = typ ? "nodeManagementBindingData" : "nodeManagementSubscriptionData";
+  size_t l = snprintf(cmd, cap, "{\"%s\":[{\"%s\":[", nm, typ ? "bindingEntry" : "subscriptionEntry");
+  uint8_t k = 0;
+  char ca[160], sa[160];
+  for (uint8_t i = 0; (i < ESp->gb_n) && (l < cap); i++) {
+    if (ESp->gb_typ[i] != typ) { continue; }
+    EebusGbAdr(ca, sizeof(ca), ESp->peer_dev, ESp->gb_ce[i], ESp->gb_cf[i]);
+    EebusGbAdr(sa, sizeof(sa), own, ESp->gb_se[i], ESp->gb_sf[i]);
+    l += snprintf(cmd + l, cap - l, "%s[{\"%s\":%u},{\"clientAddress\":[%s]},{\"serverAddress\":[%s]}]",
+                  k ? "," : "", typ ? "bindingId" : "subscriptionId", (uint32_t)k, ca, sa);
+    k++;
+  }
+  if (l < cap) { snprintf(cmd + l, cap - l, "]}]}"); }
+  EebusSpineSendAddr("reply", true, ref, cmd, 0, 0, peer_ent, peer_feat);
+  AddLog(LOG_LEVEL_INFO, PSTR("EBG: %s an %s beantwortet (%u Eintraege)"), nm, ESp->peer_ip, (uint32_t)k);
+  free(cmd);
+}
+
 void EebusSpineHandle(const char *json) {
   ESp->last_rx = millis();
    // Peer-Geraeteadresse aus addressSource merken (fuer unsere addressDestination)
@@ -5301,7 +5833,7 @@ void EebusSpineHandle(const char *json) {
   EebusJsonStr(json, "cmdClassifier", cls, sizeof(cls));
   uint32_t their_ctr = 0;
   EebusJsonInt(json, "msgCounter", &their_ctr);
-  bool ack = (nullptr != strstr(json, "\"ackRequest\":true"));
+  bool ack = (1 == EebusJsonBool(json, "ackRequest"));   // SteuVE v036: Leerraum erlaubt
   {   // SteuVE v009: fuer den Reiter Meldungen merken (Grenze/Failsafe/Abweisung werden unten nachgetragen)
     char mfn[40]; EebusMsgFn(json, mfn, sizeof(mfn));
     char mdet[56]; uint8_t mk = 0;
@@ -5313,6 +5845,10 @@ void EebusSpineHandle(const char *json) {
   int peer_ent = 0, peer_feat = 0, our_ent = 0, our_feat = 0;
   EebusAddrParse(strstr(json, "\"addressSource\""), &peer_ent, &peer_feat);
   EebusAddrParse(strstr(json, "\"addressDestination\""), &our_ent, &our_feat);
+   // SteuVE v036 (SPINE TS FC_001): NodeManagement-Befehle nur an Entity 0 / Feature 0 (fehlende Angabe = 0)
+  int fc_e = -1, fc_f = -1;
+  EebusAddrSeg(strstr(json, "\"addressDestination\""), &fc_e, &fc_f);
+  const bool nm_ziel = (fc_e <= 0) && (fc_f <= 0);
 
    // Nutzdaten mitlesen und behalten (Messwerte, Failsafe-Werte, Limit-Zustaende) — unabhaengig
    // von der Schreibkette, damit die Bedienoberflaeche etwas anzuzeigen hat. Bisher lief das alles
@@ -5320,7 +5856,11 @@ void EebusSpineHandle(const char *json) {
   EebusHarvest(json, peer_ent);
 
   if (0 == strcmp(cls, "read")) {
-    if (strstr(json, "nodeManagementDetailedDiscoveryData")) {
+    if (!nm_ziel && strstr(json, "\"nodeManagement")) {   // SteuVE v036 (TS FC_001)
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: %s liest NodeManagement an ent%d/feat%d statt 0/0 - abgelehnt (Fehler 6, SPINE TS FC_001)"),
+             ESp->peer_ip, fc_e, fc_f);
+      EebusSpineSendAddr("result", true, their_ctr, "{\"resultData\":[{\"errorNumber\":6}]}", our_ent, our_feat, peer_ent, peer_feat);
+    } else if (strstr(json, "nodeManagementDetailedDiscoveryData")) {
       EebusSpineAnswerDiscovery(their_ctr, 0);
       ESp->disco_answered = true;
       EebusSpineReadPeerDiscovery();   // Gegenseitigkeit: gleich SEINE Discovery abfragen
@@ -5328,15 +5868,21 @@ void EebusSpineHandle(const char *json) {
       EebusSpineAnswerDestinationList(their_ctr);   // echte Selbstbeschreibung (nicht resultData) -> strenge Peers (Energiemanager/Waermepumpen-Gateway) onboarden weiter statt abzubrechen
     } else if (strstr(json, "nodeManagementUseCaseData")) {
       EebusSpineAnswerUseCase(their_ctr);   // wir bieten LPC (ControllableSystem) an
+    } else if (strstr(json, "nodeManagementBindingData")) {   // SteuVE v036 (TS BIND_001)
+      EebusGbAntwort(1, their_ctr, peer_ent, peer_feat);
+    } else if (strstr(json, "nodeManagementSubscriptionData")) {   // SteuVE v036 (TS SUBS_001/002)
+      EebusGbAntwort(0, their_ctr, peer_ent, peer_feat);
     } else if (EebusSpineAnswerFeatureRead(json, their_ctr, our_ent, our_feat, peer_ent, peer_feat)) {
    // deviceDiagnosisState/Heartbeat, deviceClassification, loadControlLimit* beantwortet
-    } else if (ack) {
-   // unbekanntes read mit Ack-Wunsch -> leere Antwort, damit der Peer nicht haengt
-      EebusSpineSend("reply", true, their_ctr, "{\"resultData\":[{\"errorNumber\":0}]}");
+    } else {
+   // SteuVE v035 (SPINE TS Z. 1088-1093): unbekanntes read -> IMMER result mit errorNumber != 0, unabhaengig von ackRequest.
+   // Bisher nur bei ackRequest und mit errorNumber 0 an das NodeManagement. 6 = Befehl nicht unterstuetzt.
+      EebusSpineSendAddr("result", true, their_ctr, "{\"resultData\":[{\"errorNumber\":6}]}", our_ent, our_feat, peer_ent, peer_feat);
     }
   } else if (0 == strcmp(cls, "write")) {
     bool cs_abgewiesen = false;   // SteuVE v006
     bool cs_nack = false;         // SteuVE v030: vertraut, aber Wert nicht anwendbar -> NACK [LPC-003/1], [LPC-003/2]
+    bool cs_bind_nack = false;    // SteuVE v038: Schreiber hat das Feature nicht gebunden -> Fehler 9
    // Ein Steuergeraet schreibt uns ein LPC-Limit -> DAS ist das §14a-Pruefergebnis: mitschneiden!
     if (strstr(json, "loadControlLimitListData")) {
       const char *v = strstr(json, "\"value\"");
@@ -5349,16 +5895,51 @@ void EebusSpineHandle(const char *json) {
         uint32_t lid = 1;   // SteuVE v021: unsere einzige Grenze ist limitId 1 (Bezug) - andere nicht als Bezug uebernehmen
         EebusJsonInt(strstr(json, "loadControlLimitListData"), "limitId", &lid);
         if (!EebusCsTrusted()) { cs_abgewiesen = true; }
+        else if (!EebusGbGebunden(our_ent, our_feat)) {   // SteuVE v038 (PS Z. 2419, TS BIND_002): Fehler 9
+          AddLog(LOG_LEVEL_INFO, PSTR("EBG: SteuVE: Grenze von %s ABGELEHNT (Fehler 9) - LoadControl ent%d/feat%d nicht gebunden"),
+                 ESp->peer_ip, our_ent, our_feat);
+          EebusMsgSetLast("abgelehnt - nicht gebunden (Fehler 9)", 2);
+          cs_bind_nack = true;
+        }
         else if (1 != lid) {   // SteuVE v030: NACK statt ACK (LPC Z. 332-334 [LPC-003/1]: nicht anwendbar -> NACK)
           AddLog(LOG_LEVEL_INFO, PSTR("EBG: SteuVE: Write von %s auf limitId %u ABGELEHNT - wir haben nur limitId 1 (Bezug)"),
                  ESp->peer_ip, lid);
           cs_nack = true;
         }
-        else if (!EebusCsLimitWriteOk(json)) { cs_nack = true; }
+        else if (!EebusCsHbFensterOk()) {   // SteuVE v035: LPC TS Z. 372-375 - ohne Herzschlag binnen 60 s nicht werten
+          AddLog(LOG_LEVEL_INFO, PSTR("EBG: SteuVE: Grenze von %s ABGELEHNT - im Zustand %s kein Herzschlag in den letzten 60 s (LPC TS Z. 372-375)"),
+                 ESp->peer_ip, EebusCsStateName(eebus_cs_state));
+          EebusMsgSetLast("abgelehnt - kein Herzschlag vorher", 2);
+          cs_nack = true;
+        }
+        else {
+          eebus_cs_nack_unanwendbar = false;
+          if (!EebusCsLimitWriteOk(json)) {
+            cs_nack = true;
+             // SteuVE v035: [LPC-902]/[LPC-918] nicht einhaltbare Grenze nach gueltigem Herzschlag -> "unlimited/controlled"
+            if (eebus_cs_nack_unanwendbar && (CS_CTRL != eebus_cs_state)) {
+              AddLog(LOG_LEVEL_INFO, PSTR("EBG: SteuVE: Grenze nicht einhaltbar im Zustand %s -> gesteuert, frei (LPC-902/918)"),
+                     EebusCsStateName(eebus_cs_state));
+              eebus_cs_lim_active = false;
+              EebusCsSetState(CS_CTRL);
+            }
+          }
+        }
       }
     }
     if ((3 == eebus_role) && strstr(json, "deviceConfigurationKeyValueListData")) {
-      if (EebusCsTrusted()) { if (!EebusCsConfigWriteOk(json)) { cs_nack = true; } }   // SteuVE v002/v027
+      if (EebusCsTrusted() && !EebusGbGebunden(our_ent, our_feat)) {   // SteuVE v038: Fehler 9
+        AddLog(LOG_LEVEL_INFO, PSTR("EBG: SteuVE: Failsafe-Werte von %s ABGELEHNT (Fehler 9) - DeviceConfiguration ent%d/feat%d nicht gebunden"),
+               ESp->peer_ip, our_ent, our_feat);
+        cs_bind_nack = true;
+      }
+       // SteuVE v035: in Anlauf/Failsafe/autonom erst nach Herzschlag + Grenze andere Datenpunkte werten (LPC TS Z. 342-346, 372-375)
+      else if (EebusCsTrusted() && (CS_CTRL != eebus_cs_state)) {
+        AddLog(LOG_LEVEL_INFO, PSTR("EBG: SteuVE: Failsafe-Werte von %s ABGELEHNT - Zustand %s, erst Herzschlag + Grenze (LPC TS Z. 342-346)"),
+               ESp->peer_ip, EebusCsStateName(eebus_cs_state));
+        cs_nack = true;
+      }
+      else if (EebusCsTrusted()) { if (!EebusCsConfigWriteOk(json)) { cs_nack = true; } }   // SteuVE v002/v027
       else { cs_abgewiesen = true; }   // SteuVE v006
     }
     if (cs_abgewiesen) {   // SteuVE v006
@@ -5370,16 +5951,87 @@ void EebusSpineHandle(const char *json) {
     }
    // Quittung an das ABSENDER-Feature des Peers (nicht pauschal an sein NodeManagement) — s.u.
    // SteuVE v006: abgewiesen -> errorNumber 7 (commandRejected)
-    if (ack) { EebusSpineSendAddr("result", true, their_ctr, (cs_abgewiesen || cs_nack) ? "{\"resultData\":[{\"errorNumber\":7}]}"
-                                                                   : "{\"resultData\":[{\"errorNumber\":0}]}", 0, 0, peer_ent, peer_feat); }
+    if (cs_bind_nack) {   // SteuVE v038: Fehler 9 immer senden (wie jede Ablehnung)
+      EebusSpineSendAddr("result", true, their_ctr, "{\"resultData\":[{\"errorNumber\":9}]}", our_ent, our_feat, peer_ent, peer_feat);
+    } else if (ack) { EebusSpineSendAddr("result", true, their_ctr, (cs_abgewiesen || cs_nack) ? "{\"resultData\":[{\"errorNumber\":7}]}"
+                                                                   : "{\"resultData\":[{\"errorNumber\":0}]}", our_ent, our_feat, peer_ent, peer_feat); }   // SteuVE v036: Absender
   } else if (0 == strcmp(cls, "call")) {
+   // SteuVE v036 (SPINE TS FC_001, BIND_001, SUBS_001/002, wie HEMS v047): Call genau pruefen. Ablehnungen gehen IMMER raus.
+    const bool c_sreq = (nullptr != strstr(json, "SubscriptionRequestCall"));
+    const bool c_sdel = (nullptr != strstr(json, "SubscriptionDeleteCall"));
+    const bool c_breq = (nullptr != strstr(json, "BindingRequestCall"));
+    const bool c_bdel = (nullptr != strstr(json, "BindingDeleteCall"));
+    int ce = -1, cf = -1, se = -1, sf = -1;
+    char cdev[96], sdev[96], ftype[32] = { 0 };
+    EebusAddrSeg(strstr(json, "\"clientAddress\""), &ce, &cf, cdev, sizeof(cdev));
+    EebusAddrSeg(strstr(json, "\"serverAddress\""), &se, &sf, sdev, sizeof(sdev));
+    EebusJsonStr(json, "serverFeatureType", ftype, sizeof(ftype));
+    uint32_t fehler = 0;
+    const char *grund = "";
+    if (!(c_sreq || c_sdel || c_breq || c_bdel)) { fehler = 6; grund = "unbekannter Call"; }
+    else if (!nm_ziel) { fehler = 6; grund = "Ziel ist nicht NodeManagement 0/0 (SPINE TS FC_001)"; }
+    else if (c_breq && (((se <= 0) && (sf <= 0)) || (0 == strcmp(ftype, "NodeManagement")))) {
+      fehler = 7; grund = "Binding auf NodeManagement nicht erlaubt (SPINE TS BIND_001)";
+    }
+    if (fehler) {
+      char r[48]; snprintf(r, sizeof(r), "{\"resultData\":[{\"errorNumber\":%u}]}", fehler);
+      EebusSpineSendAddr("result", true, their_ctr, r, our_ent, our_feat, peer_ent, peer_feat);
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: Call von %s abgelehnt (Fehler %u): %s"), ESp->peer_ip, fehler, grund);
+    }
+   // unsere Server-Features auf Entity 1: Herzschlag feat5 (Rolle 1) bzw. feat2; als gesteuerte Einrichtung (Rolle 3)
+   // LoadControl 6, Measurement 8, ElectricalConnection 9, DeviceConfiguration 10. -2 = gibt es nicht.
+    const bool r3 = (3 == eebus_role);
+    const int hbf = (1 == eebus_role) ? 5 : 2;
+    const int lcf = 6, mef = r3 ? 8 : -2, ecf = r3 ? 9 : -2, dcf = r3 ? 10 : -2;
+   // SteuVE v036 (LPC TS Z. 1475-1477, PS Z. 2418): Abo geloescht -> Liste bereinigen, betroffene Merker zuruecksetzen.
+   // Fehlt Entity/Feature im Loeschauftrag, gilt er fuer alle passenden Abos.
+    if (!fehler && c_sdel) {
+      const uint8_t n = EebusGbDel(0, ce, cf, se, sf);
+      const bool e1 = (se < 0) || (1 == se);
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: %s loescht Abo (Server ent%d/feat%d, -1 = alle): %u Eintrag/Eintraege entfernt"),
+             ESp->peer_ip, se, sf, (uint32_t)n);
+      if (e1 && ((sf < 0) || (hbf == sf)) && ESp->hb_sub) {
+        ESp->hb_sub = false;
+        AddLog(LOG_LEVEL_INFO, PSTR("EBG: %s hat das Abo auf unseren Herzschlag geloescht"), ESp->peer_ip);
+      }
+      if (e1 && ((sf < 0) || (lcf == sf)) && ESp->lc_sub) { ESp->lc_sub = false; }
+      if (e1 && ((sf < 0) || (mef == sf)) && ESp->cs_meas_sub) { ESp->cs_meas_sub = false; }
+      if (e1 && ((sf < 0) || (ecf == sf)) && ESp->cs_ec_sub) { ESp->cs_ec_sub = false; }
+      if (e1 && ((sf < 0) || (dcf == sf)) && ESp->cs_dc_sub) { ESp->cs_dc_sub = false; }
+      if ((se <= 0) && (sf <= 0)) { ESp->peer_subscribed = false; }
+    }
+   // SteuVE v036: Binding geloescht. Ist es UNSER Binding (Rolle 1/2, Steuerbox-Teil), beim naechsten Write neu binden;
+   // sonst das Binding der Gegenstelle bei uns austragen.
+    if (!fehler && c_bdel) {
+      char own[80]; EebusOwnDevice(own, sizeof(own));
+      const bool unser = sdev[0] ? (0 == strcmp(sdev, ESp->peer_dev)) : (cdev[0] && (0 == strcmp(cdev, own)));
+      if (unser) {
+        if (ESp->lpc_bound && ((sf < 0) || ((se == ESp->lpc_peer_ent) && (sf == ESp->lpc_peer_feat)))) {
+          ESp->lpc_bound = false;
+          AddLog(LOG_LEVEL_INFO, PSTR("EBG: %s hat unser LoadControl-Binding geloescht - beim naechsten Write neu binden"), ESp->peer_ip);
+        }
+      } else {
+        const uint8_t n = EebusGbDel(1, ce, cf, se, sf);
+        AddLog(LOG_LEVEL_INFO, PSTR("EBG: %s loescht Binding bei uns (Server ent%d/feat%d): %u entfernt"), ESp->peer_ip, se, sf, (uint32_t)n);
+        if (r3 && !EebusGbGebunden(1, lcf)) { eebus_cs_bound = false; }
+      }
+    }
+    if (!fehler && c_breq) { EebusGbAdd(1, ce, cf, se, sf); }   // SteuVE v036: Binding auf ein Feature von uns merken
    // z.B. nodeManagementSubscriptionRequestCall: der Peer abonniert uns -> quittieren + merken
     bool nm_sub = false;   // frisches Abo auf UNSER NodeManagement?
-    if (strstr(json, "SubscriptionRequestCall")) {
-      nm_sub = !ESp->peer_subscribed && (nullptr != strstr(json, "\"serverFeatureType\":\"NodeManagement\""));
+    if (!fehler && c_sreq) {
+   // SteuVE v036: Ziel-Feature auch aus serverAddress - serverFeatureType ist nur empfohlen
+      const bool z_nm = (0 == strcmp(ftype, "NodeManagement")) || (!ftype[0] && (se <= 0) && (sf <= 0));
+      const bool z_dd = (0 == strcmp(ftype, "DeviceDiagnosis")) || ((1 == se) && (hbf == sf));
+      const bool z_lc = (0 == strcmp(ftype, "LoadControl")) || ((1 == se) && (lcf == sf));
+      const bool z_me = (0 == strcmp(ftype, "Measurement")) || ((1 == se) && (mef == sf));
+      const bool z_dc = (0 == strcmp(ftype, "DeviceConfiguration")) || ((1 == se) && (dcf == sf));
+      const bool z_ec = (0 == strcmp(ftype, "ElectricalConnection")) || ((1 == se) && (ecf == sf));
+      EebusGbAdd(0, ce, cf, (se < 0) ? 0 : se, (sf < 0) ? 0 : sf);
+      nm_sub = !ESp->peer_subscribed && z_nm;
       ESp->peer_subscribed = true;
    // Abo auf UNSER DeviceDiagnosis (ent1/feat2)? -> Heartbeat-NOTIFY alle 30 s an den Abonnenten
-      if (strstr(json, "\"serverFeatureType\":\"DeviceDiagnosis\"")) {
+      if (z_dd) {   // SteuVE v036
         ESp->hb_cli_ent = 0; ESp->hb_cli_feat = 0;
         EebusAddrParse(strstr(json, "\"clientAddress\""), &ESp->hb_cli_ent, &ESp->hb_cli_feat);
         ESp->hb_sub = true;
@@ -5390,7 +6042,7 @@ void EebusSpineHandle(const char *json) {
       }
    // Abo auf UNSER LoadControl (ent1/feat6)? -> HEMS liest hier unser §14a-Limit.
    // Absenderadresse merken; sofort den aktuellen Limit-Zustand als NOTIFY nachschieben.
-      if (strstr(json, "\"serverFeatureType\":\"LoadControl\"")) {
+      if (z_lc) {   // SteuVE v036
         ESp->lc_cli_ent = 0; ESp->lc_cli_feat = 0;
         EebusAddrParse(strstr(json, "\"clientAddress\""), &ESp->lc_cli_ent, &ESp->lc_cli_feat);
         ESp->lc_sub = true;
@@ -5399,8 +6051,19 @@ void EebusSpineHandle(const char *json) {
         EebusServeLimitNotify();   // aktuellen Zustand sofort schicken
         if (3 == eebus_role) { ESp->cs_hb_want = true; }   // SteuVE v002: seinen Herzschlag abonnieren (Sekundentakt)
       }
+   // SteuVE v035: Abos auf DeviceConfiguration (feat10) und ElectricalConnection (feat9) merken -> Aenderungen melden
+      if (r3 && z_dc) {   // SteuVE v036
+        ESp->cs_dc_ent = 0; ESp->cs_dc_feat = 0;
+        EebusAddrParse(strstr(json, "\"clientAddress\""), &ESp->cs_dc_ent, &ESp->cs_dc_feat);
+        ESp->cs_dc_sub = true;
+      }
+      if (r3 && z_ec) {   // SteuVE v036
+        ESp->cs_ec_ent = 0; ESp->cs_ec_feat = 0;
+        EebusAddrParse(strstr(json, "\"clientAddress\""), &ESp->cs_ec_ent, &ESp->cs_ec_feat);
+        ESp->cs_ec_sub = true;
+      }
    // SteuVE v003: Abo auf UNSER Measurement (ent1/feat8) — Messwerte gehen ab jetzt gebremst per Notify dorthin.
-      if ((3 == eebus_role) && strstr(json, "\"serverFeatureType\":\"Measurement\"")) {
+      if (r3 && z_me) {   // SteuVE v036
         ESp->cs_meas_ent = 0; ESp->cs_meas_feat = 0;
         EebusAddrParse(strstr(json, "\"clientAddress\""), &ESp->cs_meas_ent, &ESp->cs_meas_feat);
         ESp->cs_meas_sub = true;
@@ -5412,8 +6075,8 @@ void EebusSpineHandle(const char *json) {
    // SteuVE v002: Bindung auf UNSER LoadControl = der Energy Guard uebernimmt die Steuerung. Seine
    // Client-Adresse merken (dort sucht EebusCsHbSubscribe den Herzschlag-Server) und den Herzschlag
    // abonnieren — gesendet wird im Sekundentakt, NACH unserer Quittung unten.
-    if ((3 == eebus_role) && strstr(json, "BindingRequestCall") &&
-        strstr(json, "\"serverFeatureType\":\"LoadControl\"")) {
+    if (r3 && !fehler && c_breq &&   // SteuVE v036: Ziel auch aus serverAddress, Leerraum erlaubt
+        ((0 == strcmp(ftype, "LoadControl")) || ((1 == se) && (lcf == sf)))) {
       int be = 0, bf = 0;
       EebusAddrParse(strstr(json, "\"clientAddress\""), &be, &bf);
       if (be > 0) { ESp->lc_cli_ent = be; ESp->lc_cli_feat = bf; }
@@ -5434,7 +6097,7 @@ void EebusSpineHandle(const char *json) {
    // nimmt ein normkonformes ControllableSystem kein Limit an.
    // Unsere replies waren schon korrekt adressiert (EebusSpineAnswerFeatureRead bekommt peer_ent/feat) —
    // nur die result-Quittung auf Calls war fest verdrahtet.
-    if (ack) { EebusSpineSendAddr("result", true, their_ctr, "{\"resultData\":[{\"errorNumber\":0}]}", 0, 0, peer_ent, peer_feat); }
+    if (!fehler && ack) { EebusSpineSendAddr("result", true, their_ctr, "{\"resultData\":[{\"errorNumber\":0}]}", our_ent, our_feat, peer_ent, peer_feat); }   // SteuVE v036
     if (nm_sub && !eebus_hems_mode) {
    // wie Referenz-Umsetzung dem frischen NodeManagement-Abonnenten unsere Entity-Liste aktiv
    // als NOTIFY liefern — alte, abo-orientierte Stacks (Waermepumpen-Hersteller) warten evtl. genau darauf.
@@ -5467,6 +6130,7 @@ void EebusSpineHandle(const char *json) {
       if (ESp->lpc_disco) { free(ESp->lpc_disco); ESp->lpc_disco = nullptr; }
       { size_t dl = strlen(json); char *dc = (char*)special_malloc(dl + 1);
         if (dc) { memcpy(dc, json, dl + 1); ESp->lpc_disco = dc; } }
+      if ((3 == eebus_role) && !ESp->cs_hb_sub) { ESp->cs_hb_want = true; }   // SteuVE v036: Herzschlag-Abo auch ohne LoadControl-Abo
       EebusSpineSend("read", false, 0, "{\"nodeManagementUseCaseData\":[]}");   // [] statt {} (EEBUS-Array-Form, Energiemanager-strikt), konsistent mit Discovery-Read
    // LoadControl-Ziel bekannt -> im HEMS-Modus SOFORT onboarden (Bind/ReadDesc/ReadData/
    // ReadCfg OHNE Write). Beziehung reift + Heartbeat laeuft, bevor EEBusLpc spaeter den §14a-Write gegen die
@@ -5621,6 +6285,17 @@ void EebusSpineHandle(const char *json) {
       }
     }
   } else if (0 == strcmp(cls, "result")) {
+   // SteuVE v036 (LPC Z. 1466): Quittung unseres Herzschlag-Abos auswerten - abgelehnt -> alle 30 s lesen
+    {
+      uint32_t r = 0, e = 0;
+      if (ESp->cs_hb_mc && EebusJsonInt(json, "msgCounterReference", &r) && (r == ESp->cs_hb_mc)) {
+        ESp->cs_hb_mc = 0;
+        if (EebusJsonInt(json, "errorNumber", &e) && e) {
+          ESp->cs_hb_fail = true;
+          AddLog(LOG_LEVEL_INFO, PSTR("EBG: SteuVE: Abo auf den Herzschlag von %s abgelehnt (Fehler %u) - wird alle 30 s gelesen"), ESp->peer_ip, e);
+        }
+      }
+    }
    // Wartet ein gezieltes EEBusRead? Dann ist DIESES result seine Antwort — eine ABLEHNUNG.
    // ⚠ Warum das wichtig ist (29.07. bewiesen): ein Read an eine Untereinheit ging an [6] statt
    // [6,1], die Gegenstelle antwortete mit errorNumber 4 "Ziel unbekannt" — und weil hier nur
@@ -5653,6 +6328,16 @@ void EebusSpineHandle(const char *json) {
     }
   }
    // notify vom Peer: nur mitschneiden (bereits im Log)
+   // SteuVE v035 (SPINE TS Z. 1107-1109, 1134-1145): notify mit ackRequest -> Quittung an das Absender-Feature
+  if (((0 == strcmp(cls, "notify")) || (0 == strcmp(cls, "reply"))) && ack) {   // SteuVE v036: auch reply (PS Z. 1097-1099)
+    EebusSpineSendAddr("result", true, their_ctr, "{\"resultData\":[{\"errorNumber\":0}]}", our_ent, our_feat, peer_ent, peer_feat);
+  }
+   // SteuVE v036 (LPC Z. 1470-1472): geaenderte Geraeteliste des Energy Guard -> neu lesen und Herzschlag neu abonnieren
+  if ((3 == eebus_role) && (0 == strcmp(cls, "notify")) && strstr(json, "nodeManagementDetailedDiscoveryData") &&
+      (strstr(json, "\"partial\"") || strstr(json, "\"delete\""))) {
+    ESp->peer_disco_read = false; ESp->cs_hb_sub = false; ESp->cs_hb_want = true;
+    AddLog(LOG_LEVEL_INFO, PSTR("EBG: SteuVE: Geraeteliste von %s hat sich geaendert - neu lesen, Herzschlag neu abonnieren"), ESp->peer_ip);
+  }
 }
 
 // Handschlag SAUBER abschliessen — Datenphase (Done) erst erreichen, NACHDEM
@@ -5710,7 +6395,12 @@ void EebusSmeDispatch(const uint8_t *rx, int n) {
   const char *json = (const char*)rx + 1;
 
   if (3 == classifier) {   // connectionClose vom Peer
-    if (SME_DONE == ESp->sme) {   // normales Ende nach Done
+     // (wie Steuerbox v231, SHIP 13.4.8.1.2 Z. 3158-3162): auf "announce" mit "confirm" antworten, dann schliessen.
+    const bool war_done = (SME_DONE == ESp->sme);   // vor dem Senden merken (Sendefehler setzt SME_OFF)
+    if (strstr(json, "\"announce\"")) {
+      EebusShipSendJson("{\"connectionClose\":[{\"phase\":\"confirm\"}]}", 3);
+    }
+    if (war_done) {   // normales Ende nach Done
       AddLog(LOG_LEVEL_INFO, PSTR("EBG: Peer hat Verbindung geschlossen (%s)"), ESp->peer_ip);
       EebusStatSet(ESp->peer_ski, SHIP_CMI_OK, "");
       ESp->sme = SME_OFF;
@@ -5730,33 +6420,39 @@ void EebusSmeDispatch(const uint8_t *rx, int n) {
   }
   if (1 != classifier) { return; }   // CMI(0) o.ae. hier nicht erwartet
 
-  if (strstr(json, "\"connectionHello\"")) {
+   // SteuVE v037 (SHIP 13.4.4.1 Z. 2202-2215, wie Steuerbox v242): im Zustand Hello zaehlt nur ein Hello, alles andere ist Abbruch.
+  const bool ist_hello = (nullptr != strstr(json, "\"connectionHello\""));
+  if ((SME_HELLO == ESp->sme) && !ist_hello) { EebusSmeAbbruch("hello: unerwartete Nachricht", 0); return; }
+  if (ist_hello) {
     char phase[12] = { 0 };
     EebusJsonStr(json, "phase", phase, sizeof(phase));
-    if (0 == strcmp(phase, "ready")) {
-      if (SME_HELLO == ESp->sme) {
-   // Peer ist ready -> ProtocolHandshake (wir = Client -> announceMax, SHIP 13.4.4.2)
-        if (!EebusShipSendJson("{\"messageProtocolHandshake\":[{\"handshakeType\":\"announceMax\"},"
-                               "{\"version\":[{\"major\":1},{\"minor\":0}]},"
-                               "{\"formats\":[{\"format\":[\"JSON-UTF8\"]}]}]}", 1)) {
-          EebusSmeFail("prot send"); return;
-        }
-        ESp->sme = SME_PROT;
-        ESp->sme_deadline = millis() + EEBUS_SME_PROT_TIMEOUT_MS;
+    if (SME_HELLO != ESp->sme) {   // spaeteres Hello: nur ein Abbruch zaehlt
+      if (0 == strcmp(phase, "aborted")) { EebusSmeFail("hello aborted vom peer"); }
+      return;
+    }
+    if (0 == strcmp(phase, "ready")) {   // HELLO_OK -> ProtocolHandshake (wir = Client -> announceMax, SHIP 13.4.4.2)
+      if (!EebusShipSendJson("{\"messageProtocolHandshake\":[{\"handshakeType\":\"announceMax\"},"
+                             "{\"version\":[{\"major\":1},{\"minor\":0}]},"
+                             "{\"formats\":[{\"format\":[\"JSON-UTF8\"]}]}]}", 1)) {
+        EebusSmeFail("prot send"); return;
       }
+      ESp->sme = SME_PROT;
+      ESp->sme_deadline = millis() + EEBUS_SME_PROT_TIMEOUT_MS;
     } else if (0 == strcmp(phase, "pending")) {
-   // Peer kennt unsere SKI noch nicht -> Pairing: SKI im Geraete-UI bestaetigen!
       if (!ESp->sme_pending_logged) {
         AddLog(LOG_LEVEL_INFO, PSTR("EBG: Peer %s meldet PENDING - unsere SKI %s im Geraete-UI bestaetigen (Pairing)"),
                ESp->peer_ip, Eebus.own_ski);
         ESp->sme_pending_logged = true;
       }
-      ESp->sme_deadline = millis() + EEBUS_SME_HELLO_TIMEOUT_MS;   // Peer lebt -> weiter warten
-      if (strstr(json, "prolongation")) {   // Verlaengerung gewuenscht ->
-        EebusShipSendJson("{\"connectionHello\":[{\"phase\":\"ready\"},{\"waiting\":60000}]}", 1);
-      }   // Update-Message (wir bleiben ready)
-    } else {   // aborted / unbekannt
-      EebusSmeFail("hello aborted");
+      if (1 == EebusJsonBool(json, "prolongationRequest")) {   // SteuVE v037 (SHIP Z. 2208-2211, 2307-2313)
+        if ((millis() - ESp->sme_hello_start) < EEBUS_SME_HELLO_MAX_MS) {
+          ESp->sme_deadline += EEBUS_SME_HELLO_TIMEOUT_MS;   // T_hello_inc = T_hello_init
+          AddLog(LOG_LEVEL_INFO, PSTR("EBG: %s bittet um Verlaengerung - Wartezeit +60 s"), ESp->peer_ip);
+        }
+        EebusSmeHelloUpdate();
+      }   // ohne Verlaengerungswunsch: ignorieren (SHIP Z. 2206-2207, TC_SHIP_HELLO_004)
+    } else {   // aborted oder unbekannt -> gemeinsamer Abbruch (SHIP Z. 2212-2213)
+      EebusSmeAbbruch("hello aborted", 0);
     }
     return;
   }
@@ -5766,24 +6462,27 @@ void EebusSmeDispatch(const uint8_t *rx, int n) {
     return;
   }
 
-  if (strstr(json, "\"messageProtocolHandshake\"")) {
+  if (SME_PROT == ESp->sme) {   // SteuVE v037 (SHIP Z. 2400-2416): Auswahl des Servers pruefen
+    if (nullptr == strstr(json, "\"messageProtocolHandshake\"")) { EebusSmeAbbruch("prot: unerwartete Nachricht", 2); return; }
     char ht[16] = { 0 };
     EebusJsonStr(json, "handshakeType", ht, sizeof(ht));
-    if ((SME_PROT == ESp->sme) && (0 == strcmp(ht, "select"))) {
-   // NICHT mehr vorpreschen. Auswahl bestaetigen (select 1:1 zurueckspiegeln,
-   // SHIP 13.4.4.2.3) + pinState:none senden — DANN auf den pinState des Peers warten (SME_PIN),
-   // erst nach dessen accessMethods die Datenphase erreichen (Referenz-Umsetzung-Gate). Frueher wurde hier
-   // sofort accessMethodsRequest + SME_DONE + erster Read gefeuert -> Ueberstuerzen (err7-Ursache).
-      if (!EebusShipSendJson(json, 1)) { EebusSmeFail("prot confirm send"); return; }
-      EebusShipSendJson("{\"connectionPinState\":[{\"pinState\":\"none\"}]}", 1);
-      ESp->sme = SME_PIN;
-      ESp->sme_deadline = millis() + EEBUS_SME_GATE_TIMEOUT_MS;
-      AddLog(LOG_LEVEL_INFO, PSTR("EBG: select bestaetigt + pinState:none @ %s - warte auf Peer-pinState"), ESp->peer_ip);
-    } else {
-      EebusSmeFail("prot unerwartet");
+    uint32_t ma = 99, mi = 99;
+    EebusJsonInt(json, "major", &ma);
+    EebusJsonInt(json, "minor", &mi);
+    if ((0 != strcmp(ht, "select")) || (1 != ma) || (0 != mi) || !EebusFormatNurJson(json)) {
+      EebusSmeAbbruch("prot: Auswahl passt nicht", 3);
+      return;
     }
+   // Auswahl bestaetigen (select 1:1 zurueckspiegeln, SHIP Z. 2411-2412) + pinState:none senden - dann auf den pinState
+   // des Peers warten (SME_PIN, SteuVE v037: hoechstens 10 s), erst danach accessMethods und Datenphase.
+    if (!EebusShipSendJson(json, 1)) { EebusSmeFail("prot confirm send"); return; }
+    EebusShipSendJson("{\"connectionPinState\":[{\"pinState\":\"none\"}]}", 1);
+    ESp->sme = SME_PIN;
+    ESp->sme_deadline = millis() + EEBUS_SME_PIN_TIMEOUT_MS;
+    AddLog(LOG_LEVEL_INFO, PSTR("EBG: select bestaetigt + pinState:none @ %s - warte auf Peer-pinState"), ESp->peer_ip);
     return;
   }
+  if (strstr(json, "\"messageProtocolHandshake\"")) { return; }   // ausserhalb des Handshakes: nicht mehr auswerten
 
   if (strstr(json, "\"connectionPinState\"")) {
     char pin[12] = { 0 };
@@ -5808,8 +6507,8 @@ void EebusSmeDispatch(const uint8_t *rx, int n) {
    // accessMethods.id = unsere mDNS-id (eebus_adv_id). Vorher wich der SHIP-Identifier
    // ("Tasmota-EEBusGuard-<hostname>") von der mDNS-id ab -> der Energiemanager sah zwei verschiedene Kennungen.
    // Referenz (Referenz-Umsetzung): mDNS-id == accessMethods.id == SPINE-deviceCode = EINE sd.Identifier().
-    char am[80];
-    snprintf_P(am, sizeof(am), PSTR("{\"accessMethods\":[{\"id\":\"%s\"}]}"), eebus_adv_id);
+    char am[96];   // SteuVE v037 (SHIP Tab. 22): dnsSd_mDns, weil wir per mDNS auffindbar sind
+    snprintf_P(am, sizeof(am), PSTR("{\"accessMethods\":[{\"id\":\"%s\"},{\"dnsSd_mDns\":[]}]}"), eebus_adv_id);
     EebusShipSendJson(am, 1);
     return;
   }
@@ -5873,8 +6572,8 @@ void EebusSmePoll(void) {
     if (n < 0) {
        // SteuVE v030 (Befund 4.9): available() > 0, also stand mindestens ein Byte an - ein -1 heisst, der Frame brach
        // mittendrin ab, die gelesenen Bytes sind verloren und der Strom ist aus dem Takt. Abbauen statt weiterlesen.
-      AddLog(LOG_LEVEL_INFO, PSTR("EBG: Empfang von %s mitten im WS-Frame abgebrochen - Verbindung wird neu aufgebaut"),
-             ESp->peer_ip);
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: Empfang von %s %s - Verbindung wird neu aufgebaut"),
+             ESp->peer_ip, (-3 == n) ? "unzulaessiger WS-Frame-Typ" : "mitten im WS-Frame abgebrochen");   // SteuVE v037
       if (SME_DONE == ESp->sme) {
         EebusStatSet(ESp->peer_ski, SHIP_CMI_OK, "");
         ESp->sme = SME_OFF;
@@ -5893,6 +6592,11 @@ void EebusSmePoll(void) {
     }
     rx[n] = '\0';
     ESp->last_rx = millis();
+    if (SME_CMI == ESp->sme) {   // SteuVE v037: erste Nachricht = CMI des Servers
+      EebusCmiAntwort(rx, n);
+      if ((SME_OFF == ESp->sme) || (SME_FAIL == ESp->sme)) { return; }
+      continue;
+    }
     EebusShipLog('R', rx[0], (const char*)rx + 1);
     EebusSmeDispatch(rx, n);
     if ((SME_OFF == ESp->sme) || (SME_FAIL == ESp->sme)) { return; }
@@ -5915,18 +6619,30 @@ void EebusSmePoll(void) {
            ESp->peer_ip);
   }
 
-   // Handschlag-Gates. Antwortet der Peer nicht rechtzeitig mit seinem
-   // pinState/accessMethods, NICHT abbrechen — in die Datenphase weitergehen (Alt-Verhalten als
-   // Fallback -> schuetzt tolerante Peers Ladestation/Waermepumpen-Gateway, falls sie ein Gate auslassen).
-  if ((SME_PIN == ESp->sme) || (SME_ACCESS == ESp->sme)) {
+   // SteuVE v037 (wie Steuerbox v242): CMI-Frist, pinState-Frist; accessMethods sind kein Tor der Norm.
+  if ((SME_CMI == ESp->sme) && TimeReached(ESp->sme_deadline)) {   // SHIP Z. 2082-2083, TC_SHIP_CMI_004
+    EebusSmeFail("cmi timeout (15 s)");
+    return;
+  }
+  if (SME_PIN == ESp->sme) {   // SHIP Z. 2663-2664: ohne pinState des Peers binnen 10 s schliessen
+    if (TimeReached(ESp->sme_deadline)) { EebusSmeFail("kein pinState des Peers binnen 10 s"); }
+    return;
+  }
+  if (SME_ACCESS == ESp->sme) {   // SHIP Z. 2882: nach 5 s ohne accessMethods trotzdem Datenphase
     if (TimeReached(ESp->sme_deadline)) {
-      AddLog(LOG_LEVEL_INFO, PSTR("EBG: Handschlag-Gate (%s) Timeout @ %s - gehe trotzdem in Datenphase"),
-             (SME_PIN == ESp->sme) ? "pinState" : "accessMethods", ESp->peer_ip);
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: keine accessMethods von %s binnen 5 s - Datenphase trotzdem"), ESp->peer_ip);
       EebusSmeReachDone("gate-timeout");
     }
     return;
   }
 
+   // SteuVE v037 (SHIP Z. 2216-2218, 2429-2431, TC_SHIP_HELLO_003, TC_SHIP_PROT_004): Wait-For-Ready bzw. Wait-Timer
+   // abgelaufen -> Abbruch mit "aborted" bzw. Fehler 1. Keine eigene Verlaengerung mehr: wer wartet (pending), muss selbst
+   // um Verlaengerung bitten (SHIP Z. 2266-2276). Der alte Block darunter ist damit nicht mehr erreichbar.
+  if (((SME_HELLO == ESp->sme) || (SME_PROT == ESp->sme)) && TimeReached(ESp->sme_deadline)) {
+    EebusSmeAbbruch((SME_HELLO == ESp->sme) ? "hello timeout" : "prot timeout", 1);
+    return;
+  }
    // Timeouts
   if ((SME_HELLO == ESp->sme) || (SME_PROT == ESp->sme)) {
    // Obergrenze ZUERST pruefen (sonst wird unten endlos verlaengert)
@@ -6122,7 +6838,7 @@ void CmndEebusConnect(void) {
                                   : PSTR("Kein Zertifikat (EEBusCert)"));
     return;
   }
-  bool ok = (SHIP_CMI_OK == ESp->state);
+  bool ok = (SHIP_CMI_OK == ESp->state) || (SME_CMI == ESp->sme);   // SteuVE v037: CMI laeuft ohne Blockieren
   const char *stname = (ESp->state == SHIP_CMI_OK) ? "cmi_ok" :
                        (ESp->state == SHIP_WS_OK)  ? "ws_ok"  :
                        (ESp->state == SHIP_TLS_OK) ? "tls_ok" : "error";
@@ -6151,11 +6867,15 @@ void EebusDisconnectNow(void) {
    // Eine Steuerbox muss sich auch nach einem Update selbst verbinden. Wer die Merkung wirklich
    // loswerden will, sagt es ausdruecklich: EEBusAutoConn -1 (zum blossen Stilllegen: 0).
   if (!ESp->via_srv && (0 == strcasecmp(eebus_ac_ski, ESp->peer_ski))) { eebus_ac_state = AC_DONE; }
+  if (ESp->active && ESp->client && (SME_HELLO == ESp->sme)) {   // SteuVE v037 (SHIP Z. 2292-2297): im Hello abbrechen
+    EebusShipSendJson("{\"connectionHello\":[{\"phase\":\"aborted\"}]}", 1);
+    delay(50);
+  }
   if (ESp->active && (ESp->client || ESp->via_srv) &&   // auch Server-Slots verabschieden sich
-      (ESp->sme != SME_OFF) && (ESp->sme != SME_FAIL)) {
+      (SME_DONE == ESp->sme)) {   // SteuVE v037 (SHIP Z. 3103-3105): connectionClose erst in der Datenphase
    // Sauberer SHIP-Abschied (13.4.7): connectionClose als End-Message (classifier 3)
     EebusShipSendJson("{\"connectionClose\":[{\"phase\":\"announce\"},{\"maxTime\":500},"
-                      "{\"reason\":\"unplug\"}]}", 3);
+                      "{\"reason\":\"unspecific\"}]}", 3);   // SteuVE FW v040 / HEMS FW v040: XSD kennt nur unspecific/removedConnection
     delay(50);   // Close-Frame den TX-Weg (BearSSL->lwip) verlassen lassen
   }
   ESp->sme = SME_OFF;
@@ -7142,7 +7862,7 @@ const char EEBUS_UI_FILE[] = "/steuve.html";
 void EebusWebPage(void) {
   if (!HttpCheckPriviledgedAccess()) { return; }
   File f;
-   // SteuVE v030 (06.11., Andreas, wie HEMS v033): zuerst die gepackte Fassung /steuve.html.gz. streamFile setzt bei
+   // SteuVE v030 (06.11., meierchen006, wie HEMS v033): zuerst die gepackte Fassung /steuve.html.gz. streamFile setzt bei
    // Dateinamen auf ".gz" selbst "Content-Encoding: gzip". Kuerzere Uebertragung = Webserver schneller wieder frei.
    // Ohne .gz wie bisher die ungepackte Seite. WICHTIG: bei jeder neuen Seite BEIDE Dateien hochladen.
   if (ufsp) { f = ufsp->open("/steuve.html.gz", "r"); }
@@ -7372,11 +8092,13 @@ typedef struct {
   uint8_t  n_cert;
   bool     have;
   char     ski[41];
+  uint8_t  der[1024];   // SteuVE v037: erstes Zertifikat (fuer die SKI-Erweiterung)
+  size_t   dl;
 } EebusSrvX509;
 
 void EebusSrvX509StartChain(const br_x509_class **ctx, const char *server_name) {
   EebusSrvX509 *x = (EebusSrvX509 *)ctx;
-  x->n_cert = 0; x->have = false; x->ski[0] = '\0';
+  x->n_cert = 0; x->have = false; x->ski[0] = '\0'; x->dl = 0;
 }
 void EebusSrvX509StartCert(const br_x509_class **ctx, uint32_t length) {
   EebusSrvX509 *x = (EebusSrvX509 *)ctx;
@@ -7384,7 +8106,12 @@ void EebusSrvX509StartCert(const br_x509_class **ctx, uint32_t length) {
 }
 void EebusSrvX509Append(const br_x509_class **ctx, const unsigned char *buf, size_t len) {
   EebusSrvX509 *x = (EebusSrvX509 *)ctx;
-  if (0 == x->n_cert) { br_x509_decoder_push(&x->dc, buf, len); }
+  if (0 == x->n_cert) {
+    br_x509_decoder_push(&x->dc, buf, len);
+    size_t n = sizeof(x->der) - x->dl;   // SteuVE v037
+    if (n > len) { n = len; }
+    memcpy(x->der + x->dl, buf, n); x->dl += n;
+  }
 }
 void EebusSrvX509EndCert(const br_x509_class **ctx) {
   EebusSrvX509 *x = (EebusSrvX509 *)ctx;
@@ -7398,6 +8125,11 @@ void EebusSrvX509EndCert(const br_x509_class **ctx) {
       br_sha1_out(&sc, h);
       for (uint32_t i = 0; i < 20; i++) { snprintf_P(x->ski + (i * 2), 3, PSTR("%02x"), h[i]); }
       x->have = true;
+      uint8_t ext[20];   // SteuVE v037 (SHIP Z. 1265-1269, TC_SHIP_SEC_001/002): SKI-Erweiterung muss zum Schluessel passen
+      if (!EebusDerSkiExt(x->der, x->dl, ext) || (0 != memcmp(ext, h, 20))) {
+        AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV Anrufer %s: SKI-Erweiterung im Zertifikat fehlt oder passt nicht - abgewiesen"), x->ski);
+        x->have = false;
+      }
     }
   }
   x->n_cert++;
@@ -7446,7 +8178,9 @@ typedef struct {
   size_t   frag_len = 0;
   bool     frag_on = false;  // SteuVE v031: ein Zusammenbau laeuft
    // Etappe 3: SME-Handshake als Server (Geraet = SHIP-Client)
-  uint8_t  sme_state = 0;   // 0=warte Hello, 1=warte announceMax, 2=warte select-Spiegel, 3=DONE
+  uint8_t  sme_state = 0;   // 0=Hello, 1=warte announceMax, 2=warte select-Spiegel, 4=warte Peer-pinState (SteuVE v037), 3=DONE
+  uint32_t sme_frist = 0;   // SteuVE v037: Wait-For-Ready / Wait-Timer / pinState-Frist (0 = keine)
+  uint32_t hello_start = 0; // SteuVE v037: Beginn des Hello (Obergrenze fuer Verlaengerungen)
    // Etappe 4: Verknuepfung mit einem EConn-Slot (SPINE-Datenphase)
   int      conn_idx = -1;   // Index in EConn[] (-1 = nicht verknuepft)
   EebusSrvX509 *x509 = nullptr;   // SteuVE v021: Zertifikat des Anrufers (DRAM, ~0,8 KB)
@@ -7490,7 +8224,7 @@ void EebusSrvFree(void) {
   ESrv.ws_state = 0;
   ESrv.cmi_done = false;
   ESrv.abuf_len = 0;
-  ESrv.sme_state = 0;
+  ESrv.sme_state = 0; ESrv.sme_frist = 0;   // SteuVE v037
 }
 
 // BearSSL-SERVER-Kontext aufsetzen und Handshake starten. Socket + peer_ip stehen
@@ -7511,7 +8245,7 @@ bool EebusSrvStart(void) {
   ESrv.sbuf_len = 0;
   ESrv.ws_state = 0;
   ESrv.cmi_done = false;
-  ESrv.sme_state = 0;
+  ESrv.sme_state = 0; ESrv.sme_frist = 0;   // SteuVE v037
   ESrv.conn_idx = -1;
   if ((nullptr == ESrv.sc) || (nullptr == ESrv.ibuf) || (nullptr == ESrv.abuf) || (nullptr == ESrv.sbuf) ||
       (nullptr == ESrv.obuf) || (nullptr == ESrv.cert_der) || (nullptr == ESrv.x509)) { why = "malloc"; goto fail; }   // SteuVE v021: x509
@@ -7562,7 +8296,9 @@ bool EebusSrvStart(void) {
     br_ssl_engine_set_x509(eng, &ESrv.x509->vtable);
     br_ssl_engine_set_ecdsa(eng, br_ecdsa_vrfy_asn1_get_default());   // CertificateVerify des Anrufers pruefen
     br_ssl_server_set_trust_anchor_names(ESrv.sc, eebus_srv_dn, 1);
-    br_ssl_engine_add_flags(eng, BR_OPT_TOLERATE_NO_CLIENT_AUTH);
+     // SteuVE v037 (SHIP Z. 692-693): gegenseitige Authentisierung ist Pflicht - ohne Zertifikat kein Handshake.
+     // Nur im Testbetrieb EEBusCsStreng 0 (nicht gespeichert) wie bisher auch ohne Zertifikat.
+    if (!eebus_cs_streng) { br_ssl_engine_add_flags(eng, BR_OPT_TOLERATE_NO_CLIENT_AUTH); }
     if (!br_ssl_server_reset(ESrv.sc)) {
       AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV reset fehlgeschlagen, err=%d"),
              br_ssl_engine_last_error(eng));
@@ -7661,6 +8397,7 @@ bool EebusSrvAppWrite(const uint8_t *data, size_t len) {
       size_t alen;
       unsigned char *buf = br_ssl_engine_sendapp_buf(eng, &alen);
       size_t n = (len - off > alen) ? alen : (len - off);
+      if (n > 1024) { n = 1024; }   // SteuVE v037 (SHIP Z. 714-716): TLS-Records hoechstens 1024 B Klartext
       memcpy(buf, data + off, n);
       br_ssl_engine_sendapp_ack(eng, n);
       off += n;
@@ -7709,6 +8446,19 @@ bool EebusSrvWsSendOp(const uint8_t *payload, size_t len, uint8_t opcode) {
     hdr[1] = 127;
     for (int i = 0; i < 8; i++) { hdr[2 + i] = (uint8_t)((uint64_t)len >> (8 * (7 - i))); }
     hl = 10;
+  }
+   // SteuVE v033 (22.11.2026, wie HEMS v043 / Steuerbox 126): Kopf und Inhalt in EINEM Stueck -> ein TLS-Record. Bisher zwei
+   // Records; den zweiten schickt erst die Pumpe im naechsten Durchlauf. Blockiert die SteuVE dazwischen (z. B. Abfrage eines
+   // Verbrauchers), hat das HEMS den Kopf ohne Inhalt und baut nach 1 s ab ("mitten im Frame"). Ohne Speicher wie bisher.
+  const size_t tot = hl + len;
+  uint8_t small[256];
+  uint8_t *fb = (tot <= sizeof(small)) ? small : (uint8_t*)special_malloc(tot);
+  if (nullptr != fb) {
+    memcpy(fb, hdr, hl);
+    if (len) { memcpy(fb + hl, payload, len); }
+    const bool ok = EebusSrvAppWrite(fb, tot);
+    if (fb != small) { free(fb); }
+    return ok;
   }
   if (!EebusSrvAppWrite(hdr, hl)) { return false; }
   return (0 == len) ? true : EebusSrvAppWrite(payload, len);
@@ -7783,7 +8533,8 @@ void EebusSrvLinkConn(void) {
   cc->peer_subscribed = false;
   cc->lc_sub = false; cc->lc_cli_ent = 0; cc->lc_cli_feat = 0;   //
   cc->cs_hb_want = false; cc->cs_hb_sub = false;   // SteuVE v002
-  cc->cs_meas_sub = false; cc->cs_meas_ent = 0; cc->cs_meas_feat = 0;   // SteuVE v003
+  cc->cs_hb_fail = false; cc->cs_hb_mc = 0; cc->cs_hb_ent = -1; cc->cs_hb_feat = -1; cc->cs_hb_rd_at = 0; cc->gb_n = 0;   // SteuVE v036
+  cc->cs_meas_sub = false; cc->cs_dc_sub = false; cc->cs_ec_sub = false; cc->ws_pong_wait = 0; cc->cs_meas_ent = 0; cc->cs_meas_feat = 0;   // SteuVE v003
   cc->hb_sub = false;
   cc->hb_cli_ent = 0;
   cc->hb_cli_feat = 0;
@@ -7881,6 +8632,10 @@ void EebusSrvSkiFromId(int ci, const char *pid) {   // Slotnummer statt EebusCon
 // "select" beantworten (Server waehlt Version, SHIP 13.4.4.2) -> Geraet spiegelt
 // select -> Pin none + AccessMethods -> Done (Datenphase; SPINE via EebusSrvLinkConn).
 // ACHTUNG: kann bei Fehlern EebusSrvFree() rufen — Aufrufer muss danach ESrv.active pruefen!
+void EebusSrvAbbruch(const char *why, int prot_err);   // SteuVE v037: Vorwaertsdeklarationen (stehen weiter unten)
+bool EebusSrvHelloStart(void);
+const char eebus_srv_select[] = "{\"messageProtocolHandshake\":[{\"handshakeType\":\"select\"},"
+                                "{\"version\":[{\"major\":1},{\"minor\":0}]},{\"formats\":[{\"format\":[\"JSON-UTF8\"]}]}]}";   // SteuVE v037
 void EebusSrvSmeHandle(int classifier, const char *json) {
   if (3 == classifier) {   // connectionClose des Geraets
     AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV %s hat die SHIP-Verbindung geschlossen"), ESrv.peer_ip);
@@ -7900,25 +8655,35 @@ void EebusSrvSmeHandle(int classifier, const char *json) {
   }
   if (1 != classifier) { return; }
 
-  if (strstr(json, "\"connectionHello\"")) {
+   // SteuVE v037 (SHIP 13.4.4.1, wie Steuerbox v242): Zustand 0 = Hello (unser Hello ging schon nach der CMI raus,
+   // EebusSrvHelloStart). Nur ein Hello zaehlt, alles andere ist Abbruch.
+  const bool ist_hello = (nullptr != strstr(json, "\"connectionHello\""));
+  if (0 == ESrv.sme_state) {
+    if (!ist_hello) { EebusSrvAbbruch("Hello: unerwartete Nachricht", 0); return; }
     char phase[12] = { 0 };
     EebusJsonStr(json, "phase", phase, sizeof(phase));
-    if (0 == strcmp(phase, "ready")) {
-      if (0 == ESrv.sme_state) {   // unser Hello schicken -> beidseitig ready
-        if (EebusSrvShipSendJson("{\"connectionHello\":[{\"phase\":\"ready\"},{\"waiting\":60000}]}")) {
-          ESrv.sme_state = 1;
-          AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV SME-Hello mit %s beidseitig ready — warte auf ProtocolHandshake"),
-                 ESrv.peer_ip);
-        }
-      }
+    if (0 == strcmp(phase, "ready")) {   // HELLO_OK -> ProtocolHandshake, Wait-Timer 10 s (SHIP Z. 2371-2374)
+      ESrv.sme_state = 1;
+      ESrv.sme_frist = millis() + EEBUS_SME_PROT_TIMEOUT_MS;
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV SME-Hello mit %s beidseitig ready — warte auf ProtocolHandshake"), ESrv.peer_ip);
     } else if (0 == strcmp(phase, "pending")) {
-   // Geraet kennt unsere SKI noch nicht -> im Geraete-UI bestaetigen (Pairing)
-      AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV %s meldet PENDING — unsere SKI %s im Geraete-UI bestaetigen"),
-             ESrv.peer_ip, Eebus.own_ski);
-    } else {   // aborted o.ae.
-      AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV %s Hello-Abbruch (%s)"), ESrv.peer_ip, phase);
-      EebusSrvFree();
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV %s meldet PENDING — unsere SKI %s im Geraete-UI bestaetigen"), ESrv.peer_ip, Eebus.own_ski);
+      if (1 == EebusJsonBool(json, "prolongationRequest")) {   // SHIP Z. 2307-2313
+        if ((millis() - ESrv.hello_start) < EEBUS_SME_HELLO_MAX_MS) { ESrv.sme_frist += EEBUS_SME_HELLO_TIMEOUT_MS; }
+        int32_t rest = (int32_t)(ESrv.sme_frist - millis());
+        if (rest < 0) { rest = 0; }
+        char h[64]; snprintf(h, sizeof(h), "{\"connectionHello\":[{\"phase\":\"ready\"},{\"waiting\":%ld}]}", (long)rest);
+        EebusSrvShipSendJson(h);
+      }   // ohne Verlaengerungswunsch: ignorieren
+    } else {
+      EebusSrvAbbruch("Hello aborted", 0);
     }
+    return;
+  }
+  if (ist_hello) {   // spaeteres Hello: nur ein Abbruch zaehlt
+    char phase[12] = { 0 };
+    EebusJsonStr(json, "phase", phase, sizeof(phase));
+    if (0 == strcmp(phase, "aborted")) { AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV %s Hello-Abbruch"), ESrv.peer_ip); EebusSrvFree(); }
     return;
   }
 
@@ -7928,28 +8693,24 @@ void EebusSrvSmeHandle(int classifier, const char *json) {
     return;
   }
 
-  if (strstr(json, "\"messageProtocolHandshake\"")) {
+  if ((1 == ESrv.sme_state) || (2 == ESrv.sme_state)) {   // SteuVE v037 (SHIP Z. 2385-2428, TC_SHIP_PROT_001/003/005)
+    if (nullptr == strstr(json, "\"messageProtocolHandshake\"")) { EebusSrvAbbruch("ProtocolHandshake: unerwartete Nachricht", 2); return; }
     char ht[16] = { 0 };
     EebusJsonStr(json, "handshakeType", ht, sizeof(ht));
-    if ((1 == ESrv.sme_state) && (0 == strcmp(ht, "announceMax"))) {
-   // Wir (Server) waehlen: SHIP 1.0, JSON-UTF8 (wie alle bekannten Geraete)
-      if (EebusSrvShipSendJson("{\"messageProtocolHandshake\":[{\"handshakeType\":\"select\"},"
-                               "{\"version\":[{\"major\":1},{\"minor\":0}]},"
-                               "{\"formats\":[{\"format\":[\"JSON-UTF8\"]}]}]}")) {
-        ESrv.sme_state = 2;   // Geraet muss unser select spiegeln
+    if (1 == ESrv.sme_state) {
+      uint32_t ma = 0;
+      EebusJsonInt(json, "major", &ma);
+      if (0 != strcmp(ht, "announceMax")) { EebusSrvAbbruch("ProtocolHandshake: announceMax erwartet", 2); return; }
+      if ((ma < 1) || (nullptr == strstr(json, "JSON-UTF8"))) { EebusSrvAbbruch("ProtocolHandshake: keine gemeinsame Version/Format", 3); return; }
+      if (EebusSrvShipSendJson(eebus_srv_select)) {   // wir waehlen SHIP 1.0, JSON-UTF8
+        ESrv.sme_state = 2;
+        ESrv.sme_frist = millis() + EEBUS_SME_PROT_TIMEOUT_MS;
       }
-    } else if ((2 == ESrv.sme_state) && (0 == strcmp(ht, "select"))) {
-   // Geraet bestaetigt die Auswahl -> PinCheck + Kennungs-Austausch -> Datenphase
-      EebusSrvShipSendJson("{\"connectionPinState\":[{\"pinState\":\"none\"}]}");
-      EebusSrvShipSendJson("{\"accessMethodsRequest\":[]}");
-      ESrv.sme_state = 3;
-      ESrv.deadline = millis() + EEBUS_SRV_DATA_TIMEOUT_MS;
-      AddLog(LOG_LEVEL_INFO, PSTR("EBG: *** SRV SHIP-HANDSHAKE KOMPLETT (Server-Rolle) mit %s — Datenphase erreicht ***"),
-             ESrv.peer_ip);
-      EebusSrvLinkConn();   // SPINE-Slot verknuepfen -> Datenphase antwortet
     } else {
-      AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV %s ProtocolHandshake unerwartet (Zustand %d, Typ %s)"),
-             ESrv.peer_ip, ESrv.sme_state, ht);
+      if (!EebusJsonGleich(json, eebus_srv_select)) { EebusSrvAbbruch("ProtocolHandshake: Spiegel passt nicht", 3); return; }
+      EebusSrvShipSendJson("{\"connectionPinState\":[{\"pinState\":\"none\"}]}");
+      ESrv.sme_state = 4;   // auf den pinState des Anrufers warten (SHIP Z. 2658-2664)
+      ESrv.sme_frist = millis() + EEBUS_SME_PIN_TIMEOUT_MS;
     }
     return;
   }
@@ -7960,7 +8721,16 @@ void EebusSrvSmeHandle(int classifier, const char *json) {
     if (0 == strcmp(pin, "required")) {   // PIN unterstuetzen wir nicht
       AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV %s verlangt PIN — nicht unterstuetzt, Verbindung beendet"), ESrv.peer_ip);
       EebusSrvFree();
-    }   // none/optional: ok
+      return;
+    }
+    if (4 == ESrv.sme_state) {   // SteuVE v037: beide pinStates bekannt, keiner "required" -> Datenphase (SHIP Z. 2747-2754)
+      ESrv.sme_state = 3;
+      ESrv.sme_frist = 0;
+      ESrv.deadline = millis() + EEBUS_SRV_DATA_TIMEOUT_MS;
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: *** SRV SHIP-HANDSHAKE KOMPLETT (Server-Rolle) mit %s — Datenphase erreicht ***"), ESrv.peer_ip);
+      EebusSrvLinkConn();   // SPINE-Slot verknuepfen -> Datenphase antwortet
+      EebusSrvShipSendJson("{\"accessMethodsRequest\":[]}");   // erst in der Datenphase (SHIP Z. 2882-2884)
+    }
     return;
   }
 
@@ -7968,8 +8738,9 @@ void EebusSrvSmeHandle(int classifier, const char *json) {
    // accessMethods.id MUSS die mDNS-id sein (eebus_adv_id), wie im Client-Weg. Frueher stand hier
    // "Tasmota-EEBusGuard-<hostname>" -> passte nicht zur Ankuendigung, der Energiemanager legte nach
    // seinem eigenen Anruf sofort auf (05.10. 17:27 und 20:51 belegt, Portal "konnte nicht verbunden werden").
+   // SteuVE v037 (SHIP Tab. 22): dnsSd_mDns dazu.
     char reply[128];
-    snprintf_P(reply, sizeof(reply), PSTR("{\"accessMethods\":[{\"id\":\"%s\"}]}"), eebus_adv_id);
+    snprintf_P(reply, sizeof(reply), PSTR("{\"accessMethods\":[{\"id\":\"%s\"},{\"dnsSd_mDns\":[]}]}"), eebus_adv_id);
     EebusSrvShipSendJson(reply);
     return;
   }
@@ -7989,19 +8760,52 @@ void EebusSrvSmeHandle(int classifier, const char *json) {
 // SteuVE v031 (wie Steuerbox v231): eine vollstaendige WS-Nachricht (aus einem Frame oder zusammengesetzt) verarbeiten.
 // pl[len] muss beschreibbar sein (wird kurz NUL-terminiert). Rueckgabe false = Verbindung wurde beendet, Puffer nicht
 // mehr anfassen. Inhalt unveraendert aus EebusSrvAppData herausgeloest.
+// SteuVE v037 (SHIP Z. 2292-2297, 2441-2446): Abbruch als Server - erst die passende Meldung, dann schliessen.
+void EebusSrvAbbruch(const char *why, int prot_err) {
+  AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV %s: %s - Abbruch"), ESrv.peer_ip, why);
+  if (0 == ESrv.sme_state) {
+    EebusSrvShipSendJson("{\"connectionHello\":[{\"phase\":\"aborted\"}]}");
+  } else if ((1 == ESrv.sme_state) || (2 == ESrv.sme_state)) {
+    char e[64]; snprintf(e, sizeof(e), "{\"messageProtocolHandshakeError\":[{\"error\":%d}]}", prot_err ? prot_err : 2);
+    EebusSrvShipSendJson(e);
+  }
+  EebusSrvFree();
+}
+
+// SteuVE v037 (SHIP Z. 2125-2126, 2194-2199): nach der CMI sofort das eigene Hello - "ready" nur fuer vertraute Anrufer
+// (EebusSkiVertraut: in Rolle 3 der Energy Guard aus EEBusCsTrust, SKI aus dem Zertifikat).
+bool EebusSrvHelloStart(void) {
+  const char *ski = (ESrv.x509 && ESrv.x509->have) ? ESrv.x509->ski : "";
+  if (!EebusSkiVertraut(ski)) {
+    AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV %s (SKI %s) ist nicht vertraut - abgewiesen (zulassen: EEBusCsTrust <SKI>)"),
+           ESrv.peer_ip, ski[0] ? ski : "-");
+    EebusSrvShipSendJson("{\"connectionHello\":[{\"phase\":\"aborted\"}]}");
+    EebusSrvFree();
+    return false;
+  }
+  if (!EebusSrvShipSendJson("{\"connectionHello\":[{\"phase\":\"ready\"},{\"waiting\":60000}]}")) { EebusSrvFree(); return false; }
+  ESrv.sme_state = 0;
+  ESrv.hello_start = millis();
+  ESrv.sme_frist = millis() + EEBUS_SME_HELLO_TIMEOUT_MS;   // Wait-For-Ready-Timer (T_hello_init 60 s)
+  return true;
+}
+
 bool EebusSrvMsgHandle(uint8_t *pl, size_t len) {
-  if (!ESrv.cmi_done && (2 == len) && (0x00 == pl[0])) {
-   // SHIP 13.4.3 CMI: Geraet (WS-Client) sendet [0x00,0x00], wir antworten gleich
+  if (!ESrv.cmi_done) {
+   // SHIP 13.4.3 CMI. SteuVE v037 (SHIP Z. 2052-2067, TC_SHIP_CMI_001/005): nur MessageType und CmiHead auswerten; ist es
+   // keine CMI mit Kopf 0, trotzdem eine CMI senden und dann schliessen.
     uint8_t cmi[2] = { 0x00, 0x00 };
-    if (EebusSrvWsSendOp(cmi, 2, 0x2)) {
-      ESrv.cmi_done = true;
-      AddLog(LOG_LEVEL_INFO, PSTR("EBG: *** SRV CMI mit %s beantwortet — SHIP-Kanal steht, warte auf SME-Hello ***"),
-             ESrv.peer_ip);
-    } else {
-      AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV CMI-Antwort an %s fehlgeschlagen"), ESrv.peer_ip);
+    const bool gut = (len >= 2) && (0x00 == pl[0]) && (0x00 == pl[1]);
+    const bool gesendet = EebusSrvWsSendOp(cmi, 2, 0x2);
+    if (!gut || !gesendet) {
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV %s: %s - Verbindung beendet"), ESrv.peer_ip,
+             gut ? "CMI-Antwort fehlgeschlagen" : "keine gueltige CMI (SHIP 13.4.3)");
       EebusSrvFree();
       return false;
     }
+    ESrv.cmi_done = true;
+    AddLog(LOG_LEVEL_INFO, PSTR("EBG: *** SRV CMI mit %s beantwortet — SHIP-Kanal steht ***"), ESrv.peer_ip);
+    if (!EebusSrvHelloStart()) { return false; }
   } else if (len > 0) {
    // SHIP-Nachricht: [0]=Klassifizierer (1=control/SME, 2=data/SPINE, 3=close), dann JSON.
    // Payload liegt komplett im Puffer -> temporaer NUL-terminieren fuer strstr-Parsing.
@@ -8039,6 +8843,21 @@ void EebusSrvAppData(void) {
         EebusSrvFree();
       }
       return;   // Request noch unvollstaendig
+    }
+    {   // SteuVE v037 (SHIP Z. 802, 818-821, RFC 6455 4.2.1): Anfrage pruefen, sonst 400
+      char v[64];
+      const char *h = (const char*)ESrv.abuf;
+      const bool gut = EebusHdrWert(h, "Upgrade", v, sizeof(v)) && EebusTextHatI(v, "websocket") &&
+                       EebusHdrWert(h, "Sec-WebSocket-Version", v, sizeof(v)) && (0 == strcmp(v, "13")) &&
+                       EebusHdrWert(h, "Sec-WebSocket-Protocol", v, sizeof(v)) && EebusTextHatI(v, "ship") &&
+                       EebusHdrWert(h, "Sec-WebSocket-Key", v, sizeof(v));
+      if (!gut) {
+        AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV %s: WS-Anfrage ohne websocket/Version 13/ship - 400, Verbindung beendet"), ESrv.peer_ip);
+        static const char r400[] = "HTTP/1.1 400 Bad Request\r\nSec-WebSocket-Version: 13\r\nContent-Length: 0\r\n\r\n";
+        EebusSrvAppWrite((const uint8_t*)r400, sizeof(r400) - 1);
+        EebusSrvFree();
+        return;
+      }
     }
     bool ok = EebusSrvWsUpgradeReply();
     AddLog(LOG_LEVEL_INFO, PSTR("EBG: %s SRV WS-Upgrade von %s (101, Subprotocol ship)"),
@@ -8090,6 +8909,13 @@ void EebusSrvAppData(void) {
     } else if (0x9 == opcode) {   // Ping -> Pong gleiche Payload
       EebusSrvWsSendOp(pl, len, 0xA);
     } else if (0xA == opcode) {   // SteuVE v031 (wie Steuerbox v231): Pong - nichts zu tun (lief bisher als SHIP-Nachricht in den Parser)
+      if ((ESrv.conn_idx >= 0) && (ESrv.conn_idx < EEBUS_MAX_CONN)) { EConn[ESrv.conn_idx].ws_pong_wait = 0; }   // SteuVE v035
+    } else if ((0x0 != opcode) && (0x2 != opcode)) {   // SteuVE v037 (SHIP Z. 826-830): Text -> 1003, reserviert -> 1002
+      const uint8_t cs[2] = { 0x03, (uint8_t)((0x1 == opcode) ? 0xEB : 0xEA) };
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV %s sendet WS-Opcode %u - Close %u"), ESrv.peer_ip, opcode, (0x1 == opcode) ? 1003 : 1002);
+      EebusSrvWsSendOp(cs, 2, 0x8);
+      EebusSrvFree();
+      return;
     } else if (!fin || (0x0 == opcode)) {
        // SteuVE v031 (20.11.2026, wie Steuerbox v231): zerstueckelte WS-Nachricht zusammensetzen (RFC 6455 5.4; SHIP TS 1.1.0
        // Z. 834-836), wie im Client-Weg (EebusWsRecv). Bis v030 wurde hier jedes Fragment verworfen - eine grosse Nachricht
@@ -8134,10 +8960,24 @@ void EebusSrvPoll(void) {
   if (!ESrv.sock.connected() && (0 == ESrv.sock.available())) {
     AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV %s hat getrennt (Handshake %s)"),
            ESrv.peer_ip, ESrv.hs_done ? "war FERTIG" : "unvollstaendig");
+     // SteuVE v038: der Energy Guard hat SEINE Verbindung beendet (z. B. Neustart) - nicht warten, bis er wieder anruft,
+     // sondern selbst beim gemerkten Partner anrufen (Ablauf EEBusAutoConn; steht vorher eine Verbindung, entfaellt es).
+    if (ESrv.hs_done && (3 == eebus_role) && eebus_ac_ski[0] && eebus_ac_delay_s) {
+      eebus_ac_try   = 0;
+      eebus_ac_next  = millis() + 10000;
+      eebus_ac_state = AC_WAIT;
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: SteuVE: Energy Guard hat getrennt - eigener Wiederaufbau zu %s in 10 s"), eebus_ac_ski);
+    }
     EebusSrvFree();
     return;
   }
-  if (TimeReached(ESrv.deadline)) {
+  if (ESrv.sme_frist && TimeReached(ESrv.sme_frist)) {   // SteuVE v037: Wait-For-Ready / Wait-Timer / pinState
+    ESrv.sme_frist = 0;
+    EebusSrvAbbruch((0 == ESrv.sme_state) ? "Hello: Wait-For-Ready abgelaufen" :
+                    (4 == ESrv.sme_state) ? "kein pinState binnen 10 s" : "ProtocolHandshake: Wait-Timer abgelaufen", 1);
+    return;
+  }
+  if (TimeReached(ESrv.deadline) && !(ESrv.cmi_done && (0 == ESrv.sme_state) && ESrv.sme_frist)) {   // SteuVE v037: im Hello gilt die Hello-Frist
     AddLog(LOG_LEVEL_INFO, PSTR("EBG: SRV Timeout %s (Handshake %s)"),
            ESrv.peer_ip, ESrv.hs_done ? "fertig, keine Daten mehr" : "unvollstaendig");
     EebusSrvFree();
@@ -8482,6 +9322,13 @@ bool Xdrv128(uint32_t function) {
           else if (TimeReached(ESp->ws_ping_next)) {
             ESp->ws_ping_next = millis() + EEBUS_WS_PING_MS;
             EebusWsSendOp(nullptr, 0, 0x9);   // Ping; die Gegenstelle antwortet mit Pong
+            ESp->ws_pong_wait = millis(); if (!ESp->ws_pong_wait) { ESp->ws_pong_wait = 1; }   // SteuVE v035
+          }
+           // SteuVE v035 (SHIP TS Z. 851-855): kein Pong binnen 10 s -> Verbindung gilt als tot, abbauen
+          if (ESp->ws_pong_wait && ((millis() - ESp->ws_pong_wait) > 10000UL)) {
+            AddLog(LOG_LEVEL_INFO, PSTR("EBG: *** %s: kein Pong 10 s nach dem Ping (SHIP 10.4) - Verbindung wird abgebaut ***"), ESp->peer_ip);
+            ESp->ws_pong_wait = 0;
+            EebusDisconnectNow();
           }
         } else {
           ESp->ws_ping_next = 0;
@@ -8490,6 +9337,14 @@ bool Xdrv128(uint32_t function) {
    // dort ein Reconnect eingeplant wurde, holt dieser Zweig es nach. Bisher planten nur ZWEI
    // Abbruchstellen den Wiederaufbau ein — blieb die Verbindung deshalb einfach weg,
    // obwohl keepalive gesetzt war. Lieber einmal zu viel geplant als eine Steuerbox, die still steht.
+   // SteuVE v037 (wie Steuerbox v231): ein ausgehender Slot, dessen SHIP-Handshake scheiterte (SME_FAIL, seit v037 auch
+   // CMI-/pinState-Frist und Protokollfehler), kam nie wieder nach SME_OFF - der Wiederaufbau setzt SME_OFF voraus.
+        if ((SME_FAIL == ESp->sme) && ESp->keepalive && !ESp->via_srv && !ESp->active && !ESp->teardown &&
+            (nullptr == ESp->client)) {
+          ESp->sme = SME_OFF;
+          ESp->state = SHIP_IDLE;
+          AddLog(LOG_LEVEL_INFO, PSTR("EBG: %s: Handshake war gescheitert - Wiederaufbau wird eingeplant"), ESp->peer_ip);
+        }
         if ((SME_OFF == ESp->sme) && ESp->keepalive && !ESp->reconnect_at && (ESp->peer_idx >= 0)) {
           ESp->reconnect_at = millis() + EebusKaWaitMs();
         }
@@ -8526,6 +9381,7 @@ bool Xdrv128(uint32_t function) {
           if (TimeReached(ESp->peer_hb_at + (frist_s * 1000UL))) {
             ESp->peer_hb_lost = true;
             ESp->hb_lost_cnt++;
+            if (3 == eebus_role) { ESp->cs_hb_sub = false; ESp->cs_hb_want = true; }   // SteuVE v036: Herzschlag neu abonnieren
             strlcpy(ESp->hb_lost_at, GetDateAndTime(DT_LOCAL).c_str(), sizeof(ESp->hb_lost_at));
             AddLog(LOG_LEVEL_INFO, PSTR("EBG: *** Herzschlag von %s seit ueber %u s aus (zugesagt waren %u s) - Beziehung gilt als verloren. Vorfall %u am %s ***"),
                    ESp->peer_ip, frist_s, ESp->peer_hb_tmo_s, ESp->hb_lost_cnt, ESp->hb_lost_at);

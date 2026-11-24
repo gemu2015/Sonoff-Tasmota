@@ -942,6 +942,13 @@ void TlsPeerCertInfo(const char **von, const char **bis, const char **fuer, cons
   if (host) { *host = tlspc_host; }
 }
 
+// 22.11.2026 (Steuerbox v242, SHIP TS Z. 1265-1269): DER of the first peer certificate of the LAST connect through the
+// unverified path (the first 1024 bytes, see tlspc_buf) - for the SubjectKeyIdentifier check. Read right after connect().
+const uint8_t *TlsPeerCertDer(size_t *len) {
+  if (len) { *len = tlspc_len; }
+  return tlspc_buf;
+}
+
 extern "C" {
 
   // see https://stackoverflow.com/questions/6357031/how-do-you-convert-a-byte-array-to-a-hexadecimal-string-in-c

@@ -1,5 +1,5 @@
 // @name: SteuVE Verbraucher
-// @version: 20261121_1900
+// @version: 20261122_2000
 // ─────────────────────────────────────────────────────────────────────
 // steuve_verbraucher.tc — schaltet Verbraucher (Shelly oder Tasmota im WLAN/LAN) nach der §14a-Grenze, die der
 // Treiber xdrv_128 (steuerbare Verbrauchseinrichtung, Rolle 3) vom Energy Guard empfaengt.
@@ -50,6 +50,9 @@
 //                                Begrenzung) | NC (oeffnet bei Begrenzung) | - (keiner). Beispiel: STVKONT 3,NC,0,-
 //   STVKONT                      v012: Steuerkontakt-Einstellungen aller Plaetze
 //
+// v022 (22.11.2026, Normpruefung): kein EEBusCsFail mehr - Abbruch nach [LPC-923] ist einer SteuVE (kein CEM) nur aus
+//   Selbstschutz/Sicherheit/Recht erlaubt; "nichts mehr abschaltbar" und "Kontakt nicht bestaetigt" sind das nicht. Die
+//   Grenze bleibt aktiv, Verbrauch und Kontaktprotokoll werden gemeldet. Braucht SteuVE-Firmware ab Code v035.
 // v021 (21.11.2026, Befund .188.24 18:18): ohne Begrenzung stellt das Skript JEDEN Steuerkontakt in die Normalstellung
 //   (NC -> CLOSE, NO -> OPEN), nicht nur einen, den es selbst umgelegt hat. Bisher blieb ein Kontakt in Begrenzungs-
 //   stellung stehen, wenn er schon vor der Begrenzung so stand (kein Umlegen -> vonUns 0 -> nach dem Ende "nicht
@@ -62,7 +65,7 @@
 //   Kontakt weiter mit 0 W: nach dem Abbruch schickte das HEMS die Grenze nach 8 s neu, die SteuVE sagte wieder zu.
 //   (2) "Abbruch gemeldet" wird auch bei einer NEUEN Grenze (anderer Wert) zurueckgesetzt - die Luecke zwischen
 //   Abbruch und neuer Grenze war kuerzer als eine Runde, das Skript sah sie nicht und meldete nie wieder.
-// v019 (21.11.2026, Andreas): Steuerkontakt nur, wenn er es wirklich ist - NC/NO UND abschaltbar UND Shelly 1
+// v019 (21.11.2026, meierchen006): Steuerkontakt nur, wenn er es wirklich ist - NC/NO UND abschaltbar UND Shelly 1
 //   (kontaktAktiv). Bis v018 galt jeder Platz mit NC/NO als Steuerkontakt: ein Messgeraet (Mini PM) oder eine Plus
 //   Plug S mit altem NC wurde nicht mehr gemessen und mit 0 W gerechnet -> Summe und Zusage zu klein (Test 13:12:
 //   Zusage 0 W), ACK auf zu niedrige Grenze moeglich. Jetzt wird so ein Platz normal gemessen und mitgerechnet.
@@ -71,24 +74,24 @@
 //   damit das HEMS waehrend einer Dimmung mit EINER Abfrage je SteuVE den Kontakt zeigen kann (HEMS Slot 4 BILK).
 // v017 (21.11.2026): nach JEDEM Umlegen steht das Ergebnis des Zuruecklesens im Protokoll (bisher nur bei Aenderung des
 //   Bestaetigungsstands - nach der Rueckkehr in die Normalstellung fehlte "bestaetigt", Test 11:40:20).
-// v016 (21.11.2026, Andreas): PROTOKOLL der Steuerkontakte fuer den Nachweis (BNetzA BK6-22-300 Anl. 1 Ziff. 7.2-7.4;
+// v016 (21.11.2026, meierchen006): PROTOKOLL der Steuerkontakte fuer den Nachweis (BNetzA BK6-22-300 Anl. 1 Ziff. 7.2-7.4;
 //   LPC IG 4.1.5: wer sein ACK auf eigene Informationen stuetzt, protokolliert sie). Datei /steuve_kontakt.csv
 //   (Dateisystem des Skripts, bei SD-Karte dort), nur ANHAENGEN, Kopfzeile bei leerer Datei. Je EREIGNIS eine Zeile:
 //   Zeit;Ereignis;Prio;Name;Kontakt;Relais;Grenze W;Zustand
 //   Ereignisse: Begrenzung Beginn / Ende, umgelegt (Begrenzung) / zurueck (normal), bestaetigt, NICHT bestaetigt,
 //   nicht eingehalten -> EEBusCsFail. Kontakt NO/NC, Relais OPEN/CLOSE (Shelly 1: Relais ein = CLOSE).
-// v015 (21.11.2026, Andreas): Rueckmeldeeingang entfernt - der SW-Eingang des Shelly 1 schaltet dessen eigenes Relais
+// v015 (21.11.2026, meierchen006): Rueckmeldeeingang entfernt - der SW-Eingang des Shelly 1 schaltet dessen eigenes Relais
 //   (in_mode follow) und ist kein Rueckmeldeeingang. Bestaetigt wird nur ueber das Zuruecklesen des Relais.
 //   cEing bleibt als persist-Variable stehen (Layout der gespeicherten Werte), wird aber nicht mehr benutzt.
 //   STVKONT p,NO|NC|-[,W[,eingang]]: W und eingang werden angenommen und ignoriert (alte Seiten).
-// v014 (21.11.2026, Andreas): "Wir steuern nur einen Kontakt" - die SteuVE schaetzt fuer einen Steuerkontakt KEINE
+// v014 (21.11.2026, meierchen006): "Wir steuern nur einen Kontakt" - die SteuVE schaetzt fuer einen Steuerkontakt KEINE
 //   Leistung mehr (zaehlt mit 0 W in Summe und Zusage, Wertquelle bleibt gemessen); welche Leistung das Geraet bezieht,
 //   klaert das Geraet selbst. Angezeigt wird nur der Kontaktzustand (Shelly 1: Relais ein = Kontakt geschlossen).
 //   STVKONT nimmt das Feld W weiter an (wird ignoriert), damit alte Seiten nicht scheitern.
-// v013 (21.11.2026, Andreas): Steuerkontakt als NO/NC bezeichnen (Kontakt am Geraet: normally open / normally closed),
+// v013 (21.11.2026, meierchen006): Steuerkontakt als NO/NC bezeichnen (Kontakt am Geraet: normally open / normally closed),
 //   damit klar ist, wie er stehen soll. STVKONT nimmt NO/NC/- an (alte Zahlen 1 = NC, 2 = NO gehen weiter), Ausgabe NO/NC.
 //   Keine neuen persist-Variablen (Einstellungen bleiben).
-// v012 (21.11.2026, Andreas): STEUERKONTAKT mit Rueckmeldung. Ein Shelly 1 (Gen1, Plus 1, 1 Gen3/Gen4, 1 Mini Gen3/Gen4,
+// v012 (21.11.2026, meierchen006): STEUERKONTAKT mit Rueckmeldung. Ein Shelly 1 (Gen1, Plus 1, 1 Gen3/Gen4, 1 Mini Gen3/Gen4,
 //   alle mit potentialfreiem Kontakt, keine Messung) legt bei einer Begrenzung einen Kontakt um, der an den Steuereingang
 //   eines Geraets geht (z. B. Wallbox: weniger Ladeleistung oder aus). Geschaltet wird, sobald die Grenze aktiv ist - egal
 //   welche Leistung fliesst; nach dem Aufheben geht der Kontakt sofort zurueck. Nach jedem Schalten wird zurueckgelesen
@@ -157,7 +160,7 @@ persist int cEing[5];        // v012-v014 Rueckmeldeeingang; seit v015 UNBENUTZT
 #define NENN_VORGABE 3680    // 16 A x 230 V, wenn keine Nennleistung eingetragen ist
 #define FAIL_RUNDEN 2        // v012: so viele Runden in Folge nicht erreicht -> EEBusCsFail
 #define KONTAKT_TEST 0       // v012: 1 = jeder Shelly mit Relais darf Steuerkontakt sein (Testnetz), 0 = nur Shelly-1-Familie
-                             // v013: 0 (Andreas: Steuerkontakt nur Shelly 1, potentialfrei)
+                             // v013: 0 (meierchen006: Steuerkontakt nur Shelly 1, potentialfrei)
 // =======================================================================================
 
 int p[ANZ];          // zuletzt gemessene Leistung W
@@ -547,7 +550,7 @@ void kontaktLog(int k, int art) {
     if (art == 2) { strcpy(ev, "zurueck (normal)"); }
     if (art == 3) { strcpy(ev, "bestaetigt"); }
     if (art == 4) { strcpy(ev, "NICHT bestaetigt"); }
-    if (art == 5) { strcpy(ev, "nicht eingehalten -> EEBusCsFail"); }
+    if (art == 5) { strcpy(ev, "nicht eingehalten - Grenze bleibt aktiv"); }   // v022
     if (art == 6) { strcpy(ev, "Begrenzung Beginn"); }
     if (art == 7) { strcpy(ev, "Begrenzung Ende"); }
     if (art == 8) { strcpy(ev, "Normalstellung wiederhergestellt"); }   // v021
@@ -845,11 +848,13 @@ void runde() {
             if (belegt(i) && kontaktAktiv(i) && kStat[i] == -1) { fehlt = 1; }
         }
         if (fehlt == 1) { nichtErreicht = nichtErreicht + 1; } else { nichtErreicht = 0; }
+        // v022 (22.11.2026, Normpruefung): KEIN Abbruch mehr (EEBusCsFail). Eine SteuVE ist kein CEM; sie darf die Grenze
+        // nach [LPC-923] (LPC TS Z. 356-363) nur aus Selbstschutz, Sicherheit oder Recht aufheben - nicht weil nichts mehr
+        // abschaltbar ist oder ein Steuerkontakt nicht bestaetigt. Die Grenze bleibt aktiv, der echte Verbrauch wird weiter
+        // gemeldet (Energy Guard sieht die Ueberschreitung), neue Grenzen sagt EEBusCsReady nur so weit zu wie erreichbar.
         if (nichtErreicht >= FAIL_RUNDEN && failGemeldet == 0) {
             failGemeldet = 1;
-            sprintf(c, "EEBusCsFail Summe %d W, Grenze %d W", summe, grenze);
-            tasmCmd(c, resp);   // Treiber hebt die Grenze auf und meldet es dem Energy Guard ([LPC-923])
-            sprintf(c, "Grenze %d W nicht eingehalten -> gemeldet", grenze);
+            sprintf(c, "Grenze %d W nicht eingehalten (Summe %d W) - Grenze bleibt aktiv, Verbrauch wird gemeldet", grenze, summe);
             addLog("STV %s", c);
             kontaktLog(-1, 5);   // v016
         }

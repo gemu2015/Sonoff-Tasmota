@@ -18,7 +18,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SteuVE</title>
+<title>EEBUS-SteuVE-Gateway</title>
 <style>
 :root{
   color-scheme: dark;
@@ -47,10 +47,10 @@ h1{font-size:22px;margin:0;font-weight:650}
 .tabs{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 14px;border-bottom:1px solid var(--ring);padding-bottom:8px}
 .tabs button{background:var(--surface);color:var(--ink-2);border:1px solid var(--ring);border-radius:8px;padding:6px 12px;font:inherit;font-size:13px;cursor:pointer}
 .tabs button[aria-selected="true"]{background:#FFEB9C;color:#9C5700;border-color:#FFEB9C;font-weight:600}
-.tabs button.rechts{margin-left:auto}   /* 09.11. (Andreas): Reiter Status rechts wie beim SMGW-Leser und HEMS */
+.tabs button.rechts{margin-left:auto}   /* 09.11. (meierchen006): Reiter Status rechts wie beim SMGW-Leser und HEMS */
 .kv.gs{grid-template-columns:max-content 1fr;gap:3px 18px} .kv.gs span:nth-child(even){text-align:left}
 .btn{background:var(--surface);color:var(--ink-2);border:1px solid var(--ring);border-radius:8px;padding:4px 10px;font:inherit;font-size:12px;cursor:pointer}
-a.btn{text-decoration:none}   /* 06.11. (Andreas): wie HEMS */
+a.btn{text-decoration:none}   /* 06.11. (meierchen006): wie HEMS */
 .btn.tas{background:#1fa3ec;color:#fff;border:0;text-decoration:none}
 .btn#theme{background:#FFEB9C;color:#9C5700;border:0}
 .pane{display:none} .pane.on{display:block}
@@ -76,7 +76,7 @@ a.btn{text-decoration:none}   /* 06.11. (Andreas): wie HEMS */
 .card{background:var(--surface);border:1px solid var(--ring);border-radius:12px;padding:14px 16px;min-width:0}
 .card h2{font-size:13px;font-weight:600;color:var(--ink-2);margin:0 0 6px;display:flex;align-items:center;gap:8px}
 .sw{width:10px;height:10px;border-radius:3px;flex:none}
-/* 31.10. (Andreas): Verbraucher-Karten gleich hoch - Name einzeilig, Kennzeichen in eigener, immer freigehaltener Zeile */
+/* 31.10. (meierchen006): Verbraucher-Karten gleich hoch - Name einzeilig, Kennzeichen in eigener, immer freigehaltener Zeile */
 .vname{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .vtags{min-height:20px;margin:0 0 6px;white-space:nowrap;overflow:hidden}
 .hero{font-size:28px;font-weight:650}
@@ -137,7 +137,7 @@ tr.leer td{opacity:.45} tr.leer td.ipz{opacity:1}
 tr.wichtig td{background:rgba(250,178,25,.12)} tr.wichtig td:nth-child(4){font-weight:600}
 tr.abgew td{background:rgba(224,90,74,.15)}
 pre{background:var(--surface-2);border:1px solid var(--ring);border-radius:6px;padding:8px 10px;white-space:pre-wrap;font-size:12px;margin:0;max-height:160px;overflow:auto}
-/* 31.10. (Andreas): eigene Rueckfrage statt Browserfenster - das sah wie eine Windows-Meldung aus */
+/* 31.10. (meierchen006): eigene Rueckfrage statt Browserfenster - das sah wie eine Windows-Meldung aus */
 dialog.frage { background:var(--surface); color:var(--ink); border:2px solid var(--warn); border-radius:10px; padding:0; max-width:min(460px,calc(100vw - 32px)); }
 dialog.frage::backdrop { background:rgba(0,0,0,.65); }
 .frage_kopf { background:var(--warn); color:#000; font-weight:700; padding:10px 14px; }
@@ -146,14 +146,14 @@ dialog.frage::backdrop { background:rgba(0,0,0,.65); }
 .frage_knoepfe button { border:1px solid var(--axis); border-radius:6px; padding:8px 14px; cursor:pointer; font-weight:600; background:var(--surface-2); color:var(--ink); }
 .frage_knoepfe button.ja { background:var(--crit); border-color:var(--crit); color:#fff; }
 </style>
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2234%22%20r%3D%2220%22%20fill%3D%22none%22%20stroke%3D%22%2337c871%22%20stroke-width%3D%226%22%2F%3E%3Cg%20transform%3D%22translate(32%2034)%20scale(1.5)%22%3E%3Cpath%20d%3D%22M2-9L-5%201H0L-2%209L6-2H1Z%22%20fill%3D%22%2337c871%22%2F%3E%3C%2Fg%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2213%22%20r%3D%2212%22%20fill%3D%22%23f5c518%22%2F%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2249%22%20r%3D%2212%22%20fill%3D%22%2342a5f5%22%2F%3E%3Ccircle%20cx%3D%2252%22%20cy%3D%2249%22%20r%3D%2212%22%20fill%3D%22%23ff9800%22%2F%3E%3C%2Fsvg%3E">   <!-- 06.11. (Andreas): Tab-Symbol wie HEMS -->
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2234%22%20r%3D%2220%22%20fill%3D%22none%22%20stroke%3D%22%2337c871%22%20stroke-width%3D%226%22%2F%3E%3Cg%20transform%3D%22translate(32%2034)%20scale(1.5)%22%3E%3Cpath%20d%3D%22M2-9L-5%201H0L-2%209L6-2H1Z%22%20fill%3D%22%2337c871%22%2F%3E%3C%2Fg%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2213%22%20r%3D%2212%22%20fill%3D%22%23f5c518%22%2F%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2249%22%20r%3D%2212%22%20fill%3D%22%2342a5f5%22%2F%3E%3Ccircle%20cx%3D%2252%22%20cy%3D%2249%22%20r%3D%2212%22%20fill%3D%22%23ff9800%22%2F%3E%3C%2Fsvg%3E">   <!-- 06.11. (meierchen006): Tab-Symbol wie HEMS -->
 </head>
 <body>
 <div class="wrap">
 <header>
-  <div style="display:grid;grid-template-columns:auto auto;column-gap:14px;align-items:center;justify-items:start">   <!-- 06.11. (Andreas): Kopf wie HEMS - Logo, Adresse darunter, Datum/Uhrzeit/Laufzeit daneben -->
+  <div style="display:grid;grid-template-columns:auto auto;column-gap:14px;align-items:center;justify-items:start">   <!-- 06.11. (meierchen006): Kopf wie HEMS - Logo, Adresse darunter, Datum/Uhrzeit/Laufzeit daneben -->
     <span style="justify-self:center;line-height:0"><svg width="36" height="36" role="img" aria-label="HEMS-Logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><circle cx="32" cy="32" r="22" fill="none" stroke="#37c871" stroke-width="3"/><g transform="translate(32 32) scale(1.1)"><path d="M2-9L-5 1H0L-2 9L6-2H1Z" fill="#37c871"/></g><circle cx="32" cy="11" r="10.500" fill="#2a2600"/><circle cx="32" cy="11" r="3.7" fill="#f5c518"/><line x1="37.6" y1="11" x2="40.1" y2="11" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><line x1="35.9" y1="14.9" x2="37.7" y2="16.7" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><line x1="32" y1="16.6" x2="32" y2="19.1" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><line x1="28.1" y1="14.9" x2="26.3" y2="16.7" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><line x1="26.4" y1="11" x2="23.9" y2="11" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><line x1="28.1" y1="7.1" x2="26.3" y2="5.3" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><line x1="32" y1="5.4" x2="32" y2="2.9" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><line x1="35.9" y1="7.1" x2="37.7" y2="5.3" stroke="#f5c518" stroke-width="1.6" stroke-linecap="round"/><circle cx="13" cy="44" r="10.500" fill="#0a1a2a"/><g transform="translate(13 43.5) scale(0.56)"><path d="M-14 5V1L-10-6Q-9-8-6-8H6Q9-8 10-6L14 1V5Q14 6 13 6H-13Q-14 6-14 5Z" fill="#42a5f5"/><path d="M-8-5Q-7.500-6-6-6H-1V-1H-10ZM1-6H6Q7.500-6 8-5L10-1H1Z" fill="#fff" opacity=".85"/><circle cx="-8" cy="6" r="3.600" fill="#16202b" stroke="#42a5f5" stroke-width="1.400"/><circle cx="8" cy="6" r="3.600" fill="#16202b" stroke="#42a5f5" stroke-width="1.400"/></g><circle cx="51" cy="44" r="10.500" fill="#241a08"/><g transform="translate(51 44) scale(0.62)"><circle r="13" fill="none" stroke="#ff9800" stroke-width="2.600"/><path d="M0 0C-5-3-5-9 0-10.500C3.500-9 3.500-4 0 0Z" fill="#ff9800" transform="rotate(0)"/><path d="M0 0C-5-3-5-9 0-10.500C3.500-9 3.500-4 0 0Z" fill="#ff9800" transform="rotate(120)"/><path d="M0 0C-5-3-5-9 0-10.500C3.500-9 3.500-4 0 0Z" fill="#ff9800" transform="rotate(240)"/><circle r="2" fill="#ff9800"/></g></svg></span>
-    <h1 title="steuerbare Verbrauchseinrichtung">SteuVE</h1>
+    <h1 title="Gateway für steuerbare Verbrauchseinrichtungen (beliebige Verbraucher dahinter)">EEBUS-SteuVE-Gateway</h1>
     <div class="sub" id="sub_ip" style="justify-self:center">—</div>
     <div class="sub" id="sub" style="font-size:16px">—</div>
   </div>
@@ -169,12 +169,12 @@ dialog.frage::backdrop { background:rgba(0,0,0,.65); }
   <button role="tab" data-t="hm">Meldungen</button>
   <button role="tab" data-t="prot">Protokoll</button>
   <button role="tab" data-t="test">Test &amp; Einstellungen</button>
-  <button role="tab" data-t="stat" class="rechts">Status</button>   <!-- 09.11. (Andreas) -->
+  <button role="tab" data-t="stat" class="rechts">Status</button>   <!-- 09.11. (meierchen006) -->
 </nav>
 
 <!-- ================= SteuVE (Geraet) ================= -->
 <div class="pane" data-p="dev">
-<!-- 31.10. (Andreas): zwei Kacheln, HEMS / Energy Guard vorne; die Kennung braucht man nur beim Koppeln -->
+<!-- 31.10. (meierchen006): zwei Kacheln, HEMS / Energy Guard vorne; die Kennung braucht man nur beim Koppeln -->
 <nav class="tabs subt" role="tablist">
   <button role="tab" data-u="hems" aria-selected="true">HEMS / Energy Guard (Steuerbox)</button>
   <button role="tab" data-u="kenn" aria-selected="false">Eigene Kennung</button>
@@ -246,7 +246,7 @@ dialog.frage::backdrop { background:rgba(0,0,0,.65); }
       §14a-Sollwert der Steuerbox), ohne HEMS dem Energy Guard (Steuerbox) selbst (Direktsteuerung). Entziehen trennt die
       Verbindung sofort; die SteuVE läuft dann autonom (ohne Begrenzung). „Vertrauen“ hier = der Energiemanager aus der
       Fundliste; ein anderes Gerät unten in der Liste wählen.</p>
-    <!-- 31.10. (Andreas): QR-Codes des vertrauten Geraets (HEMS oder Steuerbox), Aufbau wie bei der eigenen Kennung -->
+    <!-- 31.10. (meierchen006): QR-Codes des vertrauten Geraets (HEMS oder Steuerbox), Aufbau wie bei der eigenen Kennung -->
     <div class="row"><button class="btn" id="eg_qr_auf">QR-Codes anzeigen</button></div>
     <div id="eg_qr_box" style="display:none">
       <p class="note" id="eg_qr_leer" style="display:none">Kein QR-Code: Es ist kein Gerät vertraut, oder es steht nicht in der Fundliste („neu suchen“).</p>
@@ -414,7 +414,7 @@ dialog.frage::backdrop { background:rgba(0,0,0,.65); }
   <div class="card"><pre id="out">—</pre></div>
 </section>
 </div>
-<!-- 09.11.2026 (Andreas): Reiter Status rechts wie beim SMGW-Leser und HEMS - nur lesen, jede Minute neu -->
+<!-- 09.11.2026 (meierchen006): Reiter Status rechts wie beim SMGW-Leser und HEMS - nur lesen, jede Minute neu -->
 <div class="pane" data-p="stat">
   <div class="card"><h2>Gerät (SteuVE)</h2><div class="kv gs" id="st_geraet"><span>Stand</span><span>wird gelesen …</span></div></div>
   <div class="card" style="margin-top:12px"><h2>Kopplungen (EEBUS)</h2><div class="kv gs" id="st_kopp"><span>Stand</span><span>wird gelesen …</span></div></div>
@@ -457,7 +457,7 @@ function icon(n){
   if (/heiz/.test(n)) { return '&#128293;'; }
   return '&#128268;';
 }
-// 21.11.2026 (Andreas): STEUERKONTAKT = Shelly 1 (Gen1, Plus 1, Plus 1 Mini, 1 Gen3/Gen4, 1 Mini Gen3/Gen4) mit
+// 21.11.2026 (meierchen006): STEUERKONTAKT = Shelly 1 (Gen1, Plus 1, Plus 1 Mini, 1 Gen3/Gen4, 1 Mini Gen3/Gen4) mit
 // potentialfreiem Kontakt, ohne Messung. Er legt bei einer Begrenzung den Steuereingang eines Geraets um (z. B. Wallbox).
 // NC = Kontakt am Geraet normal geschlossen, oeffnet bei Begrenzung (Relais aus); NO = normal offen, schliesst bei
 // Begrenzung (Relais ein). Skript v012 meldet Zahlen (Kontakt 1 = NC, 2 = NO; Eingang 1 = NO, 2 = NC), ab v013 Text.
@@ -475,7 +475,7 @@ function kontVon(pl){
   if (!k) { return null; }
   return {k:kontNorm(k[1], false), w:k[2] || 0, e:kontNorm(k[3], true), st:k[4] || 0};
 }
-// 21.11.2026 (Andreas): beim Steuerkontakt keine Leistung, nur der Kontaktzustand. Shelly 1: Relais ein = Kontakt geschlossen.
+// 21.11.2026 (meierchen006): beim Steuerkontakt keine Leistung, nur der Kontaktzustand. Shelly 1: Relais ein = Kontakt geschlossen.
 function kontZust(an){ return an === 1 ? 'CLOSE' : (an === 0 ? 'OPEN' : '?'); }
 // Begrenzungsstellung: NC -> OPEN (Relais aus), NO -> CLOSE (Relais ein)
 function kontBegr(k, an){ return (k === 'NC' && an === 0) || (k === 'NO' && an === 1); }
@@ -573,7 +573,7 @@ $('id_ank').onclick = () => {
   knopfStart($('id_ank'), 'kündigt an …');
   cmd('EEBusAdvertise').then(j => { say(j); knopfMeldung($('id_ank'), j ? '✓ angekündigt' : '✗ Fehler', j ? OK : ROT); });
 };
-// Dateizugriff NUR ueber die Extra-Ports (24.10., Andreas): lesen :82, schreiben :83 — nie /ufsd oder /ufsu auf :80
+// Dateizugriff NUR ueber die Extra-Ports (24.10., meierchen006): lesen :82, schreiben :83 — nie /ufsd oder /ufsu auf :80
 // (Datei-/Verzeichniszugriffe ueber :80 haben schon Neustarts ausgeloest). Port 82 sendet CORS "*".
 const FS82 = (pfad, flash) => 'http://' + location.hostname + ':82/ufs/' + (flash ? 'ffs' : 'sdfs') + pfad;
 function fsSpeichernAls(pfad, flash, name){   // Datei ueber :82 holen und als Download anbieten
@@ -847,7 +847,7 @@ function renderDev(){
   }).join('');
   document.querySelectorAll('[data-trust]').forEach(b => b.onclick = () => trust(b.dataset.trust, b));
 }
-// 31.10. (Andreas): Rueckfrage als Fenster der Seite. Abbrechen ist vorgewaehlt, Eingabetaste und Esc loesen also nichts aus.
+// 31.10. (meierchen006): Rueckfrage als Fenster der Seite. Abbrechen ist vorgewaehlt, Eingabetaste und Esc loesen also nichts aus.
 // Ohne ja-Text ist es eine reine Meldung mit „OK“.
 function frage(kopf, text, ja){
   return new Promise(fertig => {
@@ -878,7 +878,7 @@ async function trust(ski, knopf){
   // Knopf in der Liste wird beim naechsten Zeichnen ersetzt -> Rueckmeldung zusaetzlich im passenden Karten-Knopf
   const kk = neu ? $('eg_ja') : $('eg_nein');
   [knopf, kk].forEach(b => b && knopfStart(b, neu ? 'vertraut …' : 'entzieht …'));
-  // 30.10. (Andreas): Entziehen heisst „bleib weg“ - auch die gemerkte Gegenstelle vergessen und alle Verbindungen trennen,
+  // 30.10. (meierchen006): Entziehen heisst „bleib weg“ - auch die gemerkte Gegenstelle vergessen und alle Verbindungen trennen,
   // sonst ruft die SteuVE selbst wieder an
   cmd('EEBusCsTrust ' + (neu ? ski : '0')).then(j => neu ? j : cmd('EEBusAutoConn -1').then(() => cmd('EEBusDisconnect')).then(() => j)).then(j => {
     say(j);
@@ -903,7 +903,7 @@ function drawFlow(){
   const c = CS || {}, v = verbraucher(), o = [];
   const fs = c.Zustand === 'Failsafe', lim = !!c.Begrenzt, sim = lim && c.EnergyGuard === 'lokal';
   const tr = c.Vertraut || '', p = peerBySki(tr);
-   // 26.10. (Andreas): ohne Fundliste (z. B. nach Neustart, kein Scan) war p leer -> der Kasten zeigte "HEMS verbunden",
+   // 26.10. (meierchen006): ohne Fundliste (z. B. nach Neustart, kein Scan) war p leer -> der Kasten zeigte "HEMS verbunden",
    // obwohl die SteuVE direkt an der Steuerbox haengt. Dann die Kennung aus der Verbindung nehmen (EEBusGuard = Steuerbox).
   const pid = (slotBySki(tr) || {}).PeerId || '';
   const hm = p ? istHm(p) : /hems/i.test(pid);
@@ -913,7 +913,7 @@ function drawFlow(){
   o.push('<defs>' + cols.map(col => `<marker id="${MK(col)}" markerUnits="userSpaceOnUse" markerWidth="13" markerHeight="11" refX="9" refY="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 Z" fill="${col}"/></marker>`).join('') + '</defs>');
   const stbcol = fs ? '#888' : '#f5d942';
   const stbTxt = fs ? 'Herzschlag aus' : (sim ? 'Simulation (Test)' : (lim ? '§14a aktiv' : 'für SteuVE: keine Vorgabe'));
-   // 26.10. (Andreas): die Kachel HEMS nur, wenn ein EMS/HEMS erkannt ist - bei Direktsteuerung Pfeil direkt zur SteuVE
+   // 26.10. (meierchen006): die Kachel HEMS nur, wenn ein EMS/HEMS erkannt ist - bei Direktsteuerung Pfeil direkt zur SteuVE
   o.push(arrow(hm ? 'M360,96 L360,150' : 'M360,96 L360,232', stbcol, hbOk && !!tr, 3.5));
   $('kette').textContent = hm ? 'Netzbetreiber → FNN-Steuerbox → HEMS (teilt auf) → SteuVE → Verbraucher'
                               : 'Netzbetreiber → FNN-Steuerbox → SteuVE (Direktsteuerung) → Verbraucher';
@@ -938,7 +938,7 @@ function drawFlow(){
   const ant = fs ? 'Failsafe: ' + W(c.Grenze) : (lim ? (sim ? 'Simulation: ' : 'Anteil SteuVE: ') + W(c.Grenze) : 'Anteil SteuVE: unbegrenzt');
   o.push(`<rect x="260" y="236" width="200" height="24" rx="12" fill="var(--surface-2)" stroke="var(--axis)"/>` +
          `<text x="360" y="252" text-anchor="middle" fill="var(--ink)" font-size="12" font-weight="bold">${ant}</text>`);
-   // 23.10. (Andreas): wie viel vom zugesagten Anteil gerade gebraucht wird - echter Verbrauch der SteuVE / Grenze
+   // 23.10. (meierchen006): wie viel vom zugesagten Anteil gerade gebraucht wird - echter Verbrauch der SteuVE / Grenze
   const nutz = Math.max(0, c.Leistung || 0);
   let nTxt = 'genutzt: ' + W(nutz) + ' (kein Limit)', nCol = 'var(--ink)';
   if ((fs || lim) && c.Grenze > 0) {
@@ -955,7 +955,7 @@ function drawFlow(){
    // 23.10.: "verbunden" nur bei stehender Verbindung (Slot), nicht schon wegen eines juengeren Herzschlags - sonst
    // stand hier "verbunden", waehrend die Pille oben richtig "nicht verbunden" zeigte (HEMS gerade neu gestartet).
   const sl = slotBySki(tr), steht = !!(sl && sl.Sme === 'done');
-   // 19.11.2026 (Andreas): empfangenen Herzschlag des HEMS bzw. der Steuerbox in der Kachel zeigen (LPC 3.4.3)
+   // 19.11.2026 (meierchen006): empfangenen Herzschlag des HEMS bzw. der Steuerbox in der Kachel zeigen (LPC 3.4.3)
   const hbS = c.HerzschlagS, hbZ = (sl && sl.ZusageS) ? ' (alle ' + sl.ZusageS + ' s)' : '';
   const hbLine = (!tr || !steht || fs) ? null : ((hbS === undefined || hbS < 0) ? ['kein Herzschlag', '#e05a4a']
                : ['Herzschlag vor ' + hbS + ' s' + hbZ, hbS <= 30 ? '#37c871' : (hbS < 90 ? '#fab219' : '#e05a4a')]);
@@ -977,9 +977,9 @@ function renderUeb(){
   $('c_r').textContent = c.Begrenzt ? (c.RestS < 0 ? 'unbefristet' : dauer(c.RestS)) : '—';
   $('c_s').textContent = W(c.Leistung);
   $('c_n').textContent = c.Max ? W(c.Max) : 'unbekannt';
-  // 07.11.2026 (Andreas): Einzelkarten je Verbraucher entfernt (stand alles auch in der Tabelle); Farbe steht beim
+  // 07.11.2026 (meierchen006): Einzelkarten je Verbraucher entfernt (stand alles auch in der Tabelle); Farbe steht beim
   // Namen. Spalte M/S = Geraeteart laut Erkennung im Slot (Messgeraet ohne Relais / Schalter), NICHT der Haken
-  // "abschaltbar" (den stellt Andreas im Reiter Verbraucher selbst ein).
+  // "abschaltbar" (den stellt meierchen006 im Reiter Verbraucher selbst ein).
   $('vtab').innerHTML = v.length ? v.map((x, i) => {
     const err = x.err >= 3, col = FARBE[i % FARBE.length][0];
     const ger = x.fake ? '<span class="tag fake">Fake</span> ' + esc(PROF[x.prof] || '?') : esc(x.model || (x.typ === 2 ? 'Gen1' : (x.typ === 1 ? 'Gen2+' : 'unbekannt')));
@@ -1020,11 +1020,11 @@ function kontZelle(c){
   const k = kontVon(c[0]) || {k:'-', w:0, e:'-'};
   if (!c[4] && !istShelly1(c[8]) && k.k === '-') { return '<td><span class="note">nur Shelly 1</span></td>'; }
   const sel = (cls, v, opts, tip) => `<select class="${cls}" title="${tip}">` + opts.map(o => `<option value="${o[0]}"${o[0] === v ? ' selected' : ''}>${o[1]}</option>`).join('') + '</select>';
-  // 21.11.2026 (Andreas): Auswahl NC/NO und Kachel Kont. gleich gross
+  // 21.11.2026 (meierchen006): Auswahl NC/NO und Kachel Kont. gleich gross
   return '<td style="text-align:center">' + sel('kk', k.k, [['-', '– kein'], ['NC', 'NC'], ['NO', 'NO']],
            'Steuereingang des Geräts: NC = normal geschlossen, öffnet bei Begrenzung (Relais aus); NO = normal offen, schließt bei Begrenzung (Relais ein)')
            .replace('<select ', '<select style="box-sizing:border-box;width:72px;height:28px" ') +
-         (k.k !== '-' ? '<br>' + kontKachel(k.k, kontAn(c[0])) : '') + '</td>';   // 21.11.2026: Kachel nur bei NC/NO   // 21.11.2026 (Andreas): kein Rueckmeldeeingang am Shelly 1 - Bestaetigung nur ueber das Zuruecklesen des Relais
+         (k.k !== '-' ? '<br>' + kontKachel(k.k, kontAn(c[0])) : '') + '</td>';   // 21.11.2026: Kachel nur bei NC/NO   // 21.11.2026 (meierchen006): kein Rueckmeldeeingang am Shelly 1 - Bestaetigung nur ueber das Zuruecklesen des Relais
 }
 function renderShForm(){
   if (!CFG) { $('shtab').innerHTML = '<tr><td colspan="9">' + (VL === null ? 'Skript steuve_verbraucher nicht geladen' : 'lädt …') + '</td></tr>'; return; }
@@ -1259,7 +1259,7 @@ function renderKopf(){
   let h = chip(zcls, '<b>Zustand</b> ' + esc(ztxt)) +
     chip(!c.Vertraut ? 'cr' : (sl && sl.Sme === 'done' ? 'ok' : 'wa'), '<b>' + (c.Vertraut ? egName(c.Vertraut) : 'Energy Guard / HEMS') + '</b> ' +
          (!c.Vertraut ? 'keiner vertraut' : esc((sl ? sl.Ip : '…' + c.Vertraut.slice(-4)) + (sl && sl.Sme === 'done' ? ' verbunden' : ' nicht verbunden')))) +
-    chip(c.HerzschlagS < 0 ? 'wa' : (c.HerzschlagS <= 30 ? 'ok' : (c.HerzschlagS < 90 ? 'wa' : 'cr')),   /* 23.10. Andreas: bis 30 s gruen, bis 89 s gelb, ab 90 s rot */ '<b>Herzschlag</b> ' + (c.HerzschlagS < 0 ? 'noch keiner' : 'vor ' + dauer(c.HerzschlagS))) +
+    chip(c.HerzschlagS < 0 ? 'wa' : (c.HerzschlagS <= 30 ? 'ok' : (c.HerzschlagS < 90 ? 'wa' : 'cr')),   /* 23.10. meierchen006: bis 30 s gruen, bis 89 s gelb, ab 90 s rot */ '<b>Herzschlag</b> ' + (c.HerzschlagS < 0 ? 'noch keiner' : 'vor ' + dauer(c.HerzschlagS))) +
     chip(VL === null ? 'wa' : (ok === v.length ? 'ok' : 'cr'), '<b>Verbraucher</b> ' + (VL === null ? 'Skript fehlt' : ok + '/' + v.length +
          (v.some(x => x.fake) ? ' · ' + v.filter(x => x.fake).length + ' Fake' : '')));
   if (c.Abgewiesen) { h += chip('wa', '<b>Abgewiesen</b> ' + c.Abgewiesen + ' (' + esc(c.AbgewiesenVon) + ')'); }
@@ -1352,7 +1352,7 @@ document.querySelectorAll('.tabs:not(.subt) button').forEach(b => b.onclick = ()
   if (b.dataset.t === 'hm') { ladeHm(); }
   if (b.dataset.t === 'stat') { statZeigen(); }   // 09.11.
 });
-// ---- 09.11.2026 (Andreas): Reiter Status wie SMGW-Leser/HEMS. Nur lesen (Status 1/2/4/5/11, TinyC, UfsSize/UfsFree, EEBusStatus),
+// ---- 09.11.2026 (meierchen006): Reiter Status wie SMGW-Leser/HEMS. Nur lesen (Status 1/2/4/5/11, TinyC, UfsSize/UfsFree, EEBusStatus),
 // nacheinander. Bewusst NICHT: WLAN-Name, MAC, Hostname, SKI.
 const ST_SEITE = 'Stand 09.11.2026';
 let ST_LAEUFT = false;
@@ -1414,7 +1414,7 @@ $('theme').onclick = () => {
 document.querySelector('.tabs button').click();
 render();
 poll();
-// 06.11. (Andreas): Kopf wie HEMS - Adresse unter dem Logo, Datum · Uhrzeit · läuft seit x h, jede Sekunde.
+// 06.11. (meierchen006): Kopf wie HEMS - Adresse unter dem Logo, Datum · Uhrzeit · läuft seit x h, jede Sekunde.
 // Laufzeit aus Status 11 (alle 60 s), dazwischen zählt der Browser weiter.
 var UP_S = -1, UP_AT = 0;
 function kopfZeit(){
