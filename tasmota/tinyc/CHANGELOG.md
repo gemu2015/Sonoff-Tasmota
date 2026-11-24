@@ -66,6 +66,7 @@ with total size and `abi_rev`) arrived in 1.6.35; v2–v5 files still load.
 - **⚠️ Update order for the SteuVE gateways:** a SteuVE now demands a binding for the failsafe values (DeviceConfiguration) as well. An Energy Guard above it must bind LoadControl **and** DeviceConfiguration, otherwise it gets error 9. A new gateway needs `EEBusCsTrust <SKI>` of the Energy Guard first, otherwise it does not let it in.
 - **`tls_mini`: `TlsPeerCertDer()`** (+9 lines) gives the first 1024 bytes of the peer certificate of the last connect; needed by Steuerbox v242+ and SteuVE v038+ for the SKI check.
 - **`xdrv_126`: forward declarations** of `EebusSrvAbbruch` / `EebusSrvHelloStart` (as in 128/129); without them `tinyc32s3-eth-guard` did not compile.
+- **IDE: clear message after cancelling the web password prompt** (Andreas, 24.11.2026): after two cancels the Load / Upload buttons looked usable but the device answered 401 and nothing happened. The IDE now shows a banner "Kein Passwort eingegeben – Laden und Hochladen sind gesperrt" and asks again on the next try. IDE only: run `TinyCIde`, no firmware flash needed.
 
 ## 1.6.82 — 2026-11-23
 

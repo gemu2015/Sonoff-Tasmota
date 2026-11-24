@@ -29,11 +29,31 @@
         // 401 and each asked for the password, so it had to be typed twice. Now only one question is open at a time;
         // a request that gets a 401 first uses a password another request has stored meanwhile.
         var asking = null;
+        // 24.11.2026 (Andreas): after "Cancel" the buttons looked usable but the device answered 401 and nothing
+        // happened. Show a clear banner (own element, independent of the IDE's log) for a few seconds.
+        function notice(msg) {
+            try {
+                var d = document.getElementById('webpwd-note');
+                if (!d) {
+                    d = document.createElement('div');
+                    d.id = 'webpwd-note';
+                    d.setAttribute('role', 'alert');
+                    d.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;padding:10px 16px;' +
+                        'background:#f9e2af;color:#11111b;font:14px sans-serif;text-align:center;box-shadow:0 2px 6px rgba(0,0,0,.4)';
+                    (document.body || document.documentElement).appendChild(d);
+                }
+                d.textContent = msg;
+                d.style.display = 'block';
+                clearTimeout(d._t);
+                d._t = setTimeout(function () { d.style.display = 'none'; }, 8000);
+            } catch (e) {}
+        }
         function askPw() {
             if (!asking) {
                 asking = Promise.resolve().then(function () {
                     var p = prompt('Das Gerät hat ein Webpasswort.\nPasswort für Benutzer "admin":');
                     if (p) { try { sessionStorage.setItem(KEY, p); } catch (e) {} }
+                    else { notice('Kein Passwort eingegeben \u2013 Laden und Hochladen sind gesperrt. Beim n\u00e4chsten Versuch wird erneut gefragt.'); }
                     return p;
                 }).finally(function () { asking = null; });
             }
