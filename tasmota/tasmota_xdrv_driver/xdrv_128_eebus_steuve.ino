@@ -367,6 +367,9 @@
 #define EEBUS_ADV_PORT          4712
 #define EEBUS_ADV_TYPE          "ChargingStation"   // wir simulieren einen steuerbaren Verbraucher
 #define EEBUS_ADV_BRAND         "Tasmota"
+// 24.11.2026 (gemu): "#undef" vor Makros, die 126/128/129 mit anderem Wert setzen. PlatformIOs INO-Umwandlung ("Converting tasmota.ino",
+// gcc -fpreprocessed -dD -E) wertet #ifdef NICHT aus und sieht alle drei Treiber -> sonst Warnung "redefined". Im echten Bau ist nur EIN Treiber aktiv.
+#undef  EEBUS_ADV_MODEL
 #define EEBUS_ADV_MODEL         "EEBusSteuVE"
 // EINE Kennung = Brand-Model-Serial. Dieselbe Kennung dient als mDNS-id = accessMethods.id =
 // SPINE-deviceCode; eine Gegenstelle inventarisiert uns ueber deviceCode + serialNumber.
@@ -933,6 +936,7 @@ enum EebusLpcState : uint8_t {
 // Timing sein (CS gerade im "init") -> "the EG may simply send Heartbeat and write command once more".
 // [LPC-914]: der Write wird nur bewertet, wenn UNMITTELBAR davor ein Heartbeat kam und der Write <60 s
 // folgt. Daher: bei errorNumber:7 automatisch Heartbeat+Write erneut, mehrmals. Nur HEMS-Modus.
+#undef  EEBUS_LPC_WRITE_MAX_TRIES
 #define EEBUS_LPC_WRITE_MAX_TRIES  3   // so oft HB+Write nach err7 wiederholen (Norm LPC-906/914)
 #define EEBUS_LPC_WRITE_RETRY_MS   2000UL   // Pause zwischen den HB+Write-Retries (CS "init" absetzen lassen)
 // §14a verlangt zwingend einen Failsafe (Rueckfall-Limit + Mindestdauer, falls die Steuerbox-
@@ -998,6 +1002,7 @@ struct {
  *      Gegenstelle haelt den Herzschlag fuer uralt und lehnt JEDES Limit ab, ohne dass
  *      irgendwo ein Fehler erscheint. Genau diese Klasse Fehler hat uns Wochen gekostet.
 \*********************************************************************************************/
+#undef  EEBUS_AC_DELAY_DEFAULT_S
 #define EEBUS_AC_DELAY_DEFAULT_S   120   // Wartezeit nach Netz+Uhr, bevor gesucht wird
 #define EEBUS_AC_SCAN_WAIT_MS     6000   // Zeit, die der mDNS-Scan zum Fuellen der Liste bekommt
 #define EEBUS_AC_MAX_TRY             4   // danach aufgeben — ein Mensch muss ran
@@ -1689,6 +1694,7 @@ enum EebusSmeState : uint8_t {
 // ueber den globalen "aktuellen Slot"-Zeiger ESp (frueher: eine globale EShip-Struktur).
 // Die Schleifen (Poll/Heartbeat/Keep-Alive/Teardown) setzen ESp pro Slot — alles laeuft
 // im selben Arduino-Loop-Task, daher ist der Zeiger race-frei.
+#undef  EEBUS_MAX_CONN
 #define EEBUS_MAX_CONN 3
 
 typedef struct {
