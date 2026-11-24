@@ -1132,6 +1132,19 @@ void OnExit() {
 // ═══════════════════════════════════════════════════════════════════
 // MAIN — initialization
 // ═══════════════════════════════════════════════════════════════════
+#ifdef BOARD_WAVESHARE
+// ⚠️ WARM RESTART (24.11.2026, measured on .97): the expander is a chip of its own and is NOT reset when the ESP restarts (Restart command,
+// watchdog), so the camera stays in whatever state it had and cameraInit() fails with 0x106 -- only pulling the USB power helped. On a cold start
+// the expander comes up with all outputs high = EXIO3 (camera PWDN) high, and the script then writes 0x67 = PWDN low: that high->low edge is what
+// wakes the sensor. Here the same edge is made by hand: PWDN high (power down) for 100 ms, then low, then 100 ms for the sensor to settle.
+void ws_cam_power_cycle() {
+    exio_set(EXIO_CAM_PWDN, 1);
+    delay(100);
+    exio_set(EXIO_CAM_PWDN, 0);
+    delay(100);
+}
+#endif
+
 int main() {
     mot = 0;
     mailout = 0;
@@ -1233,11 +1246,21 @@ int main() {
     // The expander BEFORE the camera: its outputs are all high after every reset, and EXIO3 = camera PWDN (active high) keeps the sensor powered
     // down, so cameraInit() fails with 0x106 (measured 16.11.2026, first on a good OV2640 module). exio_init() writes 0x67 (PWDN low).
     if (exio_init(0) == 0) { addLog("TCC: Waveshare expander 0x24 not found"); }
+    else { ws_cam_power_cycle(); }
     delay(20);
 #endif
 
     // Initialize camera
     int ok = initCamera();
+#ifdef BOARD_WAVESHARE
+    // Second try after another PWDN pulse (24.11.2026), in case the first pulse was not enough.
+    if (ok != 0 && exio_ok == 1) {
+        addLog("TCC: camera init failed, PWDN pulse and one more try");
+        ws_cam_power_cycle();
+        delay(100);
+        ok = initCamera();
+    }
+#endif
     if (ok != 0) {
         return -1;
     }
