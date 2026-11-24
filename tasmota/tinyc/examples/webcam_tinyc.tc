@@ -21,13 +21,14 @@
 //      or: node compile_cli.js webcam_tinyc.tc webcam_tinyc.tcb -DBOARD_WAVESHARE
 //      or: node compile_cli.js webcam_tinyc.tc webcam_tinyc.tcb -DBOARD_GOOUUU
 //      or: node compile_cli.js webcam_tinyc.tc webcam_tinyc.tcb -DBOARD_AITHINKER
+//      or: node compile_cli.js webcam_tinyc.tc webcam_tinyc.tcb -DBOARD_XIAO
 //
 // Camera capture runs in TaskLoop (VM task thread) — required for
 // esp_camera_fb_get() which crashes if called from main thread.
 // ═══════════════════════════════════════════════════════════════════
 
 // ⚠️ BOARD CHOICE — THERE IS NO DEFAULT (18.11.2026). Name your board, either with `-DBOARD_X` on the compiler command line (tc_deploy.mjs, push_tcb.sh,
-// compile_cli.js) or, in the browser IDE, by writing `#define BOARD_X` (BOARD_DFROBOT, BOARD_WAVESHARE, BOARD_GOOUUU or BOARD_AITHINKER) as the FIRST line of this file.
+// compile_cli.js) or, in the browser IDE, by writing `#define BOARD_X` (BOARD_DFROBOT, BOARD_WAVESHARE, BOARD_GOOUUU, BOARD_AITHINKER or BOARD_XIAO) as the FIRST line of this file.
 // Without one the build stops at the `#error` line below. It used to carry a hidden `// @defines: -DBOARD_DFROBOT` comment that the compiler read as a default:
 // a push without -D got the DFRobot pins and night vision on a Goouuu board (camera init failed with 0x106), and in the IDE `#define BOARD_GOOUUU` plus that comment
 // meant TWO boards were defined at once (gemu, 18.11.2026). The blocks below switch the DFRobot defaults off again where another board is named
@@ -39,6 +40,9 @@
 #undef BOARD_DFROBOT
 #endif
 #ifdef BOARD_AITHINKER
+#undef BOARD_DFROBOT
+#endif
+#ifdef BOARD_XIAO
 #undef BOARD_DFROBOT
 #endif
 
@@ -80,12 +84,21 @@ int campins[] = {-1, -1, 15, 4, 5, 16, 17, 18, 12, 10, 8, 9, 11, 6, 7, 13};
 int campins[] = {32, -1, 0, 26, 27, 35, 34, 39, 36, 21, 19, 18, 5, 25, 23, 22};
 #endif
 
+#ifdef BOARD_XIAO
+// Seeed XIAO ESP32-S3 Sense (OV2640, ESP32-S3R8: 8 MB octal PSRAM, 8 MB flash). 24.11.2026: Pins as saved from the working Tasmota template on .200 (11.11.2026,
+// sicherungen/2026-11-11/n200/KAMERA_PINS.txt) and equal to Seeed's own pin table: XCLK 10, SIOD 40, SIOC 39, VSYNC 38, HREF 47, PCLK 13, Y2..Y9 (= D0..D7) = 15,17,18,16,14,12,11,48.
+// PWDN / RESET are not wired. SD card (SPI 7/8/9, CS 21) is separate and not touched here.
+int campins[] = {-1, -1, 10, 40, 39, 48, 11, 12, 14, 16, 18, 17, 15, 38, 47, 13};
+#endif
+
 // A board must have been named (see BOARD CHOICE above). Stops here, with this line number, instead of with a cryptic "campins" error further down.
 #ifndef BOARD_DFROBOT
 #ifndef BOARD_WAVESHARE
 #ifndef BOARD_GOOUUU
 #ifndef BOARD_AITHINKER
-#error NO BOARD NAMED - write  #define BOARD_DFROBOT  (or BOARD_WAVESHARE / BOARD_GOOUUU / BOARD_AITHINKER)  as the first line of this file, or compile with -DBOARD_xxx
+#ifndef BOARD_XIAO
+#error NO BOARD NAMED - write  #define BOARD_DFROBOT  (or BOARD_WAVESHARE / BOARD_GOOUUU / BOARD_AITHINKER / BOARD_XIAO)  as the first line of this file, or compile with -DBOARD_xxx
+#endif
 #endif
 #endif
 #endif
