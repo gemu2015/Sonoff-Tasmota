@@ -17,7 +17,7 @@
   Die Paare werden je Sitzung neu gelernt (zusammen mit lpc_fs_val_key/lpc_fs_dur_key, aus derselben Description).
   Gleich in HEMS Firmware v042 (xdrv_129) und Steuerbox v247 (xdrv_126).
   Ausserdem in SteuVE Firmware v041 (24.11.2026, meierchen006, wie HEMS FW v043): FREIGABE nie mit Wert 0 - statt dessen Nennleistung des Geraets (sonst 11.000 W);
-  der VR921 setzte eine inaktive 0 kurz als Grenze am eBUS um (Verdichterstopp, 24.11.).
+  das Waermepumpen-Gateway setzte eine inaktive 0 kurz als Grenze am eBUS um (Verdichterstopp, 24.11.).
   SteuVE Firmware v040 (23.11.2026, Normrest SHIP 13.4.8.1): eigenes connectionClose mit reason "unspecific" statt
   "unplug" (XSD ConnectionCloseReasonType kennt nur unspecific/removedConnection, Z. 3127-3138); auf "announce" der
   Gegenstelle mit phase "confirm" antworten, dann schliessen (Z. 3158-3162) - wie Steuerbox v231.
@@ -5279,9 +5279,9 @@ void EebusLpcWrite(void) {
   long frame_val = (long)ESp->lpc_value;
   if (1 == ESp->lpc_dir) { frame_val = -frame_val; }
    // SteuVE FW v041: bei einer FREIGABE (isLimitActive false) nie den Wert 0 schicken. Befund 24.11. (Datensammler, eBUS):
-   // nach jedem Neustart von HEMS/Steuerbox ging an den VR921 "Freigabe, value 0"; der VR921 setzte die 0 kurz als
+   // nach jedem Neustart von HEMS/Steuerbox ging an das WP-Gateway "Freigabe, value 0"; das Gateway setzte die 0 kurz als
    // Grenze am eBUS um (B531 = 0 an WP und Heizstab) -> Verdichterstopp ~4 min. Normgerecht war der Frame (bei inaktiver
-   // Grenze zaehlt der Wert nicht), die Vergleichs-Steuerbox schickt aber nie 0 (eebus-go setzt Value immer). Neu:
+   // Grenze zaehlt der Wert nicht), die Vergleichs-Steuerbox schickt aber nie 0 (setzt Value immer). Neu:
    // Geraete-Weg -> Nennleistung des Geraets (gemeldet, sonst 11.000 W); Energiemanager-Weg ->
    // weiter der letzte Wert, nur statt 0 ebenfalls die Nennleistung. Einspeisung mit Erzeugungs-Nennleistung, negativ.
   if (!ESp->lpc_active_wish && (!eebus_hems_mode || (0 == frame_val))) {
