@@ -441,7 +441,7 @@ footer a{color:var(--ink-2)}
     <h2>Gateway (HAN-Schnittstelle)</h2>
     <div class="kv anl">
       <span>Adresse des Gateways</span><span><input type="text" id="gw_url" class="ftpin" style="width:30em" placeholder="https://192.168.1.200:443/cgi-bin/hanservice.cgi" autocomplete="off" spellcheck="false"></span>
-      <span>Leser im LAN: IP-Adresse</span><span><input type="text" id="gw_lip" class="ftpin" placeholder="192.168.1.21" autocomplete="off"></span>
+      <span>Leser im LAN: IP-Adresse</span><span><input type="text" id="gw_lip" class="ftpin" placeholder="z. B. 192.168.1.xxx" title="Feste Adresse des Lesers am Kabel zum Gateway – im selben Netz wie das Gateway" autocomplete="off"></span>
       <span>Leser im LAN: Netzmaske</span><span><input type="text" id="gw_mask" class="ftpin" placeholder="255.255.255.0" autocomplete="off"></span>
       <span></span><span><span class="note" id="gw_msg"></span> <button class="btn anbtn" id="gwSet">Speichern</button></span>
     </div>
@@ -1353,7 +1353,11 @@ async function zeigeGw(){
   if (document.activeElement !== $('gw_url')) $('gw_url').value = `https://${host}:${port}${pfad}`;
   if (s.host == null) gwMeldung('Gerät meldet noch keine Adresse – Skript slot0-smgw_1.1.0.tc laden (bis dahin gilt die Vorgabe).', 'var(--muted)');
   const a = await cmJson('EthIPAddress'), b = await cmJson('EthSubnetmask');
-  gwLanAlt = {ip:(a && a.EthIPAddress) || '', mask:(b && b.EthSubnetmask) || ''};
+  // 1.2.1 (Andreas 25.11.2026): ohne feste LAN-Adresse antwortet Tasmota "0.0.0.0 (<per DHCP vergeben>)". Nur den Teil vor
+  // der Klammer nehmen; 0.0.0.0 = keine feste Adresse -> Feld leer lassen (die Adresse in Klammern kommt aus dem Netz,
+  // in dem das Kabel gerade steckt, und taugt nicht als Leser-Adresse am Gateway).
+  const lanIp = String((a && a.EthIPAddress) || '').trim().split(/\s/)[0];
+  gwLanAlt = {ip:(lanIp === '0.0.0.0' ? '' : lanIp), mask:(b && b.EthSubnetmask) || ''};
   if (document.activeElement !== $('gw_lip')) $('gw_lip').value = gwLanAlt.ip;
   if (document.activeElement !== $('gw_mask')) $('gw_mask').value = gwLanAlt.mask;
 }
@@ -1496,7 +1500,7 @@ async function cmJson(c){
   try { const r = await fetch('/cm?cmnd=' + encodeURIComponent(c), {cache:'no-store'}); return await r.json(); }
   catch(e){ return null; }
 }
-const SEITE_VERSION = '1.2.0';   // 1.2.0: stand noch auf v076 (Andreas 21.11.)
+const SEITE_VERSION = '1.2.1';   // 1.2.1 (25.11.): LAN-Feld bei DHCP leer; 1.2.0: stand noch auf v076 (Andreas 21.11.)
 const gb = kb => (kb / 1048576).toLocaleString('de-DE', {maximumFractionDigits: 1}) + ' GB';
 const mb = kb => (kb / 1024).toLocaleString('de-DE', {maximumFractionDigits: 1}) + ' MB';
 const gr = kb => kb >= 1048576 ? gb(kb) : (kb >= 1024 ? mb(kb) : kb.toLocaleString('de-DE') + ' KB');   // passende Einheit

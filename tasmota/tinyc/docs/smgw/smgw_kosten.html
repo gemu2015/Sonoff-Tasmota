@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Stromkosten</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2234%22%20r%3D%2220%22%20fill%3D%22none%22%20stroke%3D%22%2337c871%22%20stroke-width%3D%226%22%2F%3E%3Cg%20transform%3D%22translate(32%2034)%20scale(1.5)%22%3E%3Cpath%20d%3D%22M2-9L-5%201H0L-2%209L6-2H1Z%22%20fill%3D%22%2337c871%22%2F%3E%3C%2Fg%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2213%22%20r%3D%2212%22%20fill%3D%22%23f5c518%22%2F%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2249%22%20r%3D%2212%22%20fill%3D%22%2342a5f5%22%2F%3E%3Ccircle%20cx%3D%2252%22%20cy%3D%2249%22%20r%3D%2212%22%20fill%3D%22%23ff9800%22%2F%3E%3C%2Fsvg%3E">   <!-- v010 07.11.2026 (Andreas): Logo im Browser-Tab wie HEMS, Steuerbox, SteuVE -->
+<!-- smgw_kosten.html 1.2.2 (24.11.2026, Andreas, Variante C mit HEMS-Chat): Speichern schreibt zusaetzlich /smgw_preisplan.json
+     (nur Hauptzaehler): Abschnitte ab/bis mit mw, basis, zonen, m3, ne, fenster, quart, dyn - aufgeloest wie rechneTag(), ohne Namen
+     und Varianten. Andere Geraete (HEMS) rechnen damit den Arbeitspreis je Viertelstunde. Fehler beim Plan: Tarifblatt bleibt gespeichert.
+     1.2.2b (24.11.2026, Wunsch HEMS-Chat): zusaetzlich /smgw_preisplan.txt = derselbe Plan als EINE Zeile Zahlen (Format "PP1", fuer TinyC).
+     1.2.2c (24.11.2026, Andreas): "So sieht ein Tag aus" als 96 gleich breite Viertelstunden-Kacheln, je Stunde eine 4er-Gruppe mit Spalt. -->
 <!-- smgw_kosten.html 1.2.1 (20.11.2026, Andreas): "Abrechnungsjahr beginnt im", "Abschlag je Monat" und "Abschläge im Jahr" je Tarifblatt
      (Karte 1 Lieferant, gespeichert im Lieferanten-Abschnitt als jStart/abschl/anzAb); Stand "ab ..." kann den Abschlag mitten im Jahr aendern.
      Reiter Abrechnungsjahr ohne Eingabe (Zeile: links Jahr blaettern, rechts Speichern + PDF). Ohne Eintrag: bisherige gemeinsame Werte (einst). -->
@@ -288,7 +293,7 @@ table.matrix td.best{background:rgba(12,163,12,.18);outline:2px solid var(--good
 .seitenwahl:not([style*="none"]) + .tabs{border:2px solid var(--pf);border-radius:0 10px 10px 10px;padding:8px;background:linear-gradient(var(--pb),var(--pb)),var(--page)}
 .tabs button[aria-selected="true"]{background:var(--pf)!important;color:var(--pink)!important;border-color:var(--pf)!important;font-weight:600}
 /* v057: Rest der Zeile wiederhergestellt (ging in v053 beim Ersetzen der Seitenwahl-Regeln verloren: Tarifblatt, Tarifvergleich, Tagesbalken ...) */
-table.matrix td.best{outline-offset:-2px}table.matrix caption.vZeit{caption-side:top;text-align:left;padding:4px 8px 10px;font-size:18px;color:var(--ink)}table.matrix caption.vZeit b{font-weight:700}table.matrix caption.vZeit span{font-weight:600}table.matrix caption.vZeit .vBasisTxt{color:#8a3c00;background:#ffd3ad;border-radius:8px;padding:1px 10px}table.matrix caption.vZeit .note{font-size:12px;margin-top:2px;font-weight:normal}table.matrix tr.vAbschn td{text-align:left;padding:18px 8px 8px;font-size:18px;color:var(--ink);border-bottom:2px solid var(--ring)}table.matrix tr.vAbschn:first-child td{padding-top:4px}table.matrix tr.vAbschn td span{font-weight:600}table.matrix tr.vAbschn .note{font-size:12px;margin-top:2px;font-weight:normal}table.matrix tr.vAbschn .vBasisTxt{color:#8a3c00;background:#ffd3ad;border-radius:8px;padding:1px 10px}table.matrix tr.vjZeile td{opacity:.62;font-style:italic}table.matrix tr.vjZeile .vk{font-size:16px}table.matrix tr.vjZeile td:first-child{color:var(--ink-2)}.jahre{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 12px}.jahre button{font:inherit;font-size:16px;font-weight:600;padding:6px 20px;border-radius:10px;border:2px solid var(--ring);background:var(--surface);color:var(--ink-2);cursor:pointer;line-height:1.2}.jahre button .tag{display:block;font-size:11px;font-weight:normal;background:none;color:inherit;padding:0}.jahre button.on{background:#ffd3ad;color:#8a3c00;border-color:#8a3c00}.jahre button.plus{font-size:14px;border-style:dashed}.tbkopf{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:baseline}.tbkopf>b{font-size:18px}.vorlTag{font-size:11px;background:#5a4a12;color:#ffd866;border-radius:999px;padding:1px 8px}.warnbox{border-left:4px solid var(--warn);background:rgba(227,160,8,.10);padding:8px 12px;border-radius:6px;margin:0 0 12px}#tbInhalt .card h2{display:flex;align-items:center;gap:10px}#tbInhalt .card h2 .nr{background:#ffd3ad;color:#8a3c00;border-radius:999px;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;font-size:13px}#tbInhalt .sub{font-weight:600;margin:10px 0 4px;font-size:13px}.tbz{display:grid;grid-template-columns:260px 190px 110px 1fr;gap:10px;align-items:center;padding:5px 0;border-bottom:1px solid var(--ring)}.tbz input:not([type=checkbox]):not([type=radio]),.tbz select{width:190px;box-sizing:border-box}.tbz input[type=number]{text-align:right}.tbz .erg{text-align:right}@media(max-width:800px){.tbz{grid-template-columns:1fr 1fr}}#tbInhalt table.fen{width:auto;margin:0 auto}#tbInhalt table.fen td,#tbInhalt table.fen th{padding:3px 12px;text-align:center}.tag24{display:grid;grid-template-columns:repeat(96,1fr);height:22px;border-radius:6px;overflow:hidden;border:1px solid var(--ring)}.achse24{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin:2px 0 6px}#tbInhalt>.card,#tbInhalt>.warnbox{margin:0 0 14px}.vWahl{align-items:center;gap:8px 12px}.vWahl .vwl{font-weight:600}#vVerb{min-width:340px}.blaettern{display:inline-flex;align-items:center;gap:8px;white-space:nowrap;flex:0 0 auto}.j14a{margin:12px 0}.sb span{flex:0 0 62px}.sb .spur{flex:1;min-width:0;display:block}.sgrund{min-width:150px}.strenn{border-left:1px dashed var(--ring);align-self:stretch;margin:0 6px}.z14{display:grid;grid-template-columns:280px 1fr 180px;gap:10px;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--ring)}.z14 b{text-align:right;font-size:16px}@media(max-width:800px){.z14{grid-template-columns:1fr}}.vKBox{border:1px solid var(--ring);border-radius:12px;padding:10px 12px;margin:10px 0}.vKKopf{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center}.vKBox.zu #vKarten{display:none}.vKBox #vKarten{margin-top:10px}body.druck .vKBox.zu{display:none}body.druck .vKKopf .note,body.druck .vKKopf button{display:none}table.matrix tr.vpZeile td{background:rgba(227,160,8,.06)}table.matrix tr.aktZeile td:first-child b{color:var(--ink)}.vjSchalter::before{content:"☐ "}.vjSchalter.sel::before{content:"☑ "}.vjTrenn{display:inline-block;width:1px;height:22px;background:var(--ring);margin:0 6px;vertical-align:middle}table.matrix .vDiff{margin-top:2px}.unternav button.on{background:#ffd3ad;color:#8a3c00;border-color:#ffd3ad;font-weight:600}.unternav button.on .note{color:#8a3c00;opacity:.75}.pane .btn.tas:not(.spBtn2){background:#ffd3ad;color:#8a3c00}.btn.sel{background:#ffd3ad;color:#8a3c00;border-color:#ffd3ad}.tabs button[aria-selected="true"]{background:#ffd3ad;color:#8a3c00;border-color:#ffd3ad;font-weight:600}
+table.matrix td.best{outline-offset:-2px}table.matrix caption.vZeit{caption-side:top;text-align:left;padding:4px 8px 10px;font-size:18px;color:var(--ink)}table.matrix caption.vZeit b{font-weight:700}table.matrix caption.vZeit span{font-weight:600}table.matrix caption.vZeit .vBasisTxt{color:#8a3c00;background:#ffd3ad;border-radius:8px;padding:1px 10px}table.matrix caption.vZeit .note{font-size:12px;margin-top:2px;font-weight:normal}table.matrix tr.vAbschn td{text-align:left;padding:18px 8px 8px;font-size:18px;color:var(--ink);border-bottom:2px solid var(--ring)}table.matrix tr.vAbschn:first-child td{padding-top:4px}table.matrix tr.vAbschn td span{font-weight:600}table.matrix tr.vAbschn .note{font-size:12px;margin-top:2px;font-weight:normal}table.matrix tr.vAbschn .vBasisTxt{color:#8a3c00;background:#ffd3ad;border-radius:8px;padding:1px 10px}table.matrix tr.vjZeile td{opacity:.62;font-style:italic}table.matrix tr.vjZeile .vk{font-size:16px}table.matrix tr.vjZeile td:first-child{color:var(--ink-2)}.jahre{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 12px}.jahre button{font:inherit;font-size:16px;font-weight:600;padding:6px 20px;border-radius:10px;border:2px solid var(--ring);background:var(--surface);color:var(--ink-2);cursor:pointer;line-height:1.2}.jahre button .tag{display:block;font-size:11px;font-weight:normal;background:none;color:inherit;padding:0}.jahre button.on{background:#ffd3ad;color:#8a3c00;border-color:#8a3c00}.jahre button.plus{font-size:14px;border-style:dashed}.tbkopf{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:baseline}.tbkopf>b{font-size:18px}.vorlTag{font-size:11px;background:#5a4a12;color:#ffd866;border-radius:999px;padding:1px 8px}.warnbox{border-left:4px solid var(--warn);background:rgba(227,160,8,.10);padding:8px 12px;border-radius:6px;margin:0 0 12px}#tbInhalt .card h2{display:flex;align-items:center;gap:10px}#tbInhalt .card h2 .nr{background:#ffd3ad;color:#8a3c00;border-radius:999px;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;font-size:13px}#tbInhalt .sub{font-weight:600;margin:10px 0 4px;font-size:13px}.tbz{display:grid;grid-template-columns:260px 190px 110px 1fr;gap:10px;align-items:center;padding:5px 0;border-bottom:1px solid var(--ring)}.tbz input:not([type=checkbox]):not([type=radio]),.tbz select{width:190px;box-sizing:border-box}.tbz input[type=number]{text-align:right}.tbz .erg{text-align:right}@media(max-width:800px){.tbz{grid-template-columns:1fr 1fr}}#tbInhalt table.fen{width:auto;margin:0 auto}#tbInhalt table.fen td,#tbInhalt table.fen th{padding:3px 12px;text-align:center}.tag24{display:flex;gap:3px;height:22px}.tag24 b{flex:1 1 0;display:flex;gap:1px}.tag24 b i{flex:1 1 0;border-radius:2px}.achse24{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin:2px 0 6px}#tbInhalt>.card,#tbInhalt>.warnbox{margin:0 0 14px}.vWahl{align-items:center;gap:8px 12px}.vWahl .vwl{font-weight:600}#vVerb{min-width:340px}.blaettern{display:inline-flex;align-items:center;gap:8px;white-space:nowrap;flex:0 0 auto}.j14a{margin:12px 0}.sb span{flex:0 0 62px}.sb .spur{flex:1;min-width:0;display:block}.sgrund{min-width:150px}.strenn{border-left:1px dashed var(--ring);align-self:stretch;margin:0 6px}.z14{display:grid;grid-template-columns:280px 1fr 180px;gap:10px;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--ring)}.z14 b{text-align:right;font-size:16px}@media(max-width:800px){.z14{grid-template-columns:1fr}}.vKBox{border:1px solid var(--ring);border-radius:12px;padding:10px 12px;margin:10px 0}.vKKopf{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center}.vKBox.zu #vKarten{display:none}.vKBox #vKarten{margin-top:10px}body.druck .vKBox.zu{display:none}body.druck .vKKopf .note,body.druck .vKKopf button{display:none}table.matrix tr.vpZeile td{background:rgba(227,160,8,.06)}table.matrix tr.aktZeile td:first-child b{color:var(--ink)}.vjSchalter::before{content:"☐ "}.vjSchalter.sel::before{content:"☑ "}.vjTrenn{display:inline-block;width:1px;height:22px;background:var(--ring);margin:0 6px;vertical-align:middle}table.matrix .vDiff{margin-top:2px}.unternav button.on{background:#ffd3ad;color:#8a3c00;border-color:#ffd3ad;font-weight:600}.unternav button.on .note{color:#8a3c00;opacity:.75}.pane .btn.tas:not(.spBtn2){background:#ffd3ad;color:#8a3c00}.btn.sel{background:#ffd3ad;color:#8a3c00;border-color:#ffd3ad}.tabs button[aria-selected="true"]{background:#ffd3ad;color:#8a3c00;border-color:#ffd3ad;font-weight:600}
 .felder label.aus{display:none}
 .angebot.eigen{border-color:var(--good);box-shadow:0 0 0 1px var(--good)}
 table.matrix tr.eigen td:first-child{color:var(--good)}
@@ -1319,7 +1324,7 @@ function zeigeBlatt() {
     <table class="fen"><tr><th>von</th><th>bis (ausschließlich)</th><th>Stufe</th><th></th></tr>${R.fenster.map((f, k) => `<tr><td>${zeitWahl(f[0], 0, `data-f="${k}" data-x="0"`)}</td><td>${zeitWahl(f[1], 1, `data-f="${k}" data-x="1"`)}</td><td><select data-f="${k}" data-x="2">${[0, 2, 1].map(z => `<option value="${z}"${z === f[2] ? ' selected' : ''}>${['Niedrig', 'Standard', 'Hoch'][z]}</option>`).join('')}</select></td><td><button class="btn x" data-fx="${k}">×</button></td></tr>`).join('')}</table>
     <div style="text-align:center"><button class="btn" id="tbFNeu">+ Zeitfenster</button></div>
     <div class="sub" style="margin-top:10px">So sieht ein Tag aus</div>
-    <div class="tag24">${Array.from({ length: 96 }, (_, q) => { const z = stufeQ(Object.assign({}, R, { quart: [true, true, true, true] }), j + '-01-01', q); return `<i style="background:${STUFE_F[z]}" title="${pad(Math.floor(q / 4))}:${pad(q % 4 * 15)} ${STUFE[z]}"></i>`; }).join('')}</div>
+    <div class="tag24">${Array.from({ length: 24 }, (_, h) => '<b>' + Array.from({ length: 4 }, (_, k) => { const q = h * 4 + k, z = stufeQ(Object.assign({}, R, { quart: [true, true, true, true] }), j + '-01-01', q); return `<i style="background:${STUFE_F[z]}" title="${pad(Math.floor(q / 4))}:${pad(q % 4 * 15)} ${STUFE[z]}"></i>`; }).join('') + '</b>').join('')}</div>   <!-- 1.2.2c: 24 Stunden zu je 4 gleich breiten Viertelstunden-Kacheln (Andreas 24.11.) -->
     <div class="achse24"><span>0</span><span>3</span><span>6</span><span>9</span><span>12</span><span>15</span><span>18</span><span>21</span><span>24</span></div>
     <div class="note tbErkl">Modul 3 rechnet nur, wenn beim Lieferanten „Modul 1 + 3“ gebucht ist.</div></div>
     <div class="tbM2"><div class="sub" style="margin-top:12px">Modul 2 – Nachlass auf den Arbeitspreis des Netzentgelts <span class="note tbErkl" style="font-weight:normal">(eigener Zähler für die steuerbare Verbrauchseinrichtung, z. B. Wärmepumpe – statt Modul 1, nicht mit Modul 3)</span></div>
@@ -2302,6 +2307,75 @@ async function ladeTarif() {
   }
   return !(RN === 2 && TARIF2_NEU);   // v056: Startwerte vom Hauptzaehler gelten als "noch nicht gespeichert"
 }
+// ---------- 1.2.2 (24.11.2026, Andreas): Preisplan fuer andere Geraete (HEMS) ----------
+// /smgw_preisplan.json: je Abschnitt alles, was nicht je Viertelstunde wechselt, schon aufgeloest (Stichtag "brutto", "fest",
+// Zonen, Modul 1/3) - mit DERSELBEN Rechnung wie rechneTag(). Das Geraet rechnet nur noch:
+//   Preis brutto ct/kWh = (basis bzw. Zonenbasis + ne[stufe] + (dyn ? Boerse EUR/MWh / 10 : 0)) * mw
+//   stufe: nur wenn m3 und quart[Quartal]: erstes passendes fenster [von, bis ausschl., 0|1|2], sonst 1; ohne m3: ne[0]
+//   Zone (nur Modus "zeit"): erste passende [von, bis ausschl., Zonenbasis] ersetzt basis
+// Abschnitt gilt ab..bis (bis = letzter Tag einschliesslich, "" = offen). Keine Namen, keine Varianten, nur Hauptzaehler.
+const r4 = v => Math.round(v * 10000) / 10000;
+function planAbschnitt(t) {
+  const L = abschnittAm(LIEF, t), R = abschnittAm(REG, t), P = preise(L, R);
+  const ab_ = d => d === '' ? false : !d ? true : t >= d;                       // wie rechneTag()
+  const m1ok = !!L.m1 && ab_(R.m1ab), m3ok = m1ok && !!L.m3 && ab_(R.m3ab) && Array.isArray(R.ne3);
+  const rest = P.S + R.stk, zeit = L.modus === 'zeit';
+  return {
+    mw: r4(P.mw), dyn: P.dyn,
+    basis: r4((zeit ? enZone(L, -1) : P.en) + rest),
+    zonen: zeit ? L.zonen.map((f, i) => [f[0], f[1], r4(enZone(L, i) + rest)]) : [],
+    m3: m3ok, ne: m3ok ? R.ne3.map(r4) : [r4(R.ne)],
+    fenster: m3ok ? R.fenster.map(f => [f[0], f[1], +f[2]]) : [],
+    quart: m3ok ? R.quart.map(q => !!q) : [true, true, true, true]
+  };
+}
+function preisplan() {
+  const tage = new Set();
+  for (const x of LIEF) if (x.ab) tage.add(x.ab);
+  for (const x of REG) for (const d of [x.ab, x.m1ab, x.m3ab]) if (d) tage.add(d);
+  const liste = [...tage].sort(), heuteT = iso(new Date()), out = [];
+  const vortag = d => { const x = new Date(d + 'T12:00:00'); x.setDate(x.getDate() - 1); return iso(x); };
+  for (let i = 0; i < liste.length; i++) {
+    const a = planAbschnitt(liste[i]), p = out[out.length - 1];
+    if (p && JSON.stringify(Object.assign({}, p, { ab: 0, bis: 0 })) === JSON.stringify(Object.assign({ ab: 0, bis: 0 }, a))) continue;   // gleich wie davor
+    if (p) p.bis = vortag(liste[i]);
+    out.push(Object.assign({ ab: liste[i], bis: '' }, a));
+  }
+  return { version: 1, stand: new Date().toISOString(), einheit: 'ct/kWh', abschnitte: out.filter(a => !a.bis || a.bis >= heuteT) };
+}
+// 1.2.2b (24.11.2026, Wunsch HEMS-Chat): derselbe Plan als EINE Textzeile /smgw_preisplan.txt fuer TinyC (strToken mit ' '):
+// PP1 <stand JJJJMMTTHHMM> <n> je Abschnitt: <ab JJJJMMTT> <bis JJJJMMTT|0> <mw> <dyn 0/1> <basis> <m3 0/1> <ne0> <ne1> <ne2>
+//   <q1> <q2> <q3> <q4> <nf> {<von_min> <bis_min> <stufe>}*nf <nz> {<von_min> <bis_min> <zbasis>}*nz
+// Ohne Modul 3: ne0 = ne1 = ne2 = Standard. Hoechstens 4 Abschnitte, 12 Fenster, 8 Zonen (Grenzen des HEMS Slot 0).
+function preisplanZeile(P) {
+  const z = String, mn = h => minH(h), d8 = d => d ? d.replace(/-/g, '') : '0', warn = [];
+  const s = new Date(P.stand), st = s.getFullYear() + pad(s.getMonth() + 1) + pad(s.getDate()) + pad(s.getHours()) + pad(s.getMinutes());
+  let ab = P.abschnitte; if (ab.length > 4) { warn.push((ab.length - 4) + ' Abschnitt(e) zu viel'); ab = ab.slice(0, 4); }
+  const f = ['PP1', st, ab.length];
+  for (const a of ab) {
+    const ne = a.m3 ? a.ne : [a.ne[0], a.ne[0], a.ne[0]];
+    let fe = a.fenster, zo = a.zonen;
+    if (fe.length > 12) { warn.push('mehr als 12 Fenster'); fe = fe.slice(0, 12); }
+    if (zo.length > 8) { warn.push('mehr als 8 Zonen'); zo = zo.slice(0, 8); }
+    f.push(d8(a.ab), d8(a.bis), z(a.mw), a.dyn ? 1 : 0, z(a.basis), a.m3 ? 1 : 0, z(ne[0]), z(ne[1]), z(ne[2]), ...a.quart.map(q => q ? 1 : 0),
+      fe.length, ...fe.flatMap(x => [mn(x[0]), mn(x[1]), x[2]]), zo.length, ...zo.flatMap(x => [mn(x[0]), mn(x[1]), z(x[2])]));
+  }
+  return { zeile: f.join(' ') + '\n', warn };
+}
+async function hochUndPruefen(PF, t) {
+  const up = await fetch(await F83t(PF), { method: 'POST', body: new Blob([t], { type: 'text/plain' }) });
+  if (!up.ok) throw new Error('Preisplan ' + PF + ': Port 83 HTTP ' + up.status);
+  const back = await fetch(F82(PF) + '?_=' + Date.now(), { cache: 'no-store' }).then(r => r.text());
+  if (back !== t) throw new Error('Preisplan ' + PF + ' zurückgelesen weicht ab');
+}
+async function preisplanSchreiben() {
+  if (RN === 2) return '';                                                        // nur der Hauptzaehler (Netzbezug)
+  const P = preisplan(), Z = preisplanZeile(P);
+  await hochUndPruefen('/smgw_preisplan.json', JSON.stringify(P, null, 1));
+  await hochUndPruefen('/smgw_preisplan.txt', Z.zeile);
+  if (Z.warn.length) throw new Error('Preisplan gekürzt für das HEMS: ' + Z.warn.join(', '));
+  return ', Preisplan aktualisiert';
+}
 async function speichern() {
   const t = JSON.stringify(tarifDaten(), null, 1), sp = { set textContent(v) { document.querySelectorAll('.spMsg2').forEach(m => m.textContent = v); }, style: { set color(v) { document.querySelectorAll('.spMsg2').forEach(m => m.style.color = v); } } };
   if (TARIF_FEHLER) {   // v046: vorhandenes Blatt war nicht lesbar - nie mit Beispielwerten ueberschreiben
@@ -2326,7 +2400,10 @@ async function speichern() {
     if (!up.ok) throw new Error('Port 83: HTTP ' + up.status);
     const back = await fetch(F82(TARIF_DATEI) + '?_=' + Date.now(), { cache: 'no-store' }).then(r => r.text());
     if (back !== t) throw new Error('Zurückgelesen weicht ab (' + back.length + ' statt ' + t.length + ' Zeichen)');
-    TARIF_GELADEN = true; TARIF2_NEU = false; GEAENDERT = false; sp.style.color = 'var(--good)'; sp.textContent = 'gespeichert ' + new Date().toLocaleTimeString('de-DE') + ' (zurückgelesen, gleich)';
+    TARIF_GELADEN = true; TARIF2_NEU = false; GEAENDERT = false;
+    let planTxt = '';   // 1.2.2: Preisplan - ein Fehler dort laesst das gespeicherte Tarifblatt gueltig
+    try { planTxt = await preisplanSchreiben(); } catch (e) { planTxt = ' – ACHTUNG ' + e.message; }
+    sp.style.color = planTxt.includes('ACHTUNG') ? 'var(--crit)' : 'var(--good)'; sp.textContent = 'gespeichert ' + new Date().toLocaleTimeString('de-DE') + ' (zurückgelesen, gleich' + planTxt + ')';
     setTimeout(() => { if (!GEAENDERT) document.querySelectorAll('.spMsg2').forEach(m => { if (/^gespeichert /.test(m.textContent)) m.textContent = ''; }); }, 15000);   // v072: Erfolgsmeldung verschwindet nach 15 s
     zeigeHinweis();
   } catch (e) { sp.style.color = 'var(--crit)'; sp.textContent = 'NICHT gespeichert: ' + e.message; }

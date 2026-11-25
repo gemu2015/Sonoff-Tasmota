@@ -2127,7 +2127,9 @@ int main() {
             const deviceParam = params.get('device');
             const hostIp = window.location.hostname;
             // Detect if IDE is served from an ESP device (IP address, not localhost/file)
-            const isServedFromDevice = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostIp);
+            // A numeric IP or an mDNS name (smgw.local) over http is the device itself.
+            const isServedFromDevice = window.location.protocol === 'http:' &&
+                (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostIp) || /\.local$/i.test(hostIp));
 
             if (isServedFromDevice) {
                 // IDE loaded from ESP — use the device's own IP. Keep the
