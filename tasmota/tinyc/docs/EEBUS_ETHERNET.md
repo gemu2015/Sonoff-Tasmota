@@ -19,7 +19,7 @@ Matter or LVGL — the TLS/SHIP handshake needs the heap. No Wi-Fi credentials a
 
 For a Steuerbox and a SteuVE you need **two devices**.
 
-**Illustrated manuals (German, PDF; addresses and identifiers blacked out)** by Andreas: [SteuVE](eebus_anleitungen/ANLEITUNG-SteuVE.pdf) (driver v016, script `steuve` v010) and [Steuerbox](eebus_anleitungen/ANLEITUNG-EEBUS-Steuerbox.pdf) (v187). HTML sources with the images: [`eebus_anleitungen/quellen/`](eebus_anleitungen/quellen/).
+**Illustrated manuals (German, PDF; addresses and identifiers blacked out)** by meierchen006: [SteuVE](eebus_anleitungen/ANLEITUNG-SteuVE.pdf) (firmware v042, script `steuve` v022, with the control contact) and [Steuerbox](eebus_anleitungen/ANLEITUNG-EEBUS-Steuerbox.pdf) (v187). HTML sources with the images: [`eebus_anleitungen/quellen/`](eebus_anleitungen/quellen/).
 
 ### Set up
 
