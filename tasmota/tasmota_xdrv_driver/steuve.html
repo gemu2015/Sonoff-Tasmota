@@ -501,7 +501,12 @@ function verbraucher(){
   });
 }
 function peerBySki(s){ return PEERS.find(p => s && p.Ski && p.Ski.toLowerCase() === s.toLowerCase()); }
-function slotBySki(s){ return ST.find(x => s && x.PeerSki && x.PeerSki.toLowerCase() === s.toLowerCase() && x.Ip); }
+// 24.11.2026: nach einem HEMS-Neustart fuehrt der Treiber fuer dieselbe SKI noch einen toten Platz (Sme off/error)
+// VOR dem aktiven - find() nahm den toten -> "nicht verbunden" trotz Herzschlag. Jetzt: verbundener Platz zuerst.
+function slotBySki(s){
+  const m = ST.filter(x => s && x.PeerSki && x.PeerSki.toLowerCase() === s.toLowerCase() && x.Ip);
+  return m.find(x => x.Sme === 'done') || m[0];
+}
 function istHm(p){ return !!p && /energymanag|energy manag/i.test(p.Type || ''); }
 function kannGuard(p){ return istHm(p) || /electricitysupply|gridconnection|controlbox/i.test((p.Type || '') + ' ' + (p.Cat || '')); }
 // Wer steuert: HEMS (Tasmota-HEMS) oder Energy Guard (Steuerbox) — aus Fundliste, sonst aus der Kennung im Slot

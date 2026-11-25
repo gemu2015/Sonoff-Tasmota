@@ -6,6 +6,18 @@
   sie nach aussen (Tasmota-Ereignis/Befehl), damit z. B. ein Skript Verbraucher schaltet.
 
   Abgeleitet aus xdrv_126_eebus_guard.ino v184 (Steuerbox). Eigene Versionszaehlung ab SteuVE v001.
+  SteuVE Firmware v042 (24.11.2026, meierchen006): tote Plaetze: ein gescheiterter eigener Verbindungsversuch blieb mit Adresse/SKI stehen, die
+  echte Verbindung lief auf einem anderen Platz -> zwei Eintraege je Gegenstelle, Suche fand den toten (SteuVE-Seite
+  "nicht verbunden" trotz Herzschlag, 24.11.). Neu: EebusTotePlaetzeRaeumen() im Sekundentakt leert tote Plaetze
+  derselben Gegenstelle; ein Keep-Alive-Platz bleibt (braucht SKI fuer den Wiederanruf), ruft aber nicht an, solange die
+  Verbindung steht. EebusConnBySki() nimmt zuerst einen verbundenen Platz.
+  Gleich in HEMS FW v044 und Steuerbox v247.
+  SteuVE Firmware v041 (24.11.2026, meierchen006): DeviceConfig-Schluessel als Paare keyId -> Bedeutung (bis 8 je Entity)
+  statt keyId als Tabellenplatz (nur 0..5); Geraete mit keyId >= 6 (Wallbox: 11/12) wurden sonst nicht erkannt.
+  Die Paare werden je Sitzung neu gelernt (zusammen mit lpc_fs_val_key/lpc_fs_dur_key, aus derselben Description).
+  Gleich in HEMS Firmware v042 (xdrv_129) und Steuerbox v247 (xdrv_126).
+  Ausserdem in SteuVE Firmware v041 (24.11.2026, meierchen006, wie HEMS FW v043): FREIGABE nie mit Wert 0 - statt dessen Nennleistung des Geraets (sonst 11.000 W);
+  der VR921 setzte eine inaktive 0 kurz als Grenze am eBUS um (Verdichterstopp, 24.11.).
   SteuVE Firmware v040 (23.11.2026, Normrest SHIP 13.4.8.1): eigenes connectionClose mit reason "unspecific" statt
   "unplug" (XSD ConnectionCloseReasonType kennt nur unspecific/removedConnection, Z. 3127-3138); auf "announce" der
   Gegenstelle mit phase "confirm" antworten, dann schliessen (Z. 3158-3162) - wie Steuerbox v231.
@@ -1759,7 +1771,10 @@ typedef struct {
    // pvCurtailmentLimitFactor am Netzanschlusspunkt) — beide fuehren keyId 0. Deshalb die Bedeutung
    // je QUELL-ENTITY merken, sonst landet der Prozentwert im Failsafe-Feld.
   int      cfg_ent[2] = { -1, -1 }; // bis zu zwei DeviceConfig-Entities
-  int8_t   cfg_code[2][6] = { { 0 } };   // je keyId: 1=failsafeConsW 2=failsafeDur 3=failsafeProdW 4=pvCurtailPct
+   // SteuVE FW v041: Paare keyId -> Bedeutung (bis 8 je Entity). Vorher war die keyId der Index (nur 0..5).
+  uint32_t cfg_kid[2][8] = { { 0 } };
+  int8_t   cfg_code[2][8] = { { 0 } };   // je Paar: 1=failsafeConsW 2=failsafeDur 3=failsafeProdW 4=pvCurtailPct
+  uint8_t  cfg_n[2] = { 0, 0 };         // belegte Paare je Entity
   long     fs_cons = 0;  int8_t fs_cons_sc = 0;  bool fs_cons_ok = false;
   long     fs_prod = 0;  int8_t fs_prod_sc = 0;  bool fs_prod_ok = false;
   char     fs_dur[16] = { 0 };   // Mindestdauer als Norm-Text, z.B. "PT2H"
@@ -1944,6 +1959,10 @@ EebusConn *ESp = &EConn[0];   // "aktueller Slot" — alle Bestandsfunktionen ar
 // Slot mit bestehender/zuletzt genutzter Verbindung zu dieser SKI (-1 = keiner).
 int EebusConnBySki(const char *ski) {
   if ((nullptr == ski) || ('\0' == ski[0])) { return -1; }
+   // SteuVE FW v042: gibt es zu dieser SKI einen VERBUNDENEN Platz, den nehmen - nicht einen toten/wartenden davor
+  for (int i = 0; i < EEBUS_MAX_CONN; i++) {
+    if (EConn[i].active && (SME_DONE == EConn[i].sme) && (0 == strcasecmp(EConn[i].peer_ski, ski))) { return i; }
+  }
   for (int i = 0; i < EEBUS_MAX_CONN; i++) {
     if (0 == strcasecmp(EConn[i].peer_ski, ski) &&   // 03.11.2026: SKI ohne Gross-/Kleinschreibung wie alle anderen Vergleiche (sonst Doppelplatz)
         (EConn[i].active || EConn[i].client || EConn[i].keepalive || (SME_OFF != EConn[i].sme))) {
@@ -1955,6 +1974,38 @@ int EebusConnBySki(const char *ski) {
 
 // Slot fuer eine (neue) Verbindung zu dieser SKI besorgen: erst Wiederverwendung
 // (gleicher Peer), sonst ein freier Slot. -1 = alle Slots belegt.
+// SteuVE FW v042 (24.11.2026): tote Plaetze aufraeumen. Ein gescheiterter eigener Verbindungsversuch (z. B. "tls connect
+// err" waehrend die Gegenstelle neu startet) behielt Adresse und SKI; die echte Verbindung kam dann auf einem anderen
+// Platz zustande (Server-Weg) -> zwei Eintraege fuer dieselbe Gegenstelle (EEBusStatus/Seiten, Suche nach SKI fand den
+// toten). Sobald ein Platz verbunden ist (Sme done), werden FREIE Plaetze (gleiche Bedingung wie EebusConnAlloc) mit
+// gleicher Adresse oder SKI geleert; ein Keep-Alive-Platz bleibt, ruft aber nicht an, solange die Verbindung steht.
+void EebusTotePlaetzeRaeumen(void) {
+  for (int i = 0; i < EEBUS_MAX_CONN; i++) {
+    const EebusConn *ok = &EConn[i];
+    if (!ok->active || (SME_DONE != ok->sme)) { continue; }
+    for (int j = 0; j < EEBUS_MAX_CONN; j++) {
+      EebusConn *tot = &EConn[j];
+      if ((j == i) || tot->active || (nullptr != tot->client) || tot->teardown) { continue; }
+      if (!((SME_OFF == tot->sme) || (SME_FAIL == tot->sme))) { continue; }
+      const bool gleich = (tot->peer_ip[0] && (0 == strcmp(tot->peer_ip, ok->peer_ip))) ||
+                          (tot->peer_ski[0] && (0 == strcasecmp(tot->peer_ski, ok->peer_ski)));
+      if (!gleich) { continue; }
+       // Keep-Alive-Platz NICHT leeren - er braucht SKI/Adresse, um nach einem echten Abbruch wieder anzurufen. Solange
+       // die Gegenstelle ueber Platz i verbunden ist: Anruf aufschieben, alten Fehler loeschen.
+      if (tot->keepalive) {
+        tot->reconnect_at = millis() + EebusKaWaitMs();
+        if (tot->err[0] || (SHIP_IDLE != tot->state)) {
+          AddLog(LOG_LEVEL_INFO, PSTR("EBG: Platz %d (%s) wartet - Gegenstelle ist ueber Platz %d verbunden"), j, tot->peer_ip, i);
+          tot->err[0] = '\0'; tot->state = SHIP_IDLE;
+        }
+        continue;
+      }
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: toter Platz %d (%s, %s) geleert - Platz %d ist verbunden"), j, tot->peer_ip, tot->err, i);
+      tot->peer_ip[0] = '\0'; tot->peer_ski[0] = '\0'; tot->err[0] = '\0'; tot->state = SHIP_IDLE;
+    }
+  }
+}
+
 int EebusConnAlloc(const char *ski) {
   int i = EebusConnBySki(ski);
   if (i >= 0) { return i; }
@@ -2438,6 +2489,7 @@ bool EebusShipConnect(int idx) {
   ESp->lpc_onboard_only = false;   // 
   ESp->lpc_onboarded = false;   // 
   ESp->lpc_limit_id = -1; ESp->lpc_lid_dir[0] = ESp->lpc_lid_dir[1] = -1;   // v184
+  for (int i = 0; i < 2; i++) { ESp->cfg_ent[i] = -1; ESp->cfg_n[i] = 0; }   // SteuVE FW v041: keyId-Paare je Sitzung neu lernen
   ESp->lpc_peer_ent = 1; ESp->lpc_peer_feat = 6; ESp->lpc_peer_dcfg_feat = 24;   // Ladestation-Default; /wird aus der Peer-Discovery
    // gelernt (EebusLpcLearnTarget), sobald sie eintrifft
   ESp->lpc_deadline = 0;
@@ -5226,7 +5278,25 @@ void EebusLpcWrite(void) {
    // bleibt der Wert positiv -> der bewiesene §14a-Frame ist zeichengleich .
   long frame_val = (long)ESp->lpc_value;
   if (1 == ESp->lpc_dir) { frame_val = -frame_val; }
-  if (!eebus_hems_mode && !ESp->lpc_active_wish) { frame_val = 0; }
+   // SteuVE FW v041: bei einer FREIGABE (isLimitActive false) nie den Wert 0 schicken. Befund 24.11. (Datensammler, eBUS):
+   // nach jedem Neustart von HEMS/Steuerbox ging an den VR921 "Freigabe, value 0"; der VR921 setzte die 0 kurz als
+   // Grenze am eBUS um (B531 = 0 an WP und Heizstab) -> Verdichterstopp ~4 min. Normgerecht war der Frame (bei inaktiver
+   // Grenze zaehlt der Wert nicht), die Vergleichs-Steuerbox schickt aber nie 0 (eebus-go setzt Value immer). Neu:
+   // Geraete-Weg -> Nennleistung des Geraets (gemeldet, sonst 11.000 W); Energiemanager-Weg ->
+   // weiter der letzte Wert, nur statt 0 ebenfalls die Nennleistung. Einspeisung mit Erzeugungs-Nennleistung, negativ.
+  if (!ESp->lpc_active_wish && (!eebus_hems_mode || (0 == frame_val))) {
+    long nw = 0;
+    const bool prod = (1 == ESp->lpc_dir);
+    if (prod ? ESp->pnom_prod_ok : ESp->pnom_cons_ok) {
+      nw = labs(prod ? ESp->pnom_prod : ESp->pnom_cons);
+      int8_t sc = prod ? ESp->pnom_prod_sc : ESp->pnom_cons_sc;
+      while ((sc > 0) && (nw < 100000000L)) { nw *= 10; sc--; }
+      while (sc < 0) { nw /= 10; sc++; }
+    }
+    if (nw <= 0) { nw = 11000; }   // Nennleistung unbekannt: 11 kW (wie HEMS EEBUS_HEMS_NENN0_W)
+    frame_val = prod ? -nw : nw;
+    AddLog(LOG_LEVEL_INFO, PSTR("EBG: Freigabe an %s mit Wert %ld W (nie 0)"), ESp->peer_ip, frame_val);
+  }
    // Filter-Liste. Standard = ein einziger partial-Eintrag (Frame wie zuvor, bewiesen). Mit
    // "EEBusDelDur 1" kommt im HEMS-Modus ein delete-Eintrag DAVOR: Selektor limitId + Element
    // timePeriod = "loesche die Geltungsdauer dieses Limits". Reihenfolge delete-vor-partial wie in
@@ -5597,7 +5667,7 @@ void EebusHarvest(const char *json, int src_ent) {
         EebusJsonInt(q, "keyId", &kid);
         nx = strstr(q + 8, "\"keyId\":");
         const char *kn = strstr(q, "\"keyName\":\"");
-        if (kn && (!nx || (kn < nx)) && (kid < 6)) {
+        if (kn && (!nx || (kn < nx))) {
           char s[40] = { 0 };
           EebusJsonStr(kn, "keyName", s, sizeof(s));
           int8_t code = 0;
@@ -5605,7 +5675,15 @@ void EebusHarvest(const char *json, int src_ent) {
           else if (0 == strcmp(s, "failsafeDurationMinimum"))             { code = 2; }
           else if (0 == strcmp(s, "failsafeProductionActivePowerLimit"))  { code = 3; }
           else if (0 == strcmp(s, "pvCurtailmentLimitFactor"))            { code = 4; }
-          ESp->cfg_code[b][kid] = code;
+           // SteuVE FW v041: Paar keyId -> Bedeutung (jede keyId, nicht nur 0..5)
+          int p = -1;
+          for (int j = 0; j < ESp->cfg_n[b]; j++) { if (ESp->cfg_kid[b][j] == kid) { p = j; break; } }
+          if ((p < 0) && (ESp->cfg_n[b] < 8)) { p = ESp->cfg_n[b]++; ESp->cfg_kid[b][p] = kid; }
+          if (p >= 0) { ESp->cfg_code[b][p] = code; }
+          else if (code) {
+            AddLog(LOG_LEVEL_INFO, PSTR("EBG: DeviceConfig von %s: keyId %u (%s) - Liste voll (8), nicht gemerkt"),
+                   ESp->peer_ip, kid, s);
+          }
         }
         q += 8;
       }
@@ -5622,8 +5700,9 @@ void EebusHarvest(const char *json, int src_ent) {
         uint32_t kid = 0;
         EebusJsonInt(q, "keyId", &kid);
         nx = strstr(q + 8, "\"keyId\":");
-        if (kid < 6) {
-          int8_t code = ESp->cfg_code[b][kid];
+        int8_t code = 0;   // SteuVE FW v041: Bedeutung aus der Paar-Liste
+        for (int j = 0; j < ESp->cfg_n[b]; j++) { if (ESp->cfg_kid[b][j] == kid) { code = ESp->cfg_code[b][j]; break; } }
+        if (code) {
           const char *vp = strstr(q, "\"scaledNumber\":[{\"number\":");
           const char *dp = strstr(q, "\"duration\":\"");
           if ((2 == code) && dp && (!nx || (dp < nx))) {
@@ -8554,6 +8633,7 @@ void EebusSrvLinkConn(void) {
   cc->lpc_onboarded = false;   // 
   cc->lpc_sel_step = 0;   // 
   cc->lpc_fs_val_key = -1; cc->lpc_fs_dur_key = -1;   // Failsafe-Keys pro Verbindung neu lernen
+  for (int i = 0; i < 2; i++) { cc->cfg_ent[i] = -1; cc->cfg_n[i] = 0; }   // SteuVE FW v041: keyId-Paare je Sitzung neu lernen
   cc->lpc_fs_step = 0; cc->lpc_fs_done = false;   // 
   cc->lpc_write_tries = 0;   // 
   cc->lpc_write_retry_at = 0;   // 
@@ -9105,6 +9185,7 @@ bool Xdrv128(uint32_t function) {
       }
       break;
     case FUNC_EVERY_SECOND:
+      EebusTotePlaetzeRaeumen();   // SteuVE FW v042: tote Plaetze derselben Gegenstelle leeren
    // HEAP-STOLPERDRAHT: Sekunden-Netz unter den Praezisions-Checkpunkten — faengt
    // Korruption, die ZWISCHEN den Checkpunkten entsteht (z.B. lwip-/W5500-Task-Kontext).
       EebusHeapCheck("sekunden_tick");
