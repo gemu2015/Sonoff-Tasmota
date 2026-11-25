@@ -65,6 +65,7 @@ STD_TARGETS=(
   tinyc8266-4M     # ESP8266 4MB — lean (no Matter / LVGL / camera); HWDT fix, runs basic programs
   tinyc32s3-eth-guard   # ESP32-S3 16MB + Ethernet (W5500) + EEBUS Steuerbox (xdrv_126), for Andreas' users (docs/EEBUS_ETHERNET.md)
   tinyc32s3-eth-steuve  # same with the SteuVE driver (xdrv_128); the two drivers exclude each other
+  tinyc32s3-eth-smgw    # ESP32-S3 16MB + Ethernet (W5500) + SD for the SMGW reader (Andreas, docs/smgw/); no EEBUS driver, no FTP server
 )
 
 # Build environment -> name of the shipped file. The plugin-only S3 build is THE tinyc32s3 for the testers (1.6.81: the built-in
@@ -354,6 +355,7 @@ cat > "$COMBINED_NOTES" <<HEADER
 | \`tinyc8266-4M.bin\` / \`.bin.gz\` | **ESP8266** 4MB — lean (no Matter / LVGL / camera); runs basic TinyC programs (HWDT fix). Flash the \`.bin\` (OTA/esptool); no \`.factory.bin\` |
 | \`tinyc32s3-eth-guard.bin\` / \`.factory.bin\` | **EEBUS Steuerbox** on an ESP32-S3 16MB with **Ethernet (W5500)**, e.g. Waveshare ESP32-S3-ETH — no camera / Matter / LVGL. Page \`steuerbox.html\` goes into the file system. See \`EEBUS_ETHERNET.md\` |
 | \`tinyc32s3-eth-steuve.bin\` / \`.factory.bin\` | **EEBUS SteuVE** (controllable consumer), same hardware; page \`steuve.html\`. The two EEBUS drivers exclude each other, hence two images |
+| \`tinyc32s3-eth-smgw.bin\` / \`.factory.bin\` | **SMGW reader** (smart meter gateway over the HAN socket) on the Waveshare ESP32-S3-ETH: LAN 192.168.1.21 for the gateway, SD card (SPI), web password note on the main page, mDNS \`smgw.local\`. No Wi-Fi, MQTT or location preset, **no FTP server**. Scripts and pages from \`docs/smgw/\`, see its README |
 | \`EEBUS_ETHERNET.md\`, \`steuerbox.html\`, \`steuve.html\`, \`xdrv_128_eebus_steuve.md\` | Guide (EN/DE), the two pages, SteuVE description |
 | \`MATTERF_32.bin\` / \`MATTERF_32r.bin\` | Matter plugin — \`_32\` for the S3, \`_32r\` for C3 / C6 / P4 |
 | \`I2SAUDIO_32.bin\` | Audio plugin (S3/ESP32): audio I/O needs it, the built-in I2S audio is off in these builds. Load like the Matter plugin, tick "Autostart plugins at boot" — see tasmota/tinyc/dfrobot/ANLEITUNG.md |
