@@ -230,7 +230,14 @@ int person_zuletzt;     // millis() of the last positive run, 0 = never yet
 int person_gesamt;      // counter since start
 int person_ms;          // compute time of the last run
 #endif
+#ifndef CAM_LOOP_DELAY
+#define CAM_LOOP_DELAY 30    // ms pause per TaskLoop round: also the ceiling of the frame rate (1000 / (capture + this)).
+                             // Was 100 (max ~9 fps). 30 ms: XIAO 6.3 -> 15.8 real stream frames/s (25.11.2026); 20 ms once failed to start.
+#endif
 int frame_count;        // total frames captured
+int fps_x10;            // frames per second x 10, mean over the last ~4 s (main page "FPS")
+int fps_t0;             // millis() at the start of the current measuring window
+int fps_c0;             // frame_count at the start of the current measuring window
 int motion_detect;      // total motion detections
 int doCapture;          // button: capture from web UI
 int doHiRes;            // button: hi-res capture from web UI
@@ -749,13 +756,26 @@ void TaskLoop() {
         flash_off();
     }
 
-    delay(100);
+    delay(CAM_LOOP_DELAY);
 }
 
 // ═══════════════════════════════════════════════════════════════════
 // EverySecond — main thread, lightweight checks only
 // ═══════════════════════════════════════════════════════════════════
 void EverySecond() {
+    // Frames per second for the main page: captures made by TaskLoop in a window of at least 4 s.
+    // (frame_count counts captures the script made, i.e. the frames the stream can hand out.)
+    int fps_now = millis();
+    int fps_dt = fps_now - fps_t0;
+    if (frame_count < fps_c0 || fps_t0 == 0) {          // reset (counter cleared) or first call
+        fps_t0 = fps_now;
+        fps_c0 = frame_count;
+    } else if (fps_dt >= 4000) {
+        fps_x10 = (frame_count - fps_c0) * 10000 / fps_dt;
+        fps_t0 = fps_now;
+        fps_c0 = frame_count;
+    }
+
     // Delete old pictures at midnight
     if (tasm_hour == 0 && last_hour != 0) {
         del_old();
@@ -949,6 +969,8 @@ void EverySecond() {
 // ═══════════════════════════════════════════════════════════════════
 void WebCall() {
     webSend("{s}<b style='color:cyan'>Camera</b>{m}{e}");
+    sprintf(buf, "{s}FPS{m}%d.%d{e}", fps_x10 / 10, fps_x10 % 10);
+    webSend(buf);
     sprintf(buf, "{s}Frames{m}%d{e}", frame_count);
     webSend(buf);
     sprintf(buf, "{s}Motion{m}%d net (raw %d, peak %d, limit %d, %d/%d){e}",
