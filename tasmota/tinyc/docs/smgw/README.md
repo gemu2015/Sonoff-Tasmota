@@ -1,19 +1,31 @@
-# SMGW reader 1.2.1: smart meter gateway over the HAN interface with TinyC
+# SMGW reader 1.2.2: smart meter gateway over the HAN interface with TinyC
 
 By Andreas (forum name meierchen006), taken over into the repository with his consent. Reads the official 15-minute meter
 readings (consumption 1.8.0, feed-in 2.8.0) from a PPC smart meter gateway over its HAN interface, keeps them as text on the SD card, shows day / month / year
 and offers CSV and an Excel query. Optional daily FTP backup. Optional electricity cost calculation from the same readings (slot 2 and `smgw_kosten.html`).
 
-**Version 1.2.1 (25.11.2026)** – replaces 1.2.0. The parts carry their own versions: slot 0 **1.1.6**, slot 1 **1.1.0**, slot 2 **1.1.1**, `smgw.html` and the guide **1.2.1**, `smgw_kosten.html` **1.2.0**.
+**Version 1.2.2 (25.11.2026)** – replaces 1.2.1. The parts carry their own versions: slot 0 **1.1.6**, slot 1 **1.1.0**, slot 2 **1.1.1**, `smgw.html` **1.2.1**, `smgw_kosten.html` and the guide **1.2.2**.
 The scripts and the guide have the version in their file names, the two pages keep their names (the firmware serves them as `/smgw.html.gz` and `/smgw_kosten.html.gz`) and show it inside.
-`VERSION-1.2.1.txt` lists what goes where on the device and the md5 sums of all files.
+`VERSION-1.2.2.txt` lists what goes where on the device and the md5 sums of all files.
 
-New in 1.2.1 (details in `VERSION-1.2.1.txt`):
+New in 1.2.2 (details in `VERSION-1.2.2.txt`):
+- **One download for all files**: the release "testing" also has `tinyc32s3-eth-smgw-dateien.zip` with everything for the SD card (folder `1-SD-Karte`) and the slots
+  (folder `2-TinyC-IDE-Slots`), plus README, VERSION, the guide and the Excel example. No more single downloads from GitHub, and Windows cannot append `.txt` to the `.tc` files.
+- **IDE** (release 1.6.83): shows "Close" also when opened via `smgw.local`, and after "Compile" says why no device answers ("Device requires a password (HTTP 401)",
+  "No device address entered", "No device reachable at <address>") instead of always "No device reachable". `TinyCIde` / "IDE aktualisieren" now fetch the same IDE.
+- **Guide 1.2.2**: section 5.1 starts with the zip download; notes on the IDE updated (5.2, 5.3). The ready-made image was tested on 25.11.2026 on a fresh
+  ESP32-S3-ETH, including a cold start after several minutes without power (SD card over SPI found at once, all slots started).
+- Scripts and pages unchanged.
+
+New in 1.2.1:
 - **Ready-made firmware** for the ESP32-S3-ETH: image `tinyc32s3-eth-smgw` in the release "testing" (`tinyc32s3-eth-smgw.factory.bin` for the first flash over USB,
   `tinyc32s3-eth-smgw.bin` for updates). No Wi-Fi, no MQTT, no location, **no fixed address** (LAN and Wi-Fi by DHCP) and **no FTP server**; hotspot and host name `SMGW`,
   mDNS on (`http://smgw.local/`). Build it yourself only for the ESP32-P4 or for own changes (`firmware/`, guide 4.1–4.3).
 - **LAN address of the reader**: the HAN socket has no DHCP server, so the user enters a free address in the gateway's network once, tab "Einstellungen" of the reader page (guide 5.4).
   `smgw.html` 1.2.1 leaves the field empty while the LAN runs on DHCP (before it showed e.g. "0.0.0.0 (192.168.x.y)").
+- **Cost page 1.2.2**: saving the tariff sheet also writes a **price plan** for other devices in the home network (e.g. an energy manager), so they can compute the
+  energy price per quarter hour themselves: `/smgw_preisplan.json` and the same numbers as one line in `/smgw_preisplan.txt` (for TinyC scripts). Main meter only, no names, no variants.
+  "So sieht ein Tag aus" shows the 96 quarter hours with equal width, grouped by hour.
 - **Guide 1.2.1**: commissioning rewritten step by step as tested on a fresh reader (25.11.2026): pages via "Werkzeuge → Dateisystem verwalten" onto the SD card, scripts via the
   TinyC IDE into the slots, autostart "A" green (with pictures); direct download links; Windows may append `.txt` to downloaded `.tc` files.
 
@@ -45,7 +57,7 @@ New in 1.2.0:
   version is kept as `/smgw_tarif.bak`, and saving is blocked if an existing sheet could not be read (so it is never overwritten with the example values).
   A recalculation without warranty; only the supplier's bill counts.
 - `Muster-15min-Werte_1.0.1.xlsx`: example workbook for the Excel import of 15-minute values (guide, picture 11).
-- `ANLEITUNG-SMGW-Leser_1.2.1.pdf` (+ `quellen/Anleitung-SMGW-Leser-quelle.html` and `quellen/bilder/`): where to get the files and where each one goes (section 5.1), hardware,
+- `ANLEITUNG-SMGW-Leser_1.2.2.pdf` (+ `quellen/Anleitung-SMGW-Leser-quelle.html` and `quellen/bilder/`): where to get the files and where each one goes (section 5.1), hardware,
   network, finding the reader again, ready-made firmware or build variant, commissioning, credentials, files, operation, FTP backup, certificate, FAQ, and in section 11 the optional cost
   calculation (slot 2) including "so wird gerechnet" (all formulas).
 
