@@ -235,9 +235,13 @@ int person_ms;          // compute time of the last run
                              // Was 100 (max ~9 fps). 30 ms: XIAO 6.3 -> 15.8 real stream frames/s (25.11.2026); 20 ms once failed to start.
 #endif
 int frame_count;        // total frames captured
-int fps_x10;            // frames per second x 10, mean over the last ~4 s (main page "FPS")
+int fps_x10;            // captures per second x 10, mean over the last ~4 s (main page "Captures/s")
 int fps_t0;             // millis() at the start of the current measuring window
 int fps_c0;             // frame_count at the start of the current measuring window
+int new_count;          // captures whose JPEG size differs from the previous one = frames the sensor really delivered
+int last_cap_size;      // size of the previous stream capture
+int new_x10;            // new frames per second x 10 (main page "FPS")
+int new_c0;             // new_count at the start of the current measuring window
 int motion_detect;      // total motion detections
 int doCapture;          // button: capture from web UI
 int doHiRes;            // button: hi-res capture from web UI
@@ -292,6 +296,11 @@ int captureToSlot(int slot) {
         return -1;
     }
     frame_count = frame_count + 1;
+    // A repeated frame has exactly the same size; a new one almost never does (sensor noise changes the JPEG).
+    if (slot == 1) {
+        if (size != last_cap_size) { new_count = new_count + 1; }
+        last_cap_size = size;
+    }
     return size;
 }
 
@@ -770,10 +779,13 @@ void EverySecond() {
     if (frame_count < fps_c0 || fps_t0 == 0) {          // reset (counter cleared) or first call
         fps_t0 = fps_now;
         fps_c0 = frame_count;
+        new_c0 = new_count;
     } else if (fps_dt >= 4000) {
         fps_x10 = (frame_count - fps_c0) * 10000 / fps_dt;
+        new_x10 = (new_count - new_c0) * 10000 / fps_dt;
         fps_t0 = fps_now;
         fps_c0 = frame_count;
+        new_c0 = new_count;
     }
 
     // Delete old pictures at midnight
@@ -969,7 +981,9 @@ void EverySecond() {
 // ═══════════════════════════════════════════════════════════════════
 void WebCall() {
     webSend("{s}<b style='color:cyan'>Camera</b>{m}{e}");
-    sprintf(buf, "{s}FPS{m}%d.%d{e}", fps_x10 / 10, fps_x10 % 10);
+    sprintf(buf, "{s}FPS (new frames){m}%d.%d{e}", new_x10 / 10, new_x10 % 10);
+    webSend(buf);
+    sprintf(buf, "{s}Captures/s{m}%d.%d{e}", fps_x10 / 10, fps_x10 % 10);
     webSend(buf);
     sprintf(buf, "{s}Frames{m}%d{e}", frame_count);
     webSend(buf);
