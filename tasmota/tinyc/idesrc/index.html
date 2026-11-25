@@ -917,13 +917,18 @@ int main() {
         // Uebersetzungsziel benutzt: Verschmelzungen oberhalb davon laesst der Compiler weg,
         // ein Syscall oberhalb davon bricht ab. null = kein Geraet erreichbar -> volles ABI.
         let _deviceAbi = null;
+        // 25.11.2026 (Andreas): true when the device answered the status request with 401 (web password,
+        // prompt cancelled): it IS reachable, so the compile output must not say "No device reachable".
+        let _deviceNeedsPw = false;
         async function checkDeviceVersion(ip) {
             ip = (ip || '').trim();
             _verLastIp = ip;
+            _deviceNeedsPw = false;
             if (!ip) { _hideVerWarn(); return; }
             let d;
             try {
                 const r = await fetch(`http://${ip}/tc_api?cmd=status`, { mode: 'cors' });
+                if (r.status === 401) { _deviceNeedsPw = true; _deviceAbi = null; _hideVerWarn(); return; }
                 d = await r.json();
             } catch (e) {
                 _deviceAbi = null;       // nicht erreichbar -> kein Ziel, volles ABI
@@ -1576,7 +1581,9 @@ int main() {
                     appendOutput(`Built for this device (ABI ${_deviceAbi}) - speed fusions above `
                         + `ABI ${_deviceAbi} left out so it runs here. A newer firmware would be faster.`, 'warning');
                 } else if (_deviceAbi === null) {
-                    appendOutput(`No device reachable - built for the newest firmware (ABI ${SYSCALL_ABI}).`);
+                    appendOutput(_deviceNeedsPw
+                        ? `Device requires a password (HTTP 401) - built for the newest firmware (ABI ${SYSCALL_ABI}).`
+                        : `No device reachable - built for the newest firmware (ABI ${SYSCALL_ABI}).`);
                 }
                 appendOutput(`Binary size: ${size} bytes (header: ${lastCompiled.codeOffset} bytes, code: ${lastCompiled.codeSize} bytes)`);
                 appendOutput(`Functions: ${Object.keys(lastCompiled.functions).join(', ')}`);
