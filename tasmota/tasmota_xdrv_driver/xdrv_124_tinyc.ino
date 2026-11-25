@@ -4991,13 +4991,26 @@ static void HandleTinyCApi(void) {
       return;
     }
     String body = Webserver->arg(F("plain"));
+    // 25.11.2026 (discussion #145, thc08): a request body that did not arrive (big POST on a device with little free heap: the String
+    // for it cannot be allocated) gave an EMPTY `plain`; the file was then opened with "w" and cut to 0 bytes, and the answer said ok.
+    // An empty body now leaves the file alone and says so; &empty=1 allows writing an empty file on purpose.
+    if (body.length() == 0 && !Webserver->hasArg(F("empty"))) {
+      WSSendJSON_P(400, PSTR("{\"ok\":false,\"error\":\"empty body, file not changed (not enough free heap for the request?)\"}"));
+      return;
+    }
     File f = ufsp->open(fpath.c_str(), "w");
     if (!f) {
       WSSendJSON_P(500, PSTR("{\"ok\":false,\"error\":\"write failed\"}"));
       return;
     }
-    f.print(body);
+    size_t written = f.print(body);
     f.close();
+    if (written != body.length()) {      // file system full: tell the caller instead of reporting the full size
+      snprintf_P(json, sizeof(json), PSTR("{\"ok\":false,\"error\":\"short write: %d of %d bytes (file system full?)\",\"size\":%d}"),
+                 (int)written, (int)body.length(), (int)written);
+      WSSendJSON(507, json);
+      return;
+    }
     snprintf_P(json, sizeof(json), PSTR("{\"ok\":true,\"size\":%d}"), body.length());
     WSSendJSON(200, json);
     return;

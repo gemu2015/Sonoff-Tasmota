@@ -2262,12 +2262,21 @@ int main() {
                     return;
                 }
                 const data = await resp.json().catch(() => ({}));
+                // 25.11.2026 (discussion #145): `data.size || content.length` showed the editor length when the device had written 0 bytes,
+                // so a lost request body looked like a successful save. Compare the size the device reports with the bytes sent.
+                const sentBytes = new TextEncoder().encode(content).length;
+                if (typeof data.size !== 'number' || data.size !== sentBytes) {
+                    const got = (typeof data.size === 'number') ? data.size : 'unknown';
+                    appendOutput(`Save FAILED: sent ${sentBytes} bytes, the device reports ${got}. The file on the device may be incomplete or empty - do not close this editor.`, 'error');
+                    setStatus('Save failed', 'error');
+                    return;
+                }
                 const savedName = filename.startsWith('/') ? filename.substring(1) : filename;
                 currentFileName = savedName;
                 isDirty = false;
                 updateTabName();
-                setStatus(`Saved ${savedName} (${data.size || content.length} bytes) to device`, 'success');
-                appendOutput(`Saved ${savedName} to device (${data.size || content.length} bytes)`, 'success');
+                setStatus(`Saved ${savedName} (${data.size} bytes) to device`, 'success');
+                appendOutput(`Saved ${savedName} to device (${data.size} bytes)`, 'success');
                 // Refresh file list to show new/updated file
                 refreshDeviceFiles();
             } catch (e) {
