@@ -1583,7 +1583,9 @@ int main() {
                 } else if (_deviceAbi === null) {
                     appendOutput(_deviceNeedsPw
                         ? `Device requires a password (HTTP 401) - built for the newest firmware (ABI ${SYSCALL_ABI}).`
-                        : `No device reachable - built for the newest firmware (ABI ${SYSCALL_ABI}).`);
+                        : (getDeviceIp()
+                            ? `No device reachable at ${getDeviceIp()} - built for the newest firmware (ABI ${SYSCALL_ABI}).`
+                            : `No device address entered - built for the newest firmware (ABI ${SYSCALL_ABI}).`));
                 }
                 appendOutput(`Binary size: ${size} bytes (header: ${lastCompiled.codeOffset} bytes, code: ${lastCompiled.codeSize} bytes)`);
                 appendOutput(`Functions: ${Object.keys(lastCompiled.functions).join(', ')}`);
