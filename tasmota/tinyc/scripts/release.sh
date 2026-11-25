@@ -297,6 +297,17 @@ run "cp '$TINYC_DIR/docs/PICOTTS_PLUGIN_DE.md' '$STAGE_DIR/'"
 run "cp '$TINYC_DIR/docs/MATTER_PLUGIN_DE.md' '$STAGE_DIR/'"
 run "cp '$TINYC_DIR/TinyC_Reference.md'    '$STAGE_DIR/'"
 run "cp '$TINYC_DIR/TinyC_Reference_DE.md' '$STAGE_DIR/'"
+# SMGW reader (tinyc32s3-eth-smgw): ONE zip with every file the user needs besides the image (Andreas, 25.11.2026), so nothing
+# is downloaded one by one and Windows cannot append ".txt" to a .tc. Folder "1-SD-Karte" goes onto the SD card as it is
+# (names without version), "2-TinyC-IDE-Slots" is loaded into slots 0..2 through the IDE.
+SMGW_DOCS="$TINYC_DIR/docs/smgw"
+SMGW_ZIP_DIR="$STAGE_DIR/_smgw_zip/SMGW-Dateien"
+run "mkdir -p '$SMGW_ZIP_DIR/1-SD-Karte' '$SMGW_ZIP_DIR/2-TinyC-IDE-Slots'"
+run "cp '$SMGW_DOCS/smgw.html.gz' '$SMGW_DOCS/smgw_kosten.html.gz' '$IDE_GZ' '$SMGW_ZIP_DIR/1-SD-Karte/'"
+run "cp '$SMGW_DOCS'/slot0-smgw_*.tc '$SMGW_DOCS'/slot1-smgwweb_*.tc '$SMGW_DOCS'/slot2-smgwkosten_*.tc '$SMGW_ZIP_DIR/2-TinyC-IDE-Slots/'"
+run "cp '$SMGW_DOCS'/VERSION-*.txt '$SMGW_DOCS/README.md' '$SMGW_DOCS'/ANLEITUNG-SMGW-Leser_*.pdf '$SMGW_DOCS'/Muster-15min-Werte_*.xlsx '$SMGW_ZIP_DIR/'"
+run "(cd '$STAGE_DIR/_smgw_zip' && zip -q -r '$STAGE_DIR/tinyc32s3-eth-smgw-dateien.zip' SMGW-Dateien)"
+run "rm -rf '$STAGE_DIR/_smgw_zip'"
 # EEBUS images (tinyc32s3-eth-*): the pages the drivers read from the file system, the guide and the SteuVE description
 run "cp '$TINYC_DIR/docs/EEBUS_ETHERNET.md' '$STAGE_DIR/'"
 run "cp '$TASMOTA_ROOT/tasmota/tasmota_xdrv_driver/steuerbox.html' '$STAGE_DIR/'"
@@ -355,7 +366,7 @@ cat > "$COMBINED_NOTES" <<HEADER
 | \`tinyc8266-4M.bin\` / \`.bin.gz\` | **ESP8266** 4MB — lean (no Matter / LVGL / camera); runs basic TinyC programs (HWDT fix). Flash the \`.bin\` (OTA/esptool); no \`.factory.bin\` |
 | \`tinyc32s3-eth-guard.bin\` / \`.factory.bin\` | **EEBUS Steuerbox** on an ESP32-S3 16MB with **Ethernet (W5500)**, e.g. Waveshare ESP32-S3-ETH — no camera / Matter / LVGL. Page \`steuerbox.html\` goes into the file system. See \`EEBUS_ETHERNET.md\` |
 | \`tinyc32s3-eth-steuve.bin\` / \`.factory.bin\` | **EEBUS SteuVE** (controllable consumer), same hardware; page \`steuve.html\`. The two EEBUS drivers exclude each other, hence two images |
-| \`tinyc32s3-eth-smgw.bin\` / \`.factory.bin\` | **SMGW reader** (smart meter gateway over the HAN socket) on the Waveshare ESP32-S3-ETH: SD card (SPI), web password note on the main page, mDNS \`smgw.local\`. **No fixed LAN or Wi-Fi address** (DHCP): connect over Wi-Fi first, then set the LAN address for your gateway on the reader page (tab settings) or with \`EthIPAddress\`. No MQTT or location preset, **no FTP server**. Scripts and pages from \`docs/smgw/\`, see its README |
+| \`tinyc32s3-eth-smgw.bin\` / \`.factory.bin\` | **SMGW reader** (smart meter gateway over the HAN socket) on the Waveshare ESP32-S3-ETH: SD card (SPI), web password note on the main page, mDNS \`smgw.local\`. **No fixed LAN or Wi-Fi address** (DHCP): connect over Wi-Fi first, then set the LAN address for your gateway on the reader page (tab settings) or with \`EthIPAddress\`. No MQTT or location preset, **no FTP server**. Scripts and pages: everything in one download, \`tinyc32s3-eth-smgw-dateien.zip\` (SD card folder, slot scripts, guide), see \`docs/smgw/\` README |
 | \`EEBUS_ETHERNET.md\`, \`steuerbox.html\`, \`steuve.html\`, \`xdrv_128_eebus_steuve.md\` | Guide (EN/DE), the two pages, SteuVE description |
 | \`MATTERF_32.bin\` / \`MATTERF_32r.bin\` | Matter plugin — \`_32\` for the S3, \`_32r\` for C3 / C6 / P4 |
 | \`I2SAUDIO_32.bin\` | Audio plugin (S3/ESP32): audio I/O needs it, the built-in I2S audio is off in these builds. Load like the Matter plugin, tick "Autostart plugins at boot" — see tasmota/tinyc/dfrobot/ANLEITUNG.md |
@@ -410,7 +421,7 @@ log "Recreating GitHub release '$RELEASE_TAG' on $RELEASE_REPO (tag -> $RELEASE_
 # (Plain string list — macOS ships bash 3.2, no associative arrays.)
 SEEN_LIST=" "
 UPLOAD_ASSETS=()
-for f in "$STAGE_DIR"/*.bin "$STAGE_DIR"/*.bin.gz "$STAGE_DIR"/*.gz "$STAGE_DIR"/*.md "$STAGE_DIR"/*.html; do   # *.html: steuerbox.html / steuve.html (EEBUS images)
+for f in "$STAGE_DIR"/*.bin "$STAGE_DIR"/*.bin.gz "$STAGE_DIR"/*.gz "$STAGE_DIR"/*.md "$STAGE_DIR"/*.html "$STAGE_DIR"/*.zip; do   # *.html: steuerbox.html / steuve.html (EEBUS images)
   [[ -f "$f" ]] || continue
   base="$(basename "$f")"
   case "$base" in
