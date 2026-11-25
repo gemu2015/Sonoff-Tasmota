@@ -1,0 +1,99 @@
+// Device block of the SMGW reader image tinyc32s3-eth-smgw (Andreas' block + the reset of everything personal). Paste it into tasmota/user_config_override.h
+// at the end of the `#ifdef TINYC_TESTING` part, i.e. before its `#endif  // TINYC_TESTING`. The file is git-ignored; this is the copy that is kept.
+
+// SMGW reader image (Andreas, 25.11.2026; docs/smgw/): Waveshare ESP32-S3-ETH (W5500, SD over SPI, 8 MB PSRAM). His device block
+// `esp32S3_waveshare_ETH_SMGW_TinyC`, summarised with what it takes from his general user block. No private value in it: Wi-Fi, MQTT, mail
+// and location stay at the Tasmota defaults (empty); the unit is reached by LAN (HAN socket, PPC gateway 192.168.1.200) first.
+#ifdef TINYC_SMGW
+#undef  JPEG_PICTS         // the camera component is removed from the SDK for this image (see the env)
+#undef  APP_TIMEZONE
+#define APP_TIMEZONE          99
+#undef  MY_LANGUAGE
+#define MY_LANGUAGE           de_DE
+#undef  SET_ESP32_STACK_SIZE
+#define SET_ESP32_STACK_SIZE  (12 * 1024)
+#define USE_TIMERS
+#define USE_TIMERS_WEBINTERFACE
+#define USE_TLS
+#define DISABLE_REFERER_CHK   // SetOption128 1 from the factory (fresh settings only)
+#define TINYC_INFO_WEBPWD     // main page: a note + button "set web password" while none is set
+// LAN fixed into the network of the HAN socket (gateway 192.168.1.200), no gateway and no DNS; SetOption55 1 = mDNS (http://smgw.local/)
+#undef  USER_BACKLOG
+#define USER_BACKLOG "EthIPAddress 192.168.1.21; EthGateway 0.0.0.0; EthSubnetmask 255.255.255.0; EthDNSServer1 0.0.0.0; EthDNSServer2 0.0.0.0; SetOption55 1; Restart 1"
+#undef  TELE_PERIOD
+#define TELE_PERIOD           60
+#undef  MQTT_TOPIC
+#define MQTT_TOPIC            "SMGW"   // not private; makes http://smgw.local/ work from the factory (Andreas' proposal, untested)
+#undef  MQTT_FULLTOPIC
+#define MQTT_FULLTOPIC        "%prefix%/%topic%/"
+#undef  FRIENDLY_NAME
+#define FRIENDLY_NAME         "SMGW"
+#undef  WIFI_DEFAULT_HOSTNAME
+#define WIFI_DEFAULT_HOSTNAME "%s"     // hostname = MQTT topic; never without % (crash at start)
+#define USE_DISCOVERY                  // mDNS
+#define WEBSERVER_ADVERTISE
+#undef  TC_VM_TASK_STACK
+#define TC_VM_TASK_STACK      16384    // TLS handshake in TaskLoop
+#undef  TC_TLS_RX_BUF
+#define TC_TLS_RX_BUF         16709    // full TLS record (16384 + 325)
+#undef  TC_MAX_FILE_HANDLES
+#define TC_MAX_FILE_HANDLES   8        // slot 0 and slot 2 keep monthly files open in parallel
+#define USE_MQTT_CLIENT_CERT           // for TinyCTlsCert (login with a client certificate)
+#define USE_WEBCLIENT_HTTPS
+#define USE_WEBSEND_RESPONSE
+#undef  TC_MAX_HEAP
+#define TC_MAX_HEAP           32768
+#undef  TC_MAX_HEAP_HANDLES
+#define TC_MAX_HEAP_HANDLES   256
+#undef  COLOR_BACKGROUND
+#define COLOR_BACKGROUND      "#000000"
+#undef  COLOR_FORM
+#define COLOR_FORM            "#000000"
+#define USE_TASMOTA_DISCOVERY
+#define USE_I2C
+// NO FTP server: whoever types UfsFTP 1 after logging in would open it for good, unencrypted, and all files (also the .secret files with the
+// gateway credentials) would be readable; port 82 blocks them, the FTP server does not. The nightly backup is the TinyC FTP client (ftpOpen ...).
+#undef  USE_FTP
+// Public image: nothing personal may come from the general part of this file (a local MQTT broker, FTP login, location). Same list as the
+// OEFFENTLICH switch of Andreas' own builds: MQTT off and empty, Tasmota default FTP login and location, project "tasmota".
+#undef  MQTT_USE
+#define MQTT_USE              0
+#undef  MQTT_HOST
+#define MQTT_HOST             ""
+#undef  MQTT_USER
+#define MQTT_USER             ""
+#undef  MQTT_PASS
+#define MQTT_PASS             ""
+#undef  MQTT_CLIENT_ID
+#define MQTT_CLIENT_ID        "DVES_%06X"
+#undef  USER_FTP
+#define USER_FTP              "user"
+#undef  PW_FTP
+#define PW_FTP                "pass"
+#undef  LATITUDE
+#define LATITUDE              48.858360
+#undef  LONGITUDE
+#define LONGITUDE             2.294442
+#undef  PROJECT
+#define PROJECT               "tasmota"
+#define USE_SDCARD
+#define USE_UFILESYS
+#define USE_FEXTRACT
+#undef  UFSYS_SIZE
+#define UFSYS_SIZE            40000
+#undef  USE_ETHERNET
+#define USE_ETHERNET
+#undef  ETH_TYPE
+#define ETH_TYPE              8        // W5500
+#undef  ETH_ADDRESS
+#define ETH_ADDRESS           1
+#undef  ETH_CLKMODE
+#define ETH_CLKMODE           0
+// W5500: RST=9, INT=10, MOSI=11, MISO=12, SCLK=13, CS=14; SD (SPI): CS=4, MISO=5, MOSI=6, SCLK=7
+#undef  USER_TEMPLATE
+#define USER_TEMPLATE "{\"NAME\":\"Waveshare ESP32-S3-ETH\",\"GPIO\":[0,0,0,0,6721,673,705,737,0,5536,5600,704,672,736,5568,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],\"FLAG\":0,\"BASE\":1}"
+#undef  FALLBACK_MODULE
+#define FALLBACK_MODULE       USER_MODULE
+#undef  MODULE
+#define MODULE                USER_MODULE
+#endif  // TINYC_SMGW

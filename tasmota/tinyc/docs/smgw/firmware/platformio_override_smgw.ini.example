@@ -1,0 +1,24 @@
+; Env for the SMGW reader image tinyc32s3-eth-smgw. Copy into platformio_override.ini (it extends [env:tinyc32s3_eth_base] from this repo's
+; platformio_override.ini, see the EEBUS images). Build: pio run -e tinyc32s3-eth-smgw ; afterwards `git checkout -- CMakeLists.txt sdkconfig.defaults`.
+; Needs the TINYC_SMGW block of user_config_override_smgw.h.example in tasmota/user_config_override.h.
+
+; SMGW reader (Andreas, 25.11.2026): ready-made firmware for the Waveshare ESP32-S3-ETH (W5500 + SD over SPI), see docs/smgw/. Device block =
+; the TINYC_SMGW section at the end of the TINYC_TESTING part of user_config_override.h (his block `esp32S3_waveshare_ETH_SMGW_TinyC`, private values
+; left out). NOT the EEBUS flag of the base env (it would set the SDIO template); no EEBUS driver, no FTP server (it would hand out the .secret files).
+; Same SDK settings as the EEBUS images + CONFIG_MBEDTLS_SHA512_C (from his env). ⚠️ EXACTLY 24 columns of indent for the continuation lines.
+[env:tinyc32s3-eth-smgw]
+extends                 = env:tinyc32s3_eth_base
+build_flags             = ${env:tinyc32s3_eth_base.build_flags}
+                          -DUSE_ETHERNET
+                          -DTINYC_SMGW
+                          -DTINYC_NO_SCRIPTER
+build_unflags           = -DTINYC_HOMEKIT
+                          -DTINYC_EEBUS_ETH
+custom_sdkconfig        = CONFIG_ETH_ENABLED=y
+                          CONFIG_ETH_USE_SPI_ETHERNET=y
+                          CONFIG_ETH_SPI_ETHERNET_W5500=y
+                          CONFIG_LWIP_UDP_RECVMBOX_SIZE=64
+                          CONFIG_MBEDTLS_SHA512_C=y
+                          CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=n
+                          CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=32768
+                          CONFIG_FREERTOS_IDLE_TASK_STACKSIZE=3072
