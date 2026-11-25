@@ -17,9 +17,10 @@
 #define USE_TLS
 #define DISABLE_REFERER_CHK   // SetOption128 1 from the factory (fresh settings only)
 #define TINYC_INFO_WEBPWD     // main page: a note + button "set web password" while none is set
-// LAN fixed into the network of the HAN socket (gateway 192.168.1.200), no gateway and no DNS; SetOption55 1 = mDNS (http://smgw.local/)
+// No fixed LAN address (25.11.2026, Andreas): not every gateway sits in 192.168.1.x. LAN and Wi-Fi stay on DHCP; the user sets the LAN address on the
+// reader page (tab settings) or with EthIPAddress. SetOption55 1 = mDNS (http://smgw.local/)
 #undef  USER_BACKLOG
-#define USER_BACKLOG "EthIPAddress 192.168.1.21; EthGateway 0.0.0.0; EthSubnetmask 255.255.255.0; EthDNSServer1 0.0.0.0; EthDNSServer2 0.0.0.0; SetOption55 1; Restart 1"
+#define USER_BACKLOG "SetOption55 1; Restart 1"
 #undef  TELE_PERIOD
 #define TELE_PERIOD           60
 #undef  MQTT_TOPIC
