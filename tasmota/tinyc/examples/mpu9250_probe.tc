@@ -1,0 +1,48 @@
+// mpu9250_probe.tc - first look at an MPU-9250 9-DOF board (19.11.2026): WHO_AM_I, magnetometer (AK8963 behind the bypass), 10 samples.
+// Bus 0 = the Tasmota I2C bus 1 (on .39: SDA 5 / SCL 4). Address 0x68 (AD0 low) or 0x69.
+#define MPU_BUS   0
+#define REG_PWR1  0x6B
+#define REG_BYPASS 0x37
+#define REG_WHO   0x75
+#define REG_ACC   0x3B   // ax_h
+#define REG_GYR   0x43   // gx_h
+#define REG_TEMP  0x41
+
+char buf[160];
+int addr;
+int n;
+
+int rd16(int reg) {
+    int v = (i2cRead8(addr, reg, MPU_BUS) << 8) | i2cRead8(addr, reg + 1, MPU_BUS);
+    if (v > 32767) { v = v - 65536; }
+    return v;
+}
+
+int main() {
+    int who = 0;
+    int wia = 0;
+    n = 0;
+    addr = 0x68;
+    if (i2cSetDevice(addr, MPU_BUS) == 0) { addr = 0x69; if (i2cSetDevice(addr, MPU_BUS) == 0) { addLog("MPU: no device at 0x68/0x69"); return 0; } }
+    who = i2cRead8(addr, REG_WHO, MPU_BUS);
+    sprintf(buf, "MPU: addr 0x%02X WHO_AM_I=0x%02X (0x71 = MPU-9250, 0x73 = MPU-9255, 0x70 = MPU-6500, 0x68 = MPU-6050)", addr, who);
+    addLog(buf);
+    i2cWrite8(addr, REG_PWR1, 0x01, MPU_BUS);        // wake up, clock = PLL
+    delay(100);
+    i2cWrite8(addr, REG_BYPASS, 0x02, MPU_BUS);      // I2C bypass: the AK8963 appears on the main bus at 0x0C
+    delay(10);
+    if (i2cSetDevice(0x0C, MPU_BUS) != 0) {
+        wia = i2cRead8(0x0C, 0x00, MPU_BUS);
+        sprintf(buf, "MPU: AK8963 at 0x0C WIA=0x%02X (0x48 expected)", wia);
+        addLog(buf);
+    } else { addLog("MPU: no magnetometer at 0x0C (MPU-6500 / board without AK8963?)"); }
+    return 0;
+}
+
+void TaskLoop() {
+    delay(500);
+    if (addr == 0 || n >= 10) { return; }
+    n = n + 1;
+    sprintf(buf, "MPU #%d acc %d %d %d  gyr %d %d %d  temp raw %d", n, rd16(REG_ACC), rd16(REG_ACC + 2), rd16(REG_ACC + 4), rd16(REG_GYR), rd16(REG_GYR + 2), rd16(REG_GYR + 4), rd16(REG_TEMP));
+    addLog(buf);
+}
