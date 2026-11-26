@@ -7733,7 +7733,18 @@ static void tc_ul_handle(WiFiClient &client) {
         // buffered data first and only returns <=0 at a genuine timeout (SO_RCVTIMEO) or EOF.
         int got = client.read(buf, want);
         if (got > 0) {
-          if ((uint32_t)f.write(buf, got) != (uint32_t)got) { ok = false; err = "write failed (fs full?)"; break; }
+          // 26.11.2026 (Andreas): once "write failed" at 227449 of 269923 B with 15 GB free on an SD card, the second try went
+          // through at once: a transient SD error (card busy / CRC), not a full file system. A short write is retried a few
+          // times for the rest of the block before the upload is given up.
+          uint32_t woff = 0; int wtry = 0;
+          while (woff < (uint32_t)got) {
+            size_t wn = f.write(buf + woff, (size_t)got - woff);
+            if (wn > 0) { woff += (uint32_t)wn; wtry = 0; continue; }
+            if (++wtry > 4) break;
+            AddLog(LOG_LEVEL_INFO, PSTR("TCC: upload write returned 0 at %u B, retry %d"), (unsigned)(written + woff), wtry);
+            vTaskDelay(pdMS_TO_TICKS(25));
+          }
+          if (woff != (uint32_t)got) { ok = false; err = "write failed (SD error or fs full)"; written += woff; break; }
           written += got;
           idle = 0;
           if ((written & 0x1FFF) == 0) vTaskDelay(1);   // yield ~every 8 KB so loopTask + WDT breathe
