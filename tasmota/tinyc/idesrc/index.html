@@ -2238,6 +2238,28 @@ int main() {
             document.getElementById('deviceFiles').value = '';
         };
 
+        // Write `content` to /ufs<path> through the raw-socket upload server on port 83. Returns true when the device confirms exactly
+        // `bytes` written, otherwise a short reason string (the caller then falls back to /tc_api?cmd=writefile).
+        async function saveViaUploadPort(ip, path, content, bytes) {
+            const host = String(ip).replace(/^https?:\/\//, '').replace(/[\/:].*$/, '');
+            try {
+                let tok = '';
+                try {
+                    const t = await (await fetch(`http://${ip}/tc_api?cmd=ultok`, { mode: 'cors' })).json();
+                    if (t && t.tok) tok = t.tok;
+                } catch (e) { /* no token (old firmware or login needed) - works only without a web password */ }
+                const url = `http://${host}:83/ufs${path}` + (tok ? `?tok=${encodeURIComponent(tok)}` : '');
+                const resp = await fetch(url, { method: 'POST', body: content, mode: 'cors', headers: { 'Content-Type': 'text/plain' } });
+                const txt = await resp.text().catch(() => '');
+                if (!resp.ok) return `HTTP ${resp.status} ${txt.trim().slice(0, 80)}`;
+                const m = /(\d+)\s*bytes/.exec(txt);
+                if (!m || parseInt(m[1], 10) !== bytes) return `device reports ${m ? m[1] : '?'} bytes, sent ${bytes}`;
+                return true;
+            } catch (e) {
+                return e.message || 'unreachable';
+            }
+        }
+
         window.saveToDevice = async function() {
             const ip = getDeviceIp();
             if (!ip) {
@@ -2255,6 +2277,25 @@ int main() {
 
             try {
                 setStatus('Saving to device...', '');
+                // 26.11.2026 (discussion #145): a big source file (> 6 KB) goes to the upload port 83 first. That server streams the body
+                // to the file in small pieces; /tc_api?cmd=writefile has to hold the whole body as ONE heap block, which a device with
+                // ~50 KB of fragmented heap (ESP32-C3 running SML + chart) cannot allocate. Port 83 missing (old firmware) or refusing
+                // -> fall back to writefile below.
+                const sentBytes = new TextEncoder().encode(content).length;
+                if (sentBytes > 6000) {
+                    const r83 = await saveViaUploadPort(ip, path, content, sentBytes);
+                    if (r83 === true) {
+                        const savedName83 = filename.startsWith('/') ? filename.substring(1) : filename;
+                        currentFileName = savedName83;
+                        isDirty = false;
+                        updateTabName();
+                        setStatus(`Saved ${savedName83} (${sentBytes} bytes) to device`, 'success');
+                        appendOutput(`Saved ${savedName83} to device (${sentBytes} bytes, upload port 83)`, 'success');
+                        refreshDeviceFiles();
+                        return;
+                    }
+                    appendOutput(`Upload port 83 not used (${r83}) - saving the normal way`, '');
+                }
                 const resp = await fetch(`http://${ip}/tc_api?cmd=writefile&path=${encodeURIComponent(path)}`, {
                     method: 'POST', body: content, mode: 'cors',
                     headers: { 'Content-Type': 'text/plain' }
@@ -2268,7 +2309,6 @@ int main() {
                 const data = await resp.json().catch(() => ({}));
                 // 25.11.2026 (discussion #145): `data.size || content.length` showed the editor length when the device had written 0 bytes,
                 // so a lost request body looked like a successful save. Compare the size the device reports with the bytes sent.
-                const sentBytes = new TextEncoder().encode(content).length;
                 if (typeof data.size !== 'number' || data.size !== sentBytes) {
                     const got = (typeof data.size === 'number') ? data.size : 'unknown';
                     appendOutput(`Save FAILED: sent ${sentBytes} bytes, the device reports ${got}. The file on the device may be incomplete or empty - do not close this editor.`, 'error');
