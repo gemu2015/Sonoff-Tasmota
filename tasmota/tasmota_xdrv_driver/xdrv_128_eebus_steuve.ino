@@ -6,6 +6,18 @@
   sie nach aussen (Tasmota-Ereignis/Befehl), damit z. B. ein Skript Verbraucher schaltet.
 
   Abgeleitet aus xdrv_126_eebus_guard.ino v184 (Steuerbox). Eigene Versionszaehlung ab SteuVE v001.
+  SteuVE Firmware v043 (26.11.2026, meierchen006, Normpruefung eingehender Writes, Bericht 2026-11-26--0920):
+  (A) Write auf eine Funktion, die wir nicht als schreibbar melden (z. B. loadControlLimitDescriptionListData,
+      deviceConfigurationKeyValueDescriptionListData) -> errorNumber 6 statt ACK 0. SPINE PS 5.2.5.2 Z. 1151-1153:
+      errorNumber 0 = "evaluated and processed successfully"; SPINE RS Tab. 19: 6 = command not supported.
+  (B) Discovery: write mit Unterelement partial fuer loadControlLimitListData und deviceConfigurationKeyValueListData
+      (SPINE PS 7.1.1.5.5 Z. 1959-1961, SHALL) - Teil-Writes nehmen wir seit v001 an, gemeldet war nur "write".
+  (C) Write ohne cmdControl = vollstaendiger Write (SPINE PS Tab. 6 Z. 1372, 7.1.1.5.5 Z. 1957-1959): ersetzt alles.
+      Ohne timePeriod -> unbefristet (bisher lief die alte Restdauer weiter); ohne isLimitActive oder value -> NACK 7.
+  (D) delete auf andere Elemente der Grenze als timePeriod (value, isLimitActive, limitId ...) oder auf den ganzen
+      Eintrag -> errorNumber 8 (SPINE PS 7.1.1.5.5 Z. 1962-1964, RS Tab. 19). delete timePeriod bleibt (LPC-Testspez. Tab. 11).
+  (H) number/scale auch mit Leerraum um den Doppelpunkt lesen (EebusCsScaledRaw) - bisher wurde der Wert dann
+      still ignoriert und trotzdem quittiert.
   SteuVE Firmware v042 (24.11.2026, meierchen006): tote Plaetze: ein gescheiterter eigener Verbindungsversuch blieb mit Adresse/SKI stehen, die
   echte Verbindung lief auf einem anderen Platz -> zwei Eintraege je Gegenstelle, Suche fand den toten (SteuVE-Seite
   "nicht verbunden" trotz Herzschlag, 24.11.). Neu: EebusTotePlaetzeRaeumen() im Sekundentakt leert tote Plaetze
@@ -3351,7 +3363,7 @@ void EebusSpineAnswerDiscovery(uint32_t ref, int as_notify) {
           "{\"featureAddress\":[{\"entity\":[1]},{\"feature\":6}]},{\"featureType\":\"LoadControl\"},{\"role\":\"server\"},"
           "{\"supportedFunction\":["
             "[{\"function\":\"loadControlLimitDescriptionListData\"},{\"possibleOperations\":[{\"read\":[]}]}],"
-            "[{\"function\":\"loadControlLimitListData\"},{\"possibleOperations\":[{\"read\":[]},{\"write\":[]}]}]"
+            "[{\"function\":\"loadControlLimitListData\"},{\"possibleOperations\":[{\"read\":[]},{\"write\":[{\"partial\":[]}]}]}]"
           "]},{\"description\":\"Load Control\"}"
         "]}],"
         "[{\"description\":["
@@ -3386,7 +3398,7 @@ void EebusSpineAnswerDiscovery(uint32_t ref, int as_notify) {
    // SteuVE v003: in Rolle 3 zusaetzlich die Nennleistung (electricalConnectionCharacteristicListData)
     (3 == eebus_role) ? ",[{\"function\":\"electricalConnectionCharacteristicListData\"},{\"possibleOperations\":[{\"read\":[]}]}]" : "",
    // SteuVE v002: in Rolle 3 sind die Failsafe-Werte vom Energy Guard SCHREIBBAR
-    (3 == eebus_role) ? ",{\"write\":[]}" : "",
+    (3 == eebus_role) ? ",{\"write\":[{\"partial\":[]}]}" : "",   // SteuVE v043 (B): SPINE PS 7.1.1.5.5 Z. 1959-1961
    // Rolle 3 = ControllableSystem -> KEIN LoadControl-Client (nur Server ent1/feat6); nur Rolle 1/2 (EnergyGuard) hat den Controller-Client.
    // SteuVE v002: Rolle 3 bekommt stattdessen einen DeviceDiagnosis-Client fuer den Herzschlag des Energy Guard.
     ((1 == eebus_role) || (2 == eebus_role)) ? EEBUS_LPC_CLIENT_FEATURE :
@@ -3732,12 +3744,15 @@ void EebusServeLimitBroadcast(void) {
 // (bisher Schleife ohne Grenze -> scale 2000000000 aus dem Frame = Watchdog-Neustart).
 bool EebusCsScaledRaw(const char *frag, double *out_v) {
   if (nullptr == frag) { return false; }
-  const char *n = strstr(frag, "\"number\":");
+   // SteuVE v043 (H): Leerraum um den Doppelpunkt erlauben ("number" : 5000), wie EebusJsonInt seit v036
+  const char *n = strstr(frag, "\"number\"");
   if (nullptr == n) { return false; }
-  long num = strtol(n + 9, nullptr, 10);
+  n += 8; while ((' ' == *n) || ('\t' == *n)) { n++; }
+  if (':' != *n) { return false; }
+  long num = strtol(n + 1, nullptr, 10);
   long sc = 0;
-  const char *s = strstr(frag, "\"scale\":");
-  if (s) { sc = strtol(s + 8, nullptr, 10); }
+  const char *s = strstr(frag, "\"scale\"");
+  if (s) { s += 7; while ((' ' == *s) || ('\t' == *s)) { s++; } if (':' == *s) { sc = strtol(s + 1, nullptr, 10); } }
   if (sc > 18) { sc = 18; }
   if (sc < -18) { sc = -18; }
   double v = (double)num;
@@ -3766,6 +3781,27 @@ bool EebusCsValueNegative(const char *frag) {
 // Abonnenten, Ereignis) folgt im naechsten Sekundentakt — nicht hier im Empfangspfad.
 // SteuVE v035: in Anlauf, Failsafe und autonom darf eine Grenze nur gewertet werden, wenn binnen 60 s davor ein Herzschlag
 // des Energy Guard kam (LPC TS Z. 372-375; LPC IG Z. 396-405, 446-456). Im Zustand "gesteuert" gilt das nicht.
+// SteuVE v043 (D): delete im Filter eines Grenz-Writes. Erlaubt ist nur das Loeschen der Geltungsdauer (timePeriod),
+// wie in der LPC-Testspezifikation (Tab. 11 "delete duration"). Ein delete ohne Element-Angabe (ganzer Eintrag) oder
+// auf value / isLimitActive / isLimitChangeable / limitId -> errorNumber 8 (SPINE PS 7.1.1.5.5 Z. 1962-1964, RS Tab. 19).
+// true = der delete-Teil ist zulaessig (oder es gibt keinen).
+bool EebusCsDeleteOk(const char *json) {
+  const char *dl = strstr(json, "\"delete\"");
+  if (nullptr == dl) { return true; }
+  const char *ende = strstr(dl, "\"partial\"");
+  const char *fn = strstr(dl, "\"loadControlLimitListData\"");
+  if (!ende || (fn && (fn < ende))) { ende = fn; }
+  const char *el = strstr(dl, "DataElements\"");
+  if (!el || (ende && (el > ende))) { return false; }   // kein Element genannt -> ganzer Eintrag
+  char seg[160];
+  size_t l = ende ? (size_t)(ende - el) : strlen(el);
+  if (l >= sizeof(seg)) { l = sizeof(seg) - 1; }
+  memcpy(seg, el, l); seg[l] = '\0';
+  if (!strstr(seg, "timePeriod")) { return false; }
+  if (strstr(seg, "\"value\"") || strstr(seg, "isLimitActive") || strstr(seg, "isLimitChangeable") ||
+      strstr(seg, "\"limitId\"")) { return false; }
+  return true;
+}
 bool EebusCsHbFensterOk(void) {
   if (CS_CTRL == eebus_cs_state) { return true; }
   return ESp->peer_hb_at && ((millis() - ESp->peer_hb_at) <= 60000UL);
@@ -3775,6 +3811,14 @@ bool EebusCsSkriptLaeuft(void) {   // SteuVE v036: frische EEBusCsReady-Meldung 
   return eebus_cs_ready_at && ((millis() - eebus_cs_ready_at) < EEBUS_CS_READY_MAX_MS);
 }
 bool EebusCsLimitWriteOk(const char *json) {
+   // SteuVE v043 (C): ohne cmdControl (weder partial noch delete) ist es ein VOLLSTAENDIGER Write - er ersetzt alles.
+   // Pflichtelemente isLimitActive und value muessen dann dabei sein (LPC TS loadControlLimitData: M), sonst NACK.
+  const bool voll = !strstr(json, "\"partial\"") && !strstr(json, "\"delete\"");
+  if (voll && ((EebusJsonBool(json, "isLimitActive") < 0) || !strstr(json, "\"value\""))) {
+    AddLog(LOG_LEVEL_INFO, PSTR("EBG: SteuVE: vollstaendiger Write von %s ABGELEHNT - isLimitActive oder value fehlt"), ESp->peer_ip);
+    EebusMsgSetLast("abgelehnt - vollstaendiger Write unvollstaendig", 2);
+    return false;
+  }
    // SteuVE v036 (LPC IG Z. 175-177, 187-189): Dauer 0 mit "aktiv" heisst sofort deaktivieren - wie eine Freigabe (ACK).
   char et0[24] = { 0 };
   const bool dauer0 = EebusJsonStr(json, "endTime", et0, sizeof(et0)) && (0 == EebusIsoDurSecs(et0));
@@ -3828,7 +3872,7 @@ bool EebusCsLimitWriteOk(const char *json) {
    // SteuVE v035 (LPC TS Z. 1551-1553, "partial"): nur geschriebene Elemente aendern sich. Ohne endTime UND ohne
    // delete-Filter bleibt die alte Endzeit gueltig (Restdauer weiterzaehlen); mit delete auf timePeriod -> unbefristet.
   if (EebusJsonStr(json, "endTime", et, sizeof(et))) { dur = EebusIsoDurSecs(et); }
-  else if (!(strstr(json, "\"delete\"") && strstr(json, "timePeriod")) && (eebus_cs_lim_dur_s >= 0)) {
+  else if (!voll && !(strstr(json, "\"delete\"") && strstr(json, "timePeriod")) && (eebus_cs_lim_dur_s >= 0)) {   // v043 (C): voll -> unbefristet
     dur = EebusCsRestS();
     if (dur < 0) { dur = 0; }
   }
@@ -5968,6 +6012,7 @@ void EebusSpineHandle(const char *json) {
     bool cs_abgewiesen = false;   // SteuVE v006
     bool cs_nack = false;         // SteuVE v030: vertraut, aber Wert nicht anwendbar -> NACK [LPC-003/1], [LPC-003/2]
     bool cs_bind_nack = false;    // SteuVE v038: Schreiber hat das Feature nicht gebunden -> Fehler 9
+    uint32_t cs_fehler = 0;       // SteuVE v043: 6 = Funktion nicht schreibbar (A), 8 = delete-Kombination nicht unterstuetzt (D)
    // Ein Steuergeraet schreibt uns ein LPC-Limit -> DAS ist das §14a-Pruefergebnis: mitschneiden!
     if (strstr(json, "loadControlLimitListData")) {
       const char *v = strstr(json, "\"value\"");
@@ -5985,6 +6030,11 @@ void EebusSpineHandle(const char *json) {
                  ESp->peer_ip, our_ent, our_feat);
           EebusMsgSetLast("abgelehnt - nicht gebunden (Fehler 9)", 2);
           cs_bind_nack = true;
+        }
+        else if (!EebusCsDeleteOk(json)) {   // SteuVE v043 (D)
+          AddLog(LOG_LEVEL_INFO, PSTR("EBG: SteuVE: Write von %s ABGELEHNT (Fehler 8) - delete nur auf timePeriod erlaubt"), ESp->peer_ip);
+          EebusMsgSetLast("abgelehnt - delete nur auf die Dauer (Fehler 8)", 2);
+          cs_fehler = 8;
         }
         else if (1 != lid) {   // SteuVE v030: NACK statt ACK (LPC Z. 332-334 [LPC-003/1]: nicht anwendbar -> NACK)
           AddLog(LOG_LEVEL_INFO, PSTR("EBG: SteuVE: Write von %s auf limitId %u ABGELEHNT - wir haben nur limitId 1 (Bezug)"),
@@ -6027,6 +6077,12 @@ void EebusSpineHandle(const char *json) {
       else if (EebusCsTrusted()) { if (!EebusCsConfigWriteOk(json)) { cs_nack = true; } }   // SteuVE v002/v027
       else { cs_abgewiesen = true; }   // SteuVE v006
     }
+    if ((3 == eebus_role) && !strstr(json, "loadControlLimitListData") && !strstr(json, "deviceConfigurationKeyValueListData")) {
+       // SteuVE v043 (A): alle anderen Funktionen melden wir nicht als schreibbar -> Fehler 6, nichts aendern
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: SteuVE: Write von %s auf eine nicht schreibbare Funktion ABGELEHNT (Fehler 6)"), ESp->peer_ip);
+      EebusMsgSetLast("abgelehnt - Funktion nicht schreibbar (Fehler 6)", 2);
+      cs_fehler = 6;
+    }
     if (cs_abgewiesen) {   // SteuVE v006
       eebus_cs_rej_cnt++;
       strlcpy(eebus_cs_rej_from, ESp->peer_ip, sizeof(eebus_cs_rej_from));
@@ -6038,6 +6094,9 @@ void EebusSpineHandle(const char *json) {
    // SteuVE v006: abgewiesen -> errorNumber 7 (commandRejected)
     if (cs_bind_nack) {   // SteuVE v038: Fehler 9 immer senden (wie jede Ablehnung)
       EebusSpineSendAddr("result", true, their_ctr, "{\"resultData\":[{\"errorNumber\":9}]}", our_ent, our_feat, peer_ent, peer_feat);
+    } else if (cs_fehler) {   // SteuVE v043: Fehler 6/8 immer senden (wie Fehler 9)
+      char r[40]; snprintf(r, sizeof(r), "{\"resultData\":[{\"errorNumber\":%u}]}", (unsigned)cs_fehler);
+      EebusSpineSendAddr("result", true, their_ctr, r, our_ent, our_feat, peer_ent, peer_feat);
     } else if (ack) { EebusSpineSendAddr("result", true, their_ctr, (cs_abgewiesen || cs_nack) ? "{\"resultData\":[{\"errorNumber\":7}]}"
                                                                    : "{\"resultData\":[{\"errorNumber\":0}]}", our_ent, our_feat, peer_ent, peer_feat); }   // SteuVE v036: Absender
   } else if (0 == strcmp(cls, "call")) {

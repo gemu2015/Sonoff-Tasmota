@@ -8,7 +8,7 @@
   @page {
     size: A4; margin: 16mm 15mm 18mm 15mm;
     @bottom-center { content: "Seite " counter(page) " von " counter(pages); font-family: "Segoe UI", Arial, sans-serif; font-size: 8.5pt; color: #777; }
-    @bottom-right { content: "EEBUS-SteuVE-Gateway · Firmware v040 · Skript v022"; font-family: "Segoe UI", Arial, sans-serif; font-size: 7.5pt; color: #999; }
+    @bottom-right { content: "EEBUS-SteuVE-Gateway · Firmware v043 · Skript v024"; font-family: "Segoe UI", Arial, sans-serif; font-size: 7.5pt; color: #999; }
   }
   body { font-family: "Segoe UI", Arial, sans-serif; font-size: 10.5pt; line-height: 1.45; color: #1d1d1d; }
   h1 { font-size: 20pt; margin: 0 0 4mm; color: #1d3f6e; }
@@ -43,15 +43,24 @@
 <body>
 
 <h1>EEBUS-SteuVE-Gateway auf Tasmota</h1>
-<div class="kopf">Bedienungsanleitung · Stand 25.11.2026 · <b>Firmware v042</b> (Treiber <code>xdrv_128</code> mit derselben Nummer) + TinyC-Skript <code>steuve</code> v022 (<code>@version 20261122_2000</code>) · Persönliche Daten in den Bildern unkenntlich gemacht (Adressen auf 192.168.1.x umgeschrieben, Kennungen verdeckt)<br>Erstellt von <b>meierchen006</b> mit Hilfe von Claude</div>
+<div class="kopf">Bedienungsanleitung · Stand 26.11.2026 · <b>Firmware v043</b> (Treiber <code>xdrv_128</code> mit derselben Nummer) + TinyC-Skript <code>steuve</code> v024 (<code>@version 20261126_1640</code>) · Persönliche Daten in den Bildern unkenntlich gemacht (Adressen auf 192.168.1.x umgeschrieben, Kennungen verdeckt)<br>Erstellt von <b>meierchen006</b> mit Hilfe von Claude</div>
 
 <div class="warn"><b>Testgerät, nicht zertifiziert.</b> Das Gateway dient dazu, die EEBUS-Steuerung nach § 14a EnWG an einem HEMS (Energiemanagementsystem im Haus) oder einer Steuerbox zu prüfen und auszuprobieren. Es ist keine geprüfte steuerbare Verbrauchseinrichtung im Sinne von § 14a Abs. 1 EnWG mit BNetzA-Festlegung BK6-22-300, hat keine EEBUS-Zertifizierung und ist nicht für den regulären Betrieb beim Netzbetreiber gedacht. Was nach Norm umgesetzt ist und wo es Grenzen gibt, steht ehrlich in Abschnitt 14.</div>
 
-<div class="hinweis"><b>Stand Firmware v042:</b> Firmware v038 bis v040 wurden am 23.11.2026, v041 und v042 am 24.11.2026 im Testnetz geprüft (Abschnitt 15). Das Verbindungsende aus Firmware v040 wurde beim Test nicht gezielt ausgelöst. Nicht alles ist am Gerät nachgewiesen; was nur laut Programmcode beschrieben ist, steht dort ebenfalls.</div>
+<div class="hinweis"><b>Stand Firmware v043 / Skript v024:</b> Firmware v038 bis v040 wurden am 23.11.2026, v041 und v042 am 24.11.2026, Firmware v043 mit Skript v024 am 26.11.2026 im Testnetz geprüft (Abschnitt 15). Das Verbindungsende aus Firmware v040 wurde beim Test nicht gezielt ausgelöst. Nicht alles ist am Gerät nachgewiesen; was nur laut Programmcode beschrieben ist, steht dort ebenfalls.</div>
 
 <div class="info"><b>Versionsnummern:</b> Diese Anleitung nennt ab jetzt die <b>Firmware-Nummer</b> (wie sie beim Bauen ausgegeben wird). Die Nummer im Kopf des Treibers <code>xdrv_128</code> ist um eins kleiner: Firmware v037 = Treiber v036, Firmware v038 = Treiber v037, Firmware v039 = Treiber v038, Firmware v040 = Treiber v039. <b>Ab Firmware v041</b> nennt der Kopf des Treibers nur noch die Firmware-Nummer. Wo bei älteren Ständen „Treiber v0xx“ steht, ist die Treiber-Nummer gemeint.</div>
 
-<div class="neu"><b>Neu seit der Fassung vom 23.11.2026 20:47</b> (Firmware v040 → v042, Skript unverändert v022):
+<div class="neu"><b>Neu seit der Fassung vom 25.11.2026</b> (Firmware v042 → v043, Skript v022 → v024):
+<ul>
+  <li><b>Firmware v043 – eingehende Schreibbefehle nach Norm geprüft</b> (Abschnitt 14.3): Schreibt der Energy Guard auf eine Funktion, die das Gateway nicht als schreibbar meldet, antwortet es mit <b>Fehler 6</b> statt mit „angenommen“. Die Geräteliste meldet jetzt, dass Teil-Schreiben (<code>partial</code>) angenommen wird. Ein Schreiben <b>ohne</b> <code>partial</code>/<code>delete</code> ersetzt die ganze Grenze: ohne Endzeit gilt sie dann unbefristet, ohne „aktiv“ oder Wert wird sie abgelehnt. Löschen (<code>delete</code>) ist nur für die Dauer erlaubt, alles andere ergibt <b>Fehler 8</b>. Werte mit Leerzeichen um den Doppelpunkt werden jetzt richtig gelesen. Gleiche Prüfung im HEMS (Firmware v047). Im Normalbetrieb mit Tasmota-HEMS und -Steuerbox ändert sich nichts.</li>
+  <li><b>Skript v023 – ein ausgefallenes Gerät legt die anderen nicht mehr lahm:</b> Startete das Gateway neu, während ein Gerät aus war (oder eine falsche Adresse eingetragen war), antworteten danach oft auch die anderen Plätze nicht – bis „Speichern“. Jetzt behält ein Platz ohne Antwort seinen bekannten Gerätetyp, die Geräteabfrage nach dem Start wartet, bis das Netz steht (20 s), und alle Plätze kommen der Reihe nach dran. Ein Gerät, das 3 Runden nicht antwortet, wird nur noch etwa jede Minute gefragt (sonst hängt die Bedienseite bei jeder Abfrage ein paar Sekunden); es zählt bis dahin mit seiner Nennleistung (5.1).</li>
+  <li><b>Skript v024 – Steuerkontakt nach Neustart wieder erkennen:</b> War der Shelly 1 beim Start des Gateways aus, wurde er nach seiner Rückkehr zwar wieder gemessen, aber nicht wieder als Steuerkontakt erkannt („aktiv 0“, erst nach „Speichern“). Jetzt fragt das Gateway das Modell nach, sobald das Gerät wieder antwortet (6.7).</li>
+  <li><b>Feste IP-Adressen</b> für alle Geräte hinter dem Gateway (5.1), <b>Firmware aktualisieren</b> mit Safeboot (Abschnitt 12), Menüname „Erweitert“ (Abschnitt 2).</li>
+  <li>Abschnitt <b>15 „Geprüft“</b> um die Tests vom 26.11.2026 ergänzt.</li>
+</ul></div>
+
+<div class="neu"><b>Neu in der Fassung vom 25.11.2026</b> (Firmware v040 → v042, Skript unverändert v022):
 <ul>
   <li><b>Firmware v042 – ein Platz je Gegenstelle:</b> Scheiterte ein eigener Verbindungsversuch (z. B. während das HEMS neu startet), blieb dieser Platz mit Adresse und SKI stehen, und die echte Verbindung lief auf einem zweiten Platz. Dann gab es zwei Einträge für dasselbe HEMS, und die Seite zeigte „nicht verbunden“, obwohl der Herzschlag kam. Jetzt räumt das Gateway solche toten Plätze jede Sekunde ab, und die Seite nimmt immer den verbundenen Platz (Abschnitt 4).</li>
   <li><b>Firmware v041 – Failsafe-Kennungen als Paare und Freigabe nie mit 0 W:</b> Beides betrifft nur die noch eingebauten Steuerbox-Funktionen (Befehl <code>EEBusLpc</code> usw.), mit denen das Gateway selbst Grenzen an ein anderes Gerät schreibt. Im normalen Betrieb als SteuVE schreibt das Gateway keine Grenzen und liest keine fremden Failsafe-Werte; dort ändert sich nichts. Gleiche Änderungen sind im HEMS (Firmware v046) und in der Steuerbox (v247).</li>
@@ -107,7 +116,7 @@
 <table>
   <tr><th>Was</th><th>Wo / Wert</th><th>Warum</th></tr>
   <tr><td><b>Vorlage</b></td><td><code>Waveshare ESP32-S3-ETH SDIO</code><br>(Einstellungen → Vorlage)</td><td>Die SD-Karte hängt per <b>SDIO 1-Bit</b> am ESP32-S3: GPIO5 = D0, GPIO6 = CMD, GPIO7 = CLK. Beim Start steht im Log <code>UFS: SDCard mounted (SDIO 1-bit)</code>. Auf der SD-Karte liegen Bedienseite, Protokolle und Verbraucherliste.</td></tr>
-  <tr><td><b>HTTP API aktivieren</b></td><td>Haken setzen<br>(Einstellungen → Weitere Einstellungen; entspricht <code>SetOption128 1</code>)</td><td>Ohne den Haken weist Tasmota Abrufe ohne Herkunftsangabe ab (im Log <code>HTP: Referer '' denied</code>): Die Seite bleibt beim direkten Aufruf leer, und Befehle von außen (<code>/cm?cmnd=…</code>) werden abgewiesen.</td></tr>
+  <tr><td><b>HTTP API aktivieren</b></td><td>Haken setzen<br>(Einstellungen → Erweitert; entspricht <code>SetOption128 1</code>)</td><td>Ohne den Haken weist Tasmota Abrufe ohne Herkunftsangabe ab (im Log <code>HTP: Referer '' denied</code>): Die Seite bleibt beim direkten Aufruf leer, und Befehle von außen (<code>/cm?cmnd=…</code>) werden abgewiesen.</td></tr>
   <tr><td><b>Firmware</b></td><td>gebaut mit<br><code>CONFIG_FREERTOS_IDLE_TASK_STACKSIZE=3072</code></td><td>Mit dem Vorgabewert 1024 Byte kann der ESP32-S3 mit LAN-Chip W5500 unter Last abstürzen (<code>DebugException</code> beim Taskwechsel). Gemessen auf einer Steuerbox: unter Last blieben von 1024 nur 80 Byte frei, mit 3072 über 2200. Beim Bauen in der Bauvariante (<code>custom_sdkconfig</code>) eintragen.</td></tr>
   <tr><td><b>Skript mit Autostart</b></td><td>TinyC → Slot 0: Skript <code>steuve</code> geladen, Knopf <b>A</b> grün</td><td>Das Skript muss nach jedem Start von selbst laufen. Läuft es nicht, lehnt das Gateway (seit Firmware v037) jede Grenze ab (Abschnitt 8).</td></tr>
 </table>
@@ -192,7 +201,16 @@
   <tr><td><b>Steuerkontakt</b></td><td><b>– kein</b> = normaler Verbraucher · <b>NC</b> / <b>NO</b> = Steuerkontakt (Abschnitt 6)<br>Nur beim Shelly 1 wählbar, sonst steht dort „nur Shelly 1“.</td></tr>
   <tr><td><b>Gerät / Testprofil</b></td><td>erkanntes Gerät (Shelly-Modell und Generation oder „Tasmota 1 Relais“, „Tasmota Messung“ usw.). <b>prüfen</b> fragt das Gerät in der nächsten Runde neu ab.</td></tr>
 </table>
-<p>Nach dem Ändern <b>Speichern</b> klicken – es erscheint „✓ gespeichert“. Etwa eine Sekunde später meldet das Gateway die neue Nennleistung an das HEMS.</p>
+<p>Nach dem Ändern <b>Speichern</b> klicken – es erscheint „✓ gespeichert“. Etwa eine Sekunde später meldet das Gateway die neue Nennleistung an das HEMS. Ohne „Speichern“ geht eine Änderung beim Verlassen der Seite verloren.</p>
+<h3>5.1 Feste IP-Adressen und Geräte, die nicht antworten</h3>
+<div class="warn"><b>Jedes Gerät hinter dem Gateway braucht eine feste IP-Adresse</b> (im Router „immer dieselbe Adresse zuweisen“ oder fest im Gerät eingestellt). Das Gateway fragt die Geräte nur über die eingetragene Adresse ab. Bekommt ein Gerät vom Router eine neue Adresse, antwortet der Platz nicht mehr: Das Gateway rechnet ihn dann mit seiner vollen Nennleistung und kann Grenzen darunter nicht mehr zusagen; ein Steuerkontakt wird nicht mehr umgelegt.</div>
+<p>Antwortet ein Gerät nicht (aus, vom Strom getrennt, falsche Adresse), gilt seit Skript v023:</p>
+<ul>
+  <li>Nur dieser Platz steht auf „antwortet nicht“; alle anderen laufen weiter – auch nach einem Neustart des Gateways.</li>
+  <li>Nach 3 Runden ohne Antwort zählt der Platz mit seiner <b>Nennleistung</b> in die Zusage, und der Verbrauch wird als „unbekannt“ gemeldet.</li>
+  <li>Danach wird der Platz nur noch etwa <b>jede Minute</b> gefragt. Kommt das Gerät zurück, ist es deshalb nach spätestens gut einer Minute wieder da (im Test 26.11.: Shelly eingeschaltet, nach rund 70 s wieder gemessen, 10 s später wieder als Steuerkontakt aktiv). Mit <b>prüfen</b> geht es sofort in der nächsten Runde.</li>
+</ul>
+
 <div class="hinweis">Waschmaschine, Trockner und Geschirrspüler können beim Abschalten ihr Programm abbrechen. Den Haken „abschaltbar“ nur setzen, wenn das in Kauf genommen wird.</div>
 
 <h3>Unterstützte Shelly-Arten</h3>
@@ -257,7 +275,7 @@
   <li><b>Einschaltzustand nach Stromausfall:</b> „letzten Modus wiederherstellen“ (<code>restore_last</code>).</li>
   <li><b>Relaistyp / Eingang:</b> „Getrennter Schalter“ (<code>detached</code>). Sonst legt ein Taster oder Schalter am SW-Eingang den Steuerkontakt mit um – der SW-Eingang schaltet beim Shelly 1 das eigene Relais und ist <b>keine</b> Rückmeldung.</li>
   <li>Keine Zeitschaltung (Auto-Ein/Auto-Aus) und keine Szenen, die das Relais schalten.</li>
-  <li>Feste IP-Adresse (z. B. im Router), damit der Platz im Gateway gültig bleibt.</li>
+  <li>Feste IP-Adresse (z. B. im Router), damit der Platz im Gateway gültig bleibt (5.1).</li>
 </ul>
 
 <h3>6.5 NC oder NO – was wählen?</h3>
@@ -291,6 +309,7 @@ STVKONT 3,NC</pre>
   <li>Haken <b>abschaltbar</b> gesetzt,</li>
   <li>das Gerät ist ein <b>Shelly der Shelly-1-Familie</b> (oder ein Fake-Platz zum Testen).</li>
 </ol>
+<p>Das Modell (Bedingung 3) fragt das Gateway beim Speichern, mit <b>prüfen</b> und nach einem Neustart ab. Seit Skript v024 fragt es auch nach, wenn ein Shelly 1, der beim Start nicht antwortete, wieder da ist – der Kontakt wird dann ohne „Speichern“ wieder aktiv.</p>
 <p>Fehlt eine Bedingung, ist der Platz ein <b>normaler Verbraucher</b>: Er wird gemessen und zählt mit seiner Leistung in Summe und Zusage. Ein Gerät, das kein Shelly 1 ist, aber noch NC/NO eingetragen hat, erzeugt im Log einmal <code>STV Prio n … ist kein Shelly 1 - nicht als Steuerkontakt zugelassen</code>. In der Antwort von <code>STVKONT</code> zeigt das letzte Feld <b>aktiv</b> (1/0), ob der Platz wirklich als Steuerkontakt arbeitet.</p>
 
 <h3>6.8 Ablauf: Begrenzung, Rücklesen, Normalstellung</h3>
@@ -384,7 +403,7 @@ STVKONT 3,NC</pre>
   <li>Kann es eine Grenze nicht einhalten, oder ist sie negativ, antwortet es NACK <b>und</b> wechselt nach „gesteuert“ ohne Begrenzung ([LPC-902]/[LPC-918]).</li>
   <li>In Anlauf, Failsafe und autonom meldet es die vom Energy Guard geschriebene Grenze als <b>nicht aktiv</b> ([LPC-009]).</li>
 </ul></div>
-<div class="info"><b>Was das Gateway außerdem ablehnt</b> (der Energy Guard bekommt NACK, die alten Werte bleiben): eine negative Grenze; einen Schreibversuch auf eine andere Grenze als die eigene; einen Failsafe-Wert mit negativer Leistung oder mit einer Mindestdauer unter 2 Stunden. Eine Mindestdauer <b>über 24 Stunden</b> wird abgelehnt, auf 24 h gesetzt und gemeldet ([LPC-022]). Ein Failsafe-Wert von 0 W ist gültig. Ein Teil-Schreiben ohne Endzeit lässt die alte Endzeit stehen.</div>
+<div class="info"><b>Was das Gateway außerdem ablehnt</b> (der Energy Guard bekommt NACK, die alten Werte bleiben): eine negative Grenze; einen Schreibversuch auf eine andere Grenze als die eigene; einen Failsafe-Wert mit negativer Leistung oder mit einer Mindestdauer unter 2 Stunden. Eine Mindestdauer <b>über 24 Stunden</b> wird abgelehnt, auf 24 h gesetzt und gemeldet ([LPC-022]). Ein Failsafe-Wert von 0 W ist gültig. Ein Teil-Schreiben (<code>partial</code>) ohne Endzeit lässt die alte Endzeit stehen; ein vollständiges Schreiben ohne Endzeit gilt unbefristet (seit Firmware v043).<br><b>Seit Firmware v043</b> außerdem: Schreiben auf eine nicht schreibbare Funktion → <b>Fehler 6</b>; Löschen (<code>delete</code>) von etwas anderem als der Dauer → <b>Fehler 8</b>; vollständiges Schreiben ohne „aktiv“ oder ohne Wert → NACK. Im Log steht dann <code>EBG: SteuVE: … ABGELEHNT (Fehler 6|8)</code> bzw. <code>vollstaendiger Write … ABGELEHNT</code>.</div>
 
 <h2 id="k8" class="seite">8. Skript läuft nicht – erkennen und beheben</h2>
 <p>Ohne laufendes Skript kann das Gateway nichts abschalten und keinen Kontakt umlegen. Deshalb gilt seit Firmware v037 (Treiber v036):</p>
@@ -448,7 +467,9 @@ Bei einer Grenze steht in den Meldungen „abgelehnt - nicht gebunden (Fehler 9)
 <h3>Welche Fassungen zusammenpassen</h3>
 <table>
   <tr><th>Gateway-Firmware (Treiber)</th><th>Skript</th><th>Ergebnis</th></tr>
-  <tr><td>v040 (v039)</td><td>v022</td><td><span class="ok">empfohlen</span> (Stand dieser Anleitung) – mit einem HEMS ab Firmware v039; geprüft am 23.11. (Abschnitt 15)</td></tr>
+  <tr><td>v043</td><td>v024</td><td><span class="ok">empfohlen</span> (Stand dieser Anleitung) – mit einem HEMS ab Firmware v039; geprüft am 26.11. mit HEMS v047 und Steuerbox v247 (Abschnitt 15)</td></tr>
+  <tr><td>v040 … v043</td><td>v022</td><td>läuft; nach einem Neustart mit einem ausgefallenen Gerät antworten aber oft auch die anderen Plätze nicht, bis „Speichern“ (behoben mit Skript v023/v024)</td></tr>
+  <tr><td>v040 (v039)</td><td>v022</td><td>läuft – mit einem HEMS ab Firmware v039; geprüft am 23.11. (Abschnitt 15)</td></tr>
   <tr><td>v039 (v038)</td><td>v022</td><td>läuft, geprüft am 23.11.; Verbindungsende noch mit Grund „unplug“ statt „unspecific“</td></tr>
   <tr><td>v039 / v040</td><td>v022</td><td><span class="ab">nicht mit einem HEMS vor Firmware v039</span>: Ein älteres HEMS bindet nur LoadControl (Nachweis 23.11. 14:45). Seine <b>Failsafe-Werte</b> lehnt das Gateway dann mit Fehler 9 ab, und das HEMS bindet nicht neu.</td></tr>
   <tr><td>v038 (v037)</td><td>v022</td><td>läuft, geprüft am 23.11.; Bindungen nur protokolliert, kein eigener Wiederaufbau nach Trennung durch den Energy Guard</td></tr>
@@ -466,7 +487,15 @@ Bei einer Grenze steht in den Meldungen „abgelehnt - nicht gebunden (Fehler 9)
   <li>Die Verbraucherliste steht in einer <code>.pvs</code>-Datei, deren Name dem Skriptdateinamen folgt. Lädt man eine neue Fassung desselben Skripts (gleicher <code>@name</code>) unter <b>neuem Dateinamen</b>, übernimmt TinyC die alte Liste selbst (im Log: „persist values taken over“).</li>
   <li>Vor jedem Update die Liste notieren: Konsole → <code>STVCFG</code> und <code>STVKONT</code>. Mit <code>STVSET</code> und <code>STVKONT</code> lässt sie sich schnell wieder eintragen.</li>
 </ul>
-<div class="warn"><b>Von Skript v011 oder älter auf v022:</b> Mit dem Steuerkontakt (ab v012) sind neue gespeicherte Werte dazugekommen. TinyC verwirft dabei die alte <code>.pvs</code> – <b>die Verbraucherliste ist danach leer</b>. Vorher mit <code>STVCFG</code> notieren. Von v012 … v021 auf v022 bleibt die Liste erhalten (keine neuen gespeicherten Werte).</div>
+<div class="warn"><b>Von Skript v011 oder älter auf v024:</b> Mit dem Steuerkontakt (ab v012) sind neue gespeicherte Werte dazugekommen. TinyC verwirft dabei die alte <code>.pvs</code> – <b>die Verbraucherliste ist danach leer</b>. Vorher mit <code>STVCFG</code> notieren. Von v012 … v023 auf v024 bleibt die Liste erhalten (keine neuen gespeicherten Werte).</div>
+<h3>Firmware</h3>
+<p>Die Gateway-Firmware wird mit einer <b>Safeboot-Aufteilung</b> gebaut: Es gibt nur <b>einen</b> Platz für die Firmware (rund 3,9 MB) und daneben ein kleines Notprogramm (Safeboot). Eine neue Firmware passt deshalb nicht neben die laufende; sie wird aus dem Safeboot heraus geschrieben.</p>
+<ol>
+  <li>Tasmota-Hauptseite → <i>Firmwareupdate</i> → bei <i>Updatedatei hochladen</i> die neue <b>.bin</b> (ohne „factory“) wählen und hochladen.</li>
+  <li>Die Seite zeigt „Wechsle zur Safeboot Partition…“: Das Gerät startet das Notprogramm (es hat ebenfalls LAN, gleiche Adresse) und schreibt dort die Datei. Danach startet es mit der neuen Firmware (so laut Tasmota-Programmcode; dieser Weg wurde am Gateway nicht eigens getestet). Einstellungen, Vertrauen (SKI) und die Dateien auf der SD-Karte bleiben erhalten.</li>
+  <li>Danach prüfen: <code>EEBusCs</code> → <code>"Skript":"laeuft"</code>, Reiter EEBus → HEMS verbunden.</li>
+</ol>
+<div class="hinweis"><b>„Nicht genug Speicherplatz“?</b> Dann ging die Datei an die laufende Firmware statt an den Safeboot (z. B. beim Hochladen mit einem Werkzeug statt über die Update-Seite). Abhilfe: im Browser <code>http://&lt;Adresse&gt;/u4?u4=fct</code> aufrufen – das Gerät startet in den Safeboot (die Seite zeigt „SAFEBOOT“) –, dort <i>Firmwareupdate</i> öffnen und die .bin hochladen. So am 26.11.2026 an einem Gateway gemacht.</div>
 <h3>Bedienseite</h3>
 <ul>
   <li>Die Seite liegt als <code>steuve.html</code> <b>und</b> gepackt als <code>steuve.html.gz</code> auf der SD-Karte. Das Gerät liefert zuerst die <code>.gz</code> aus. Bei einer neuen Fassung <b>immer beide Dateien</b> ersetzen.</li>
@@ -561,6 +590,10 @@ Bei einer Grenze steht in den Meldungen „abgelehnt - nicht gebunden (Fehler 9)
   <tr><td>WebSocket: Antwortkopf und Subprotokoll „ship“ prüfen; Text-Frames und reservierte Opcodes mit Close beantworten</td><td>SHIP Z. 802, 818–830; RFC 6455</td><td>FW v038</td></tr>
   <tr><td><code>accessMethods</code> mit <code>dnsSd_mDns</code>; mDNS-Einträge ohne <code>txtvers=1</code> verwerfen</td><td>SHIP Tab. 22, Z. 570–573; TC_SHIP_MDNS_001</td><td>FW v038</td></tr>
   <tr><td>Verbindungsende mit Grund „unspecific“ (statt „unplug“); auf „announce“ mit „confirm“ antworten, dann schließen</td><td>SHIP Z. 3127–3138, 3158–3162</td><td>FW v040</td></tr>
+  <tr><td>Quittung 0 heißt „ausgewertet und erfolgreich verarbeitet“: Schreiben auf eine Funktion, die nicht als schreibbar gemeldet ist → Fehler 6</td><td>SPINE PS 5.2.5.2 Z. 1151–1153; RS Tab. 19</td><td>FW v043</td></tr>
+  <tr><td>Geräteliste: <code>write</code> mit <code>partial</code>, weil Teil-Schreiben angenommen wird</td><td>SPINE PS 7.1.1.5.5 Z. 1959–1961</td><td>FW v043</td></tr>
+  <tr><td>Schreiben ohne <code>partial</code>/<code>delete</code> = vollständiges Schreiben, ersetzt alles (ohne Endzeit unbefristet, Pflichtelemente nötig)</td><td>SPINE PS Tab. 6 Z. 1372, 7.1.1.5.5 Z. 1957–1959; LPC TS loadControlLimitData</td><td>FW v043</td></tr>
+  <tr><td>Nicht unterstützte Kombination beim Löschen → Fehler 8; Löschen der Dauer bleibt erlaubt</td><td>SPINE PS 7.1.1.5.5 Z. 1962–1964; RS Tab. 19; LPC-Testspez. Tab. 11</td><td>FW v043</td></tr>
 </table>
 
 <h3>14.4 Bewusste Abweichungen und Grenzen</h3>
@@ -604,6 +637,12 @@ Bei einer Grenze steht in den Meldungen „abgelehnt - nicht gebunden (Fehler 9)
   <tr><td>23.11. ~17:00 · <b>Firmware v040</b> (Treiber v039), Skript v022, HEMS Firmware v039</td><td>Nach dem Flashen beider Gateways: Grundfunktion, Grenze 5.000 W und Freigabe</td><td><span class="ok">bestanden</span>: Skript läuft, Herzschlag-Abo, Bindung LoadControl und DeviceConfiguration bestätigt; Grenze: HEMS-Quittung <b>ACK nach 4,5 s</b>, beide Gateways bestätigt (5.000 W / 4.998 W); Freigabe bestätigt; <b>kein Fehler 9</b>.<br><i>Ehrlicher Hinweis:</i> Das neue Verbindungsende („unspecific“ / „confirm“) wurde dabei <b>nicht gezielt ausgelöst</b> und ist damit am Gerät nicht eigens nachgewiesen.</td></tr>
   <tr><td>24.11. · <b>Firmware v041</b>, Skript v022, HEMS Firmware v042</td><td>Nach dem Flashen beider Gateways: Grundfunktion und Failsafe-Werte</td><td><span class="ok">bestanden</span>: beide Gateways laufen, das HEMS liest die Failsafe-Werte beider Gateways zurück.<br><i>Nebenbefund:</i> Ein Fehlbau (falsche Bauvariante) ließ beide Gateways ohne Netzwerk starten. Zurückgeholt per USB <b>ohne Löschen</b> des Flashs: Einstellungen, IP-Adresse und Zertifikat (SKI) blieben erhalten, das HEMS musste nicht neu koppeln.</td></tr>
   <tr><td>24.11. · <b>Firmware v042</b>, Skript v022, HEMS Firmware v046</td><td>Nach dem Flashen beider Gateways: Verbindungsplätze, Freigabe, Failsafe-Werte</td><td><span class="ok">bestanden</span>: kein Stromlos-Start nötig; je Gateway <b>genau ein</b> Platz zum HEMS (verbunden), das HEMS hat je Gateway einen Platz; Freigabe vom HEMS mit der Nennleistung des Gateways (7.360 W bzw. 11.860 W) statt 0 W; Failsafe-Werte 3.124 W bzw. 5.035 W zurückgelesen.</td></tr>
+  <tr><td>26.11. · <b>Firmware v043</b>, Skript v022, HEMS v047, Steuerbox v247</td><td>Nach dem Flashen beider Gateways: Austausch Steuerbox ↔ HEMS ↔ Gateways</td><td><span class="ok">bestanden</span>: keine Ablehnung, keine Fehlermeldung im Log</td></tr>
+  <tr><td>26.11. · Firmware v043, Skript v022</td><td>Gerät mit falscher Adresse bzw. Shelly aus, <b>ohne</b> Neustart</td><td><span class="ok">bestanden</span>: nur dieser Platz „antwortet nicht“, die anderen laufen weiter. Jede Abfrage ohne Antwort ließ aber Bedienseite und Konsole ein paar Sekunden warten (einmal „Busy“) → seltener fragen (Skript v023)</td></tr>
+  <tr><td>26.11. · Firmware v043, Skript v022</td><td>Neustart des Gateways, während ein Shelly aus ist</td><td><span class="ab">Befund</span>: danach antworteten auch die anderen Plätze nicht, nur einer lief; eine Grenze wurde abgelehnt (Zusage zu hoch). Ursache: Geräteabfrage vor dem Netz, Gerätetyp ohne Antwort gelöscht, immer nur der letzte unbekannte Platz abgefragt → Skript v023</td></tr>
+  <tr><td>26.11. · Firmware v043, <b>Skript v023</b></td><td>derselbe Neustart</td><td><span class="ok">bestanden</span>: nur der ausgeschaltete Platz fehlt, Zusage 2.001 W (seine Nennleistung). <i>Befund:</i> Nach Rückkehr des Shelly 1 wurde er gemessen, aber erst nach „prüfen“ wieder als Steuerkontakt aktiv → Skript v024</td></tr>
+  <tr><td>26.11. · Firmware v043, <b>Skript v024</b></td><td>Neustart mit ausgeschaltetem Shelly 1, danach Shelly ein</td><td><span class="ok">bestanden</span>: die anderen drei Plätze sofort da; Shelly nach seiner Rückkehr in der nächsten Abfrage gemessen, 11 s später wieder „aktiv 1“ – ohne Speichern</td></tr>
+  <tr><td>26.11. · Firmware v043, Skript v024, HEMS v047, Steuerbox v247</td><td>Grenze 8.160 W für 120 s an der Steuerbox</td><td><span class="ok">bestanden</span>: Steuerbox „BESTAETIGT aktiv 8160 W“; das HEMS gibt je 3.600 W an beide Gateways, beide bestätigt; Steuerkontakt umgelegt und durch Zurücklesen bestätigt. Nach Ablauf Freigabe an beide Gateways (Fehlernummer 0, zurückgelesen „freigegeben“), Kontakt sofort zurück und bestätigt</td></tr>
 </table>
 
 <h2 id="k16">16. Häufige Fragen</h2>
@@ -618,7 +657,7 @@ Bei einer Grenze steht in den Meldungen „abgelehnt - nicht gebunden (Fehler 9)
 <h3>Der Kontakt steht ohne Begrenzung in Begrenzungsstellung</h3>
 <p>Das Gateway stellt ihn in der nächsten Runde (10 s) zurück und schreibt „Normalstellung wiederhergestellt“ ins Kontakt-Protokoll. Bleibt er stehen, antwortet der Shelly nicht oder der Platz ist kein aktiver Steuerkontakt (<code>STVKONT</code> → letztes Feld 0, siehe 6.7).</p>
 <h3>Ein Gerät steht auf „antwortet nicht“</h3>
-<p>Adresse prüfen, Gerät in der Shelly-App bzw. im Browser aufrufen. Bei Geräten im WLAN kann eine Antwort auch einmal ausbleiben. Sonst „prüfen“ klicken. Solange ein Gerät 3 Runden in Folge nicht antwortet, meldet das Gateway den Verbrauch als „unbekannt“.</p>
+<p>Adresse prüfen (hat das Gerät eine feste Adresse? 5.1), Gerät in der Shelly-App bzw. im Browser aufrufen. Bei Geräten im WLAN kann eine Antwort auch einmal ausbleiben. Sonst „prüfen“ klicken. Solange ein Gerät 3 Runden in Folge nicht antwortet, meldet das Gateway den Verbrauch als „unbekannt“.</p>
 <h3>Ein Tasmota-Gerät steht auf „kein Shelly/Tasmota?“ oder „Tasmota: Passwort?“</h3>
 <p>Im Browser <code>http://&lt;Adresse&gt;/cm?cmnd=Status</code> aufrufen: Kommt eine Warnung, ist ein Web-Passwort gesetzt; kommt nichts, ist die HTTP-Schnittstelle ausgeschaltet. Danach „prüfen“ klicken.</p>
 <h3>Der Haken „abschaltbar“ lässt sich nicht setzen</h3>
@@ -639,6 +678,10 @@ Bei einer Grenze steht in den Meldungen „abgelehnt - nicht gebunden (Fehler 9)
 <p>Vertraut wird nur der SKI, die beim „Vertrauen“ gewählt wurde – geprüft am Zertifikat der Gegenstelle. Hat der Energy Guard eine neue Identität erzeugt, muss ihm neu vertraut werden.</p>
 <h3>Nach einem Neustart steht kurz „Anlauf – begrenzt auf … W“</h3>
 <p>So verlangt es der Use Case LPC ([LPC-901]): Nach einem Neustart beginnt das Gateway mit dem Failsafe-Wert, bis der Energy Guard nach seinem Herzschlag eine Vorgabe schickt. Kommt 120 s lang nichts, wechselt es auf „autonom“ und ist frei (Bild 7).</p>
+<h3>Firmwareupdate meldet „Nicht genug Speicherplatz“</h3>
+<p>Die Datei ging an die laufende Firmware statt an den Safeboot. Über die Update-Seite im Browser hochladen oder vorher mit <code>/u4?u4=fct</code> in den Safeboot wechseln (Abschnitt 12, „Firmware“).</p>
+<h3>Ein Gerät kommt nach dem Einschalten erst nach einer Minute wieder</h3>
+<p>Gewollt: Ein Gerät, das 3 Runden nicht antwortete, fragt das Gateway nur etwa jede Minute (5.1). Mit <b>prüfen</b> geht es sofort.</p>
 <h3>Das HEMS legt das Gateway als neues Gerät an</h3>
 <p>Das passiert nur mit einer neuen Identität (neue SKI). Beim Umzug auf ein anderes Board vorher <b>Sichern</b> und auf dem neuen Board <b>Zurückspielen</b> (Abschnitt 4).</p>
 

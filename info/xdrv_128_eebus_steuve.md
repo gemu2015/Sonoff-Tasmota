@@ -1,6 +1,6 @@
 # SteuVE – steuerbare Verbrauchseinrichtung über EEBUS (`xdrv_128_eebus_steuve`)
 
-Stand: 25.11.2026 · **Firmware v042** (Treiber `xdrv_128` mit derselben Nummer) · Skript `steuve` v022
+Stand: 26.11.2026 · **Firmware v043** (Treiber `xdrv_128` mit derselben Nummer) · Skript `steuve` v024
 (`// @version: 20261122_2000`) · Seite `steuve.html`.
 Ausführliche Bedienungsanleitung mit Bildern: [`tasmota/tinyc/docs/eebus_anleitungen/ANLEITUNG-SteuVE.pdf`](../tasmota/tinyc/docs/eebus_anleitungen/ANLEITUNG-SteuVE.pdf).
 
@@ -95,6 +95,20 @@ Grenze (LoadControl) und Failsafe-Werte (DeviceConfiguration) nimmt die SteuVE n
 beschriebenen Features an (SPINE, LPC TS BIND_002), sonst Fehler 9 („Binding nötig“). Der Energy Guard muss also
 LoadControl **und** DeviceConfiguration binden, bevor er schreibt. NodeManagement beantwortet die Abfragen der
 Abos und Bindings (`nodeManagementSubscriptionData` / `BindingData`).
+
+### Schreibbefehle nach SPINE prüfen (ab Firmware v043)
+
+- Write auf eine Funktion, die die SteuVE nicht als schreibbar meldet (alles außer `loadControlLimitListData` und
+  `deviceConfigurationKeyValueListData`) → errorNumber 6 statt 0. ErrorNumber 0 heißt „ausgewertet und erfolgreich
+  verarbeitet“ (SPINE PS 5.2.5.2 Z. 1151-1153; RS Tab. 19).
+- Discovery meldet `write` mit `partial` für beide Funktionen, weil Teil-Writes angenommen werden
+  (SPINE PS 7.1.1.5.5 Z. 1959-1961).
+- Write ohne `cmdControl` (weder `partial` noch `delete`) = vollständiger Write, ersetzt alles: ohne `timePeriod`
+  gilt die Grenze unbefristet, ohne `isLimitActive` oder `value` → NACK (SPINE PS Tab. 6 Z. 1372, 7.1.1.5.5).
+  Ein Teil-Write ohne Endzeit lässt die alte Restdauer stehen (LPC TS Z. 1551-1553).
+- `delete` nur auf `timePeriod` (LPC-Testspezifikation Tab. 11), alles andere → errorNumber 8
+  (SPINE PS 7.1.1.5.5 Z. 1962-1964).
+- `number`/`scale` werden auch mit Leerraum um den Doppelpunkt gelesen.
 
 ### Grenze übernehmen und zusagen
 
@@ -215,6 +229,10 @@ Erreichbar über den Knopf „SteuVE“ auf der Tasmota-Hauptseite. Das Gerät l
 - Alle **10 s**:
   1. Leistung aller belegten Plätze lesen (beim Steuerkontakt die Relaisstellung), Summe per `EEBusCsPower`.
      Antwortet ein Verbraucher 3 Runden in Folge nicht, wird „unbekannt“ gemeldet statt einer erfundenen Zahl.
+     Ab Skript v023 wird ein solcher Platz nur noch jede 6. Runde (etwa jede Minute) gefragt – jede Abfrage ohne
+     Antwort hält Bedienseite und Konsole einige Sekunden auf; bis er wieder antwortet, zählt er mit seiner
+     Nennleistung in die Zusage. Ein Platz ohne Antwort behält seinen bekannten Gerätetyp, die übrigen Plätze laufen
+     weiter (bis v022 konnte ein Neustart mit einem ausgefallenen Gerät auch die anderen Plätze lahmlegen).
   2. Zustand per `sensorGet` lesen.
   3. **Grenze aktiv:** zuerst alle Steuerkontakte in die Begrenzungsstellung legen und zurücklesen.
   4. **Summe > Grenze:** abschaltbare Verbraucher, die gerade Leistung ziehen, abschalten, höchste Prio-Zahl
@@ -241,6 +259,8 @@ Erreichbar über den Knopf „SteuVE“ auf der Tasmota-Hauptseite. Das Gerät l
 - **NC** = Steuereingang normal geschlossen (begrenzt bei offenem Kontakt), **NO** = normal offen (begrenzt bei
   geschlossenem Kontakt). Ein Platz ist nur Steuerkontakt, wenn NC/NO eingetragen, „abschaltbar“ gesetzt und das
   Gerät ein Shelly 1 ist.
+  Das Modell fragt das Skript beim Speichern, mit „prüfen“ und nach dem Start ab; ab Skript v024 auch, sobald ein
+  Shelly 1, der beim Start nicht antwortete, wieder da ist (vorher blieb er bis „Speichern“ „aktiv 0“).
 - Ablauf: Grenze aktiv → Kontakt in Begrenzungsstellung → **Relaisstellung zurücklesen** (Gen1 `/relay/0`, Gen2+
   `Switch.GetStatus`), nicht der Schaltantwort trauen → erst bei bestätigter Stellung zählt der Kontakt mit 0 W in
   die Zusage → ACK. Antwortet der Shelly nicht oder steht der Kontakt falsch: Zusage unbekannt → NACK für jede neue
@@ -275,7 +295,8 @@ dazugekommen; TinyC verwirft dabei die alte `.pvs`, die Verbraucherliste ist dan
 ## Einrichtung Schritt für Schritt
 
 1. Firmware mit `USE_EEBUS_STEUVE` flashen (oder Image `tinyc32s3-eth-steuve` aus dem Release), Vorlage setzen,
-   HTTP API an, `steuve.html.gz` auf die SD-Karte.
+   HTTP API an, `steuve.html.gz` auf die SD-Karte. Alle Verbraucher bekommen eine **feste IP-Adresse** (Router):
+   Das Skript fragt sie nur über die eingetragene Adresse ab.
 2. Skript `steuve` in Slot 0 laden, Autostart an. Kennung setzen: `EEBusCsTyp wallbox`.
 3. Auf `/steuve` im Reiter **Verbraucher** die Geräte eintragen: IP, Name, Nennleistung, abschaltbar, bei einem
    Shelly 1 Steuerkontakt NC oder NO.
@@ -290,7 +311,8 @@ dazugekommen; TinyC verwirft dabei die alte `.pvs`, die Verbraucherliste ist dan
 
 ⚠️ **Identität:** Die SKI hängt am Zertifikat im Flash. Ein Flashen mit Löschen erzeugt eine neue SKI, und der
 Energy Guard kennt das Gerät dann nicht mehr. Vorher im Reiter EEBus „Sichern“, danach „Zurückspielen“ – oder nur
-ohne Löschen aktualisieren (Web-Upgrade). Nie zwei Geräte mit derselben Identität gleichzeitig betreiben.
+ohne Löschen aktualisieren (Web-Upgrade; mit Safeboot-Aufteilung schaltet die Update-Seite selbst in den Safeboot.
+Kommt „Nicht genug Speicherplatz“, vorher `/u4?u4=fct` aufrufen und im Safeboot hochladen). Nie zwei Geräte mit derselben Identität gleichzeitig betreiben.
 
 ## Was man über Energiemanager wissen sollte
 
