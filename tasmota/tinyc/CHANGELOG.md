@@ -59,6 +59,12 @@ with total size and `abi_rev`) arrived in 1.6.35; v2–v5 files still load.
 
 ---
 
+## 1.6.85 — 2026-11-26
+
+- **SML family from ottelo (25.11.2026): gas/water flow in `/pwr` and over MQTT (issue #111), CT002 no longer aborts charging because of a full Venus and warns when the phase search hangs, Eco/Shelly shows the "last request" info.** Taken over unchanged (`ct002_common.tc`, `eco_shelly_common.tc`, `sml_chart_common.tc`, `sml_descriptor.tc`, the six SML programs); all examples compile, the six `.tcb` differ from his by 2–15 bytes as before (his compiler, IDE 1.6.80, is older than our latest compiler commits).
+- **Upload server (port 83): a short write is retried** up to four times (25 ms apart) before the upload is given up with "write failed" (a transient SD error was suspected, reported by Andreas). Logged as `TCC: upload write returned 0 ...`. Not reproduced on a device yet.
+- Example `mpu9250_probe.tc`: reads WHO_AM_I and probes for a magnetometer (the "9 DOF" board turned out to be an MPU-6500).
+
 ## 1.6.84 — 2026-11-26
 
 - **EEBUS SteuVE firmware v042** (meierchen006, 24.11.2026): dead connection slots of the same peer are cleared, one connected slot per peer; `steuve.html` prefers the connected slot (the page showed "not connected" after an HEMS restart although the heartbeat arrived).
@@ -68,7 +74,6 @@ with total size and `abi_rev`) arrived in 1.6.35; v2–v5 files still load.
 - **SMGW docs 1.2.2** (Andreas, 25.11.2026): guide with the one download `tinyc32s3-eth-smgw-dateien.zip` (the zip in this release carries it), connection sketch, notes on the IDE.
 - **Push check: `pre_push_secrets.py` now works from a git worktree** (Andreas, 25.11.2026): it found neither `secrets.txt` nor `user_config_override.h` there and skipped the check. It now looks in the common `.git` and in the main working folder, and **stops the push when git itself fails** (e.g. exFAT without `safe.directory`) instead of letting it through.
 - **New `scripts/check_push_full.py`** (Andreas): before a push it also checks author, committer, commit text, file names and the content of `.gz` / `.zip` / PDF streams against the same list, and lists images and PDFs to look at by hand. Read-only. See `scripts/PRE_PUSH_SECRETS.md`.
-- **SML family from ottelo (25.11.2026): gas/water flow in `/pwr` and over MQTT (issue #111), CT002 no longer aborts charging because of a full Venus and warns when the phase search hangs, Eco/Shelly shows the "last request" info.** Taken over unchanged (`ct002_common.tc`, `eco_shelly_common.tc`, `sml_chart_common.tc`, `sml_descriptor.tc`, the six SML programs); all examples compile, the six `.tcb` differ from his by 2–15 bytes as before (his compiler, IDE 1.6.80, is older than our latest compiler commits).
 
 ## 1.6.83 — 2026-11-24
 
