@@ -51,3 +51,10 @@ Ohne Liste und ohne `user_config_override.h` meldet der Hook "check skipped" und
 - **Antwortet `git` mit einem Fehler** (z. B. auf einem exFAT-Laufwerk ohne `safe.directory`), bricht der Hook den Push ab, statt ihn durchzulassen.
   Abhilfe: `git config --global --add safe.directory <Ordner>`, oder bewusst `git push --no-verify`.
 - Weiterhin gilt: keine Liste und keine Kopfdatei gefunden -> Hinweis und Push erlaubt.
+
+## Zusatzprüfung vor dem Push: check_push_full.py (Andreas, 25.11.2026)
+
+Der Hook sieht nur die rohen Dateibytes. `scripts/check_push_full.py` prüft zusätzlich Autor und Committer, den Commit-Text, Dateinamen, den Inhalt von
+`.gz` und `.zip` und die Streams in PDFs gegen dieselbe Liste; Bilder und PDFs listet es zum Ansehen von Hand auf. Es liest nur (git lesend), ändert nichts.
+Aufruf im Ordner, aus dem gepusht wird:  `python3 tasmota/tinyc/scripts/check_push_full.py origin/universal`  (mit `--no-mail` muss die Mail-Adresse in den
+Commits leer sein). Rückgabe 0 = sauber, 1 = Fund oder Fehler, 2 = Texte sauber, Bilder/PDFs von Hand ansehen.
