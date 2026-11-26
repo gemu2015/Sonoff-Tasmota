@@ -19,7 +19,7 @@ Matter or LVGL — the TLS/SHIP handshake needs the heap. No Wi-Fi credentials a
 
 For a Steuerbox and a SteuVE you need **two devices**.
 
-**Illustrated manuals (German, PDF; addresses and identifiers blacked out)** by meierchen006: [SteuVE](eebus_anleitungen/ANLEITUNG-SteuVE.pdf) (firmware v042, script `steuve` v022, with the control contact) and [Steuerbox](eebus_anleitungen/ANLEITUNG-EEBUS-Steuerbox.pdf) (v187). HTML sources with the images: [`eebus_anleitungen/quellen/`](eebus_anleitungen/quellen/).
+**Illustrated manuals (German, PDF; addresses and identifiers blacked out)** by meierchen006: [First steps](eebus_anleitungen/ANLEITUNG-EEBUS-Erste-Schritte.pdf) for beginners without ESP32/Tasmota experience (hardware, flashing the factory image in the browser, first start, SD card, script), then [SteuVE](eebus_anleitungen/ANLEITUNG-SteuVE.pdf) (firmware v042, script `steuve` v022, with the control contact) and [Steuerbox](eebus_anleitungen/ANLEITUNG-EEBUS-Steuerbox.pdf) (firmware v247). HTML sources with the images: [`eebus_anleitungen/quellen/`](eebus_anleitungen/quellen/).
 
 ### Set up
 
@@ -42,12 +42,13 @@ For a Steuerbox and a SteuVE you need **two devices**.
    Ethernet address.
 
    These six pins are confirmed on two Waveshare ESP32-S3-ETH boards. The board also has an SD card slot, which the
-   drivers can use for their log and for the page (`steuerbox.html` / `steuve.html`): SD card CS on GPIO 4 (`6721`),
-   second SPI bus on GPIO 5 MISO (`673`), GPIO 6 MOSI (`705`), GPIO 7 CLK (`737`). **The complete template**
-   (*Configure Module → Template*, paste, tick *Activate*):
+   drivers can use for their log and for the page (`steuerbox.html` / `steuve.html`): SD card via SDIO 1-bit on
+   GPIO 5 D0 (`8864`), GPIO 6 CMD (`8800`), GPIO 7 CLK (`8832`); the console shows `UFS: SDCard mounted (SDIO 1-bit)`.
+   The images already start with this template. **The complete template** (*Configure Module → Template*, paste,
+   tick *Activate*):
 
    ```
-   {"NAME":"Waveshare ESP32-S3-ETH","ARCH":"ESP32S3","GPIO":[0,0,0,0,6721,673,705,737,0,5536,5600,704,672,736,5568,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1],"FLAG":0,"BASE":1}
+   {"NAME":"Waveshare ESP32-S3-ETH SDIO","ARCH":"ESP32S3","GPIO":[0,0,0,0,0,8864,8800,8832,0,5536,5600,704,672,736,5568,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1],"FLAG":0,"BASE":1}
    ```
 
    Then `EthType 8` and `EthAddress 1`, `Restart 1`.
@@ -97,7 +98,7 @@ Matter und kein LVGL — der TLS/SHIP-Aufbau braucht den Heap. WLAN-Zugangsdaten
 
 Für Steuerbox und SteuVE braucht man **zwei Geräte**.
 
-**Bebilderte Bedienungsanleitungen (PDF, Adressen und Kennungen unkenntlich)** von Andreas: [SteuVE](eebus_anleitungen/ANLEITUNG-SteuVE.pdf) (Treiber v016, Skript `steuve` v010) und [Steuerbox](eebus_anleitungen/ANLEITUNG-EEBUS-Steuerbox.pdf) (v187). HTML-Quellen mit den Bildern: [`eebus_anleitungen/quellen/`](eebus_anleitungen/quellen/).
+**Bebilderte Bedienungsanleitungen (PDF, Adressen und Kennungen unkenntlich)** von meierchen006: [Erste Schritte](eebus_anleitungen/ANLEITUNG-EEBUS-Erste-Schritte.pdf) für Einsteiger ohne ESP32-/Tasmota-Erfahrung (Hardware, fertiges Image im Browser flashen, erster Start, SD-Karte, Skript), dann [SteuVE](eebus_anleitungen/ANLEITUNG-SteuVE.pdf) (Firmware v042, Skript `steuve` v022, mit Steuerkontakt) und [Steuerbox](eebus_anleitungen/ANLEITUNG-EEBUS-Steuerbox.pdf) (Firmware v247). HTML-Quellen mit den Bildern: [`eebus_anleitungen/quellen/`](eebus_anleitungen/quellen/).
 
 ### Einrichten
 
@@ -110,12 +111,13 @@ Für Steuerbox und SteuVE braucht man **zwei Geräte**.
    Ethernet-Adresse.
 
    Diese sechs Pins sind auf zwei Waveshare-ESP32-S3-ETH-Boards bestätigt. Das Board hat auch einen SD-Kartenplatz, den
-   die Treiber für ihr Protokoll und für die Seite (`steuerbox.html` / `steuve.html`) nutzen können: SD-Karte CS an
-   GPIO 4 (`6721`), zweiter SPI-Bus an GPIO 5 MISO (`673`), GPIO 6 MOSI (`705`), GPIO 7 CLK (`737`). **Das komplette
-   Template** (*Gerät konfigurieren → Template*, einfügen, *Aktivieren* ankreuzen):
+   die Treiber für ihr Protokoll und für die Seite (`steuerbox.html` / `steuve.html`) nutzen können: SD-Karte über
+   SDIO 1-Bit an GPIO 5 D0 (`8864`), GPIO 6 CMD (`8800`), GPIO 7 CLK (`8832`); in der Konsole steht
+   `UFS: SDCard mounted (SDIO 1-bit)`. Die Images starten schon mit diesem Template. **Das komplette Template**
+   (*Gerät konfigurieren → Template*, einfügen, *Aktivieren* ankreuzen):
 
    ```
-   {"NAME":"Waveshare ESP32-S3-ETH","ARCH":"ESP32S3","GPIO":[0,0,0,0,6721,673,705,737,0,5536,5600,704,672,736,5568,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1],"FLAG":0,"BASE":1}
+   {"NAME":"Waveshare ESP32-S3-ETH SDIO","ARCH":"ESP32S3","GPIO":[0,0,0,0,0,8864,8800,8832,0,5536,5600,704,672,736,5568,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1],"FLAG":0,"BASE":1}
    ```
 
    Danach `EthType 8` und `EthAddress 1`, `Restart 1`.

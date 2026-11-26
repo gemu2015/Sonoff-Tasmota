@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="author" content="meierchen006 mit Hilfe von Claude">
-<title>Anleitung EEBUS-Steuerbox v246</title>
+<title>Anleitung EEBUS-Steuerbox v247</title>
 <style>
   @page {
     size: A4; margin: 16mm 15mm 18mm 15mm;
-    @bottom-left { content: "Anleitung EEBUS-Steuerbox · Firmware v246 · Stand 23.11.2026"; font-family: "Segoe UI", Arial, sans-serif; font-size: 8pt; color: #777; }
+    @bottom-left { content: "Anleitung EEBUS-Steuerbox · Firmware v247 · Stand 26.11.2026"; font-family: "Segoe UI", Arial, sans-serif; font-size: 8pt; color: #777; }
     @bottom-right { content: "Seite " counter(page) " von " counter(pages); font-family: "Segoe UI", Arial, sans-serif; font-size: 8pt; color: #777; }
   }
   body { font-family: "Segoe UI", Arial, sans-serif; font-size: 10.5pt; line-height: 1.45; color: #1d1d1d; }
@@ -44,11 +44,19 @@
 <body>
 
 <h1>EEBUS-Steuerbox auf Tasmota</h1>
-<div class="kopf">Bedienungsanleitung · Stand 23.11.2026 · Treiber <code>xdrv_126</code> · Firmware v246 · Persönliche Daten in den Bildern unkenntlich gemacht (Adressen auf 192.168.1.x umgeschrieben, Kennungen verdeckt)<br>Erstellt von <b>meierchen006</b> mit Hilfe von Claude</div>
+<div class="kopf">Bedienungsanleitung · Stand 26.11.2026 · Treiber <code>xdrv_126</code> · Firmware v247 · Persönliche Daten in den Bildern unkenntlich gemacht (Adressen auf 192.168.1.x umgeschrieben, Kennungen verdeckt)<br>Erstellt von <b>meierchen006</b> mit Hilfe von Claude</div>
 
 <div class="warn"><b>Testgerät, nicht zertifiziert.</b> Die Steuerbox dient dazu, die EEBUS-Kommunikation mit einem HEMS (Energiemanagementsystem im Haus) oder mit steuerbaren Verbrauchseinrichtungen zu prüfen. Sie ersetzt weder die Steuerbox des Messstellenbetreibers noch ein geprüftes Gerät nach § 14a EnWG und ist nicht für den regulären Betrieb gedacht. Wir haben sie so nah an Norm und Gesetz gebracht, wie es uns ohne offizielles Prüfwerkzeug möglich war – was das genau heißt und wo die Grenzen liegen, steht in den Abschnitten 11 und 12.</div>
 
-<div class="neu"><b>Neu seit der Fassung vom 21.11.2026 (Firmware v235):</b>
+<div class="neu"><b>Neu seit der Fassung vom 23.11.2026 (Firmware v246 → v247):</b>
+<ul>
+  <li><b>Failsafe-Werte jedes Geräts erkannt:</b> Die Box merkt sich die Kennungen der Failsafe-Einstellungen eines Geräts jetzt als Paare (Kennung → Bedeutung, bis 8 je Gerät). Bisher erkannte sie nur die Kennungen 0 bis 7; eine Wallbox mit den Kennungen 11 und 12 blieb unerkannt.</li>
+  <li><b>Freigabe nie mehr mit 0 W:</b> Hebt die Box eine Grenze auf, schickt sie als Wert die Nennleistung des Geräts (unbekannt: 11.000 W) statt 0 W. Nach der Norm zählt der Wert bei einer aufgehobenen Grenze nicht – ein Wärmepumpen-Gateway hat die 0 nach einem Neustart der Box aber kurz als Grenze umgesetzt, und der Verdichter blieb etwa 4 min stehen (23.11.). Mit v247 nicht mehr (Abschnitt 11.5).</li>
+  <li><b>Ein Platz je Gegenstelle:</b> Bleibt nach einem gescheiterten eigenen Verbindungsversuch ein Platz derselben Gegenstelle stehen, räumt die Box ihn jede Sekunde ab, sobald die Verbindung auf einem anderen Platz steht. Bisher konnten zwei Einträge für dasselbe Gerät erscheinen.</li>
+  <li>Gleiche Änderungen sind im HEMS (Firmware v046) und in der SteuVE (Firmware v042). In dieser Anleitung stehen keine Herstellernamen mehr; das handelsübliche HEMS aus Abschnitt 11.1 heißt jetzt so.</li>
+</ul></div>
+
+<div class="neu"><b>Neu in der Fassung vom 23.11.2026 (Firmware v235 → v246):</b>
 <ul>
   <li><b>Normabgleich</b> gegen SPINE, SHIP, LPC, LPP und MGCP mit den zugehörigen Testspezifikationen – Ergebnis und bewusste Abweichungen in Abschnitt 12.</li>
   <li><b>Alle Prüffälle der LPC-Testspezifikation für die Steuerbox-Seite am Gerät durchgeführt</b> – Abschnitt 11.</li>
@@ -71,9 +79,9 @@
   <li><a href="#k8">Befehle in der Tasmota-Konsole</a></li>
   <li><a href="#k9">Betriebslogbuch, Störungen und Bedienseite</a></li>
   <li><a href="#k10">Häufige Fragen</a></li>
-  <li><a href="#k11">Geprüft: Tests und Ergebnisse</a><ol class="unter"><li><a href="#k11-1">11.1 Test am SMA Home Manager 2 (Hausnetz, 23.11.2026 19:38)</a></li><li><a href="#k11-2">11.2 Test an unserem HEMS (Hausnetz, 23.11.2026 20:09)</a></li><li><a href="#k11-3">11.3 Aufbau im Testnetz (für 11.4 bis 11.7)</a></li><li><a href="#k11-4">11.4 Prüffälle der LPC-Testspezifikation V1.0.2 (Steuerbox-Seite)</a></li><li><a href="#k11-5">11.5 Weitere Gerätetests</a></li><li><a href="#k11-6">11.6 Prüfung an Mitschnitten echter Geräte</a></li><li><a href="#k11-7">11.7 Nicht am Gerät geprüft</a></li></ol></li>
+  <li><a href="#k11">Geprüft: Tests und Ergebnisse</a><ol class="unter"><li><a href="#k11-1">11.1 Test an einem handelsüblichen HEMS (Hausnetz, 23.11.2026 19:38)</a></li><li><a href="#k11-2">11.2 Test an unserem HEMS (Hausnetz, 23.11.2026 20:09)</a></li><li><a href="#k11-3">11.3 Aufbau im Testnetz (für 11.4 bis 11.7)</a></li><li><a href="#k11-4">11.4 Prüffälle der LPC-Testspezifikation V1.0.2 (Steuerbox-Seite)</a></li><li><a href="#k11-5">11.5 Weitere Gerätetests</a></li><li><a href="#k11-6">11.6 Prüfung an Mitschnitten echter Geräte</a></li><li><a href="#k11-7">11.7 Nicht am Gerät geprüft</a></li></ol></li>
   <li><a href="#k12">Norm und Gesetz: was umgesetzt ist</a></li>
-  <li><a href="#k13">Änderungen v236 bis v246</a></li>
+  <li><a href="#k13">Änderungen v236 bis v247</a></li>
 </ol>
 
 <h2 id="k1">1. Was die Steuerbox macht</h2>
@@ -96,7 +104,7 @@
 <table>
   <tr><th>Was</th><th>Wo / Wert</th><th>Warum</th></tr>
   <tr><td><b>Vorlage</b></td><td><code>Waveshare ESP32-S3-ETH SDIO</code><br>(Einstellungen → Vorlage)</td><td>Die SD-Karte hängt per <b>SDIO 1-Bit</b> am ESP32-S3: GPIO5 = D0, GPIO6 = CMD, GPIO7 = CLK. Beim Start steht im Log <code>UFS: SDCard mounted (SDIO 1-bit)</code>. Auf der SD-Karte liegen Bedienseite und Betriebslogbuch.</td></tr>
-  <tr><td><b>HTTP API aktivieren</b></td><td>Haken setzen<br>(Einstellungen → Weitere Einstellungen; entspricht <code>SetOption128 1</code>)</td><td>Ohne den Haken weist Tasmota Abrufe ohne Herkunftsangabe ab (im Log <code>HTP: Referer '' denied</code>): Befehle von außen (<code>/cm?cmnd=…</code>) werden abgewiesen.</td></tr>
+  <tr><td><b>HTTP API aktivieren</b></td><td>Haken setzen<br>(Einstellungen → Erweitert; entspricht <code>SetOption128 1</code>)</td><td>Ohne den Haken weist Tasmota Abrufe ohne Herkunftsangabe ab (im Log <code>HTP: Referer '' denied</code>): Befehle von außen (<code>/cm?cmnd=…</code>) werden abgewiesen.</td></tr>
   <tr><td><b>Firmware</b></td><td>gebaut mit<br><code>CONFIG_FREERTOS_IDLE_TASK_STACKSIZE=3072</code></td><td>Mit dem Vorgabewert 1024 Byte stürzte die Box (ESP32-S3 mit LAN-Chip W5500) gelegentlich ab: <code>DebugException</code> beim Taskwechsel. Gemessen mit <code>TinyCStack</code>: unter Last blieben von 1024 Byte nur <b>80 Byte</b> frei, mit 3072 sind es über <b>2.200 Byte</b>. Beim Bauen in der Bauvariante (<code>custom_sdkconfig</code>) eintragen.</td></tr>
 </table>
 <div class="hinweis">Mit eingeschalteter HTTP API nimmt die Box Befehle von jedem Rechner im Netz an. Ein <b>Passwort für die Weboberfläche</b> (gleiche Seite) schützt davor.</div>
@@ -352,14 +360,14 @@
 <h2 id="k11" class="seite">11. Geprüft: Tests und Ergebnisse</h2>
 <p>Dieser Abschnitt listet alle Gerätetests, die wir mit der Steuerbox gemacht haben, mit den Zeiten aus den Mitschriften. Zeiten sind deutsche Ortszeit (MEZ). „Bestanden“ heißt: Das Ergebnis erfüllt die Erwartung der jeweiligen Testspezifikation, geprüft mit <b>unseren eigenen Geräten</b>, nicht mit dem offiziellen Testwerkzeug der EEBUS Initiative (Abschnitt 12, Grenzen).</p>
 
-<h3 id="k11-1">11.1 Test am SMA Home Manager 2 (Hausnetz, 23.11.2026 19:38)</h3>
+<h3 id="k11-1">11.1 Test an einem handelsüblichen HEMS (Hausnetz, 23.11.2026 19:38)</h3>
 <figure>
 <svg viewBox="0 0 720 345" width="100%" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, Arial, sans-serif" font-size="13">
   <rect x="10" y="120" width="160" height="80" rx="8" fill="#eaf2fb" stroke="#3c7cc4"/>
   <text x="90" y="152" text-anchor="middle" font-weight="bold">Steuerbox</text>
   <text x="90" y="172" text-anchor="middle">Firmware v246</text>
   <rect x="260" y="120" width="180" height="80" rx="8" fill="#e7f6ea" stroke="#2e9a48"/>
-  <text x="350" y="152" text-anchor="middle" font-weight="bold">SMA Home Manager 2</text>
+  <text x="350" y="152" text-anchor="middle" font-weight="bold">handelsübliches HEMS</text>
   <text x="350" y="172" text-anchor="middle">als HEMS</text>
   <line x1="170" y1="160" x2="260" y2="160" stroke="#333" stroke-width="2"/>
   <text x="215" y="150" text-anchor="middle" font-size="11">EEBUS LPC</text>
@@ -388,17 +396,17 @@
   <text x="478" y="122" text-anchor="middle" font-size="11">EEBUS LPC</text>
   <text x="360" y="338" text-anchor="middle" font-size="12" fill="#555">starr geteilt: 8.160 W ÷ 3 = 2.720 W je eingetragenem Gerät – auch für das nicht verbundene</text>
 </svg>
-<figcaption>Bild 10 – Kette beim Test im Hausnetz mit der Verteilung: Die Steuerbox schreibt 8.160 W an den SMA Home Manager 2. Er kennt drei EEBUS-Geräte (Wärmepumpe, Wallbox und eine eingetragene, aber nicht verbundene SteuVE) und teilt starr durch 3. Das Drittel der SteuVE fehlt Wärmepumpe und Wallbox.</figcaption>
+<figcaption>Bild 10 – Kette beim Test im Hausnetz mit der Verteilung: Die Steuerbox schreibt 8.160 W an das handelsübliche HEMS. Es kennt drei EEBUS-Geräte (Wärmepumpe, Wallbox und eine eingetragene, aber nicht verbundene SteuVE) und teilt starr durch 3. Das Drittel der SteuVE fehlt Wärmepumpe und Wallbox.</figcaption>
 </figure>
 <table>
   <tr><th style="width:21%">Schritt</th><th>Beobachtung</th><th style="width:9%">Bewertung</th></tr>
   <tr><td><b>Grenze schreiben</b></td><td>Vorgabe 8.160 W mit 120 s Dauer geschrieben; nach 3 s zurückgelesen: „aktiv 8160 W“ bestätigt.</td><td class="ok">bestanden</td></tr>
-  <tr><td><b>Herzschlag</b></td><td>Der Herzschlag der Steuerbox (Zusage 60 s, PT60S) wird vom Home Manager 2 angenommen.</td><td class="ok">bestanden</td></tr>
-  <tr><td><b>Ablauf und Freigabe</b></td><td>Die Grenze ist nach 120 s ausgelaufen; die anschließende Freigabe hat der Home Manager 2 angenommen.</td><td class="ok">bestanden</td></tr>
-  <tr><td><b>Verteilung im Home Manager 2</b></td><td>Der Home Manager 2 teilte starr durch 3 – auf seine drei eingetragenen EEBUS-Geräte, darunter eine nicht verbundene SteuVE: Wallbox 2.720 W, Wärmepumpe 2.720 W. Das Gateway der Wärmepumpe setzte Verdichter 2,72 kW und Heizstab 0 kW; die Hersteller-App zeigte „Externe Leistungsreduzierung aktiv“. Beide Geräte haben in 2–6 s umgesetzt (Gerätedaten, eBUS, App).</td><td class="ok">bestanden</td></tr>
-  <tr><td><b>Beim Verbinden</b></td><td>Der Home Manager 2 setzte den Wechselrichter für ca. 2 min auf die Failsafe-Einspeisung (60 %), danach wieder zurück.</td><td>Hinweis</td></tr>
+  <tr><td><b>Herzschlag</b></td><td>Der Herzschlag der Steuerbox (Zusage 60 s, PT60S) wird vom handelsüblichen HEMS angenommen.</td><td class="ok">bestanden</td></tr>
+  <tr><td><b>Ablauf und Freigabe</b></td><td>Die Grenze ist nach 120 s ausgelaufen; die anschließende Freigabe hat das handelsübliche HEMS angenommen.</td><td class="ok">bestanden</td></tr>
+  <tr><td><b>Verteilung im handelsüblichen HEMS</b></td><td>Das handelsübliche HEMS teilte starr durch 3 – auf seine drei eingetragenen EEBUS-Geräte, darunter eine nicht verbundene SteuVE: Wallbox 2.720 W, Wärmepumpe 2.720 W. Das Gateway der Wärmepumpe setzte Verdichter 2,72 kW und Heizstab 0 kW; die Hersteller-App zeigte „Externe Leistungsreduzierung aktiv“. Beide Geräte haben in 2–6 s umgesetzt (Gerätedaten, eBUS, App).</td><td class="ok">bestanden</td></tr>
+  <tr><td><b>Beim Verbinden</b></td><td>Das handelsübliche HEMS setzte den Wechselrichter für ca. 2 min auf die Failsafe-Einspeisung (60 %), danach wieder zurück.</td><td>Hinweis</td></tr>
 </table>
-<div class="warn"><b>Meldungen „hat nicht reagiert“ im Home Manager 2 HEMS.</b> Der Home Manager 2 trug in sein Ereignisprotokoll für beide Geräte „hat auf die Begrenzung nicht reagiert“ und „hat auf die Aufhebung nicht reagiert“ ein, obwohl beide nachweislich in 2–6 s umgesetzt haben. Vermutung: Der Home Manager 2 erwartet nach einer Begrenzung einen Leistungsabfall; beide Geräte lagen aber schon unter ihrer Grenze. Diese Meldungen sind daher kein Fehler der Steuerbox.</div>
+<div class="warn"><b>Meldungen „hat nicht reagiert“ im handelsüblichen HEMS.</b> Das handelsübliche HEMS trug in sein Ereignisprotokoll für beide Geräte „hat auf die Begrenzung nicht reagiert“ und „hat auf die Aufhebung nicht reagiert“ ein, obwohl beide nachweislich in 2–6 s umgesetzt haben. Vermutung: Das handelsübliche HEMS erwartet nach einer Begrenzung einen Leistungsabfall; beide Geräte lagen aber schon unter ihrer Grenze. Diese Meldungen sind daher kein Fehler der Steuerbox.</div>
 <h3 id="k11-2">11.2 Test an unserem HEMS (Hausnetz, 23.11.2026 20:09)</h3>
 <figure>
 <svg viewBox="0 0 720 250" width="100%" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, Arial, sans-serif" font-size="13">
@@ -435,9 +443,9 @@
   <tr><td><b>Wallbox</b></td><td>Zeigt „§14a EnWG aktiv (7079 W)“.</td><td class="ok">bestanden</td></tr>
   <tr><td><b>Ablauf und Freigabe</b></td><td>Nach 120 s ausgelaufen; Freigabe an beide Geräte weitergegeben und angenommen.</td><td class="ok">bestanden</td></tr>
 </table>
-<p><b>Vergleich SMA Home Manager 2 (11.1) und unser HEMS (11.2)</b> bei derselben Vorgabe von 8.160 W:</p>
+<p><b>Vergleich handelsübliches HEMS (11.1) und unser HEMS (11.2)</b> bei derselben Vorgabe von 8.160 W:</p>
 <table>
-  <tr><th style="width:21%">Gerät</th><th style="white-space:nowrap">SMA Home Manager 2</th><th>unser HEMS (v041)</th></tr>
+  <tr><th style="width:21%">Gerät</th><th style="white-space:nowrap">handelsübliches HEMS</th><th>unser HEMS (v041)</th></tr>
   <tr><td>Wärmepumpe</td><td>2.720 W (ein Drittel)</td><td>3.300 W (Deckel = Nennleistung ohne Heizstab)</td></tr>
   <tr><td>Heizstab</td><td>0 kW (gesperrt)</td><td>0 kW (gesperrt)</td></tr>
   <tr><td>Wallbox</td><td>2.720 W (ein Drittel)</td><td>7.079 W (der Rest nach dem echten Verbrauch der Wärmepumpe)</td></tr>
@@ -505,6 +513,7 @@
   <tr><td><b>MGCP: ungültige Werte verwerfen</b><br>22.11., v243</td><td>Als fehlerhaft gekennzeichnete Messwerte dürfen nicht übernommen werden.</td><td>Das Test-HEMS hat keinen Zähler und meldet alle 10 Messwerte mit dem Zustand „error“. Die Box übernimmt keinen davon (v242 hätte 0 W bzw. 0 V angezeigt).</td><td class="ok">bestanden</td></tr>
   <tr><td><b>Kurztest v246</b><br>23.11.</td><td>Nach den SPINE-Änderungen läuft alles wie vorher; keine neue Regel greift fälschlich.</td><td>Box-Neustart mit Mitschrift: Handshake, Erstkopplung, Anmeldung (Freigabe Bezug und Einspeisung) und Failsafe-Werte nach ca. 18 s. 5.000 W Dauer 0 → „BESTAETIGT aktiv“ nach 7 s, Freigabe bestätigt. Herzschlag beidseitig, keine verlorenen. Keine Zeile „Call … abgelehnt“ oder „liest NodeManagement an …“ in den Mitschriften von Box und HEMS.</td><td class="ok">bestanden</td></tr>
   <tr><td>v246 mit neuer HEMS-Firmware<br>23.11.</td><td>Zusammenspiel mit dem nach denselben Regeln überarbeiteten Test-HEMS.</td><td>Box sofort wieder verbunden, Zusage 60 s, Anmeldung und Failsafe in Ordnung. 5.000 W Dauer 0 → Quittung des HEMS nach 4,3 s, beide Gateways bestätigen (5.000 W bzw. 4.998 W); Freigabe bestätigt.</td><td class="ok">bestanden</td></tr>
+  <tr><td><b>Freigabe nie 0 (v247)</b><br>24.11., Hausnetz</td><td>Nach einem Neustart der Box darf am Wärmepumpen-Gateway keine 0-W-Grenze ankommen.</td><td>Box-Neustart mit v247 um 14:05: Das HEMS bekam die Freigabe mit 11.000 W statt 0 W. Am eBUS der Wärmepumpe kam keine Grenze an, der Verdichter lief durch (Vergleich 23.11. mit v246: 0-W-Grenze und Verdichterstopp).</td><td class="ok">bestanden</td></tr>
   <tr><td>Lastprobe IDLE-Stapel<br>21.11., v235</td><td>Läuft die Box unter Last ohne Absturz?</td><td>3 min Lastprobe mit IDLE-Stapel 3072 Byte: frei mindestens 2.240 bzw. 2.312 Byte (vorher 200 bzw. 80 Byte), kein Neustart.</td><td class="ok">bestanden</td></tr>
 </table>
 
@@ -578,7 +587,7 @@
 </ul>
 
 <!-- ===================================================================== -->
-<h2 id="k13">13. Änderungen v236 bis v246</h2>
+<h2 id="k13">13. Änderungen v236 bis v247</h2>
 <table>
   <tr><th style="width:11%">Version</th><th>Was sich geändert hat</th></tr>
   <tr><td>v236–v238</td><td>Abbruch durch die Anlage (LPC-923/LPP-923) wird erkannt, protokolliert und wiederholt; sofortiger Neuversuch nach Ablehnung nur einmal und nur in den ersten 120 s, danach Wiederholung 60 s, 120 s … bis 10 min; nur bestätigte Grenzen können abgebrochen werden; eine vorgemerkte Wiederholung geht nicht mehr verloren, wenn zwischendurch die andere Richtung freigegeben wird.</td></tr>
@@ -590,6 +599,7 @@
   <tr><td>v244</td><td>Bei Netzrückkehr sofort neu verbinden.</td></tr>
   <tr><td>v245</td><td>Jede Ablehnung ins Betriebslogbuch, mit Nummer der Wiederholung.</td></tr>
   <tr><td>v246</td><td>SPINE-Paket nach Testspezifikation V1.1.0: Abo-/Binding-Liste, Prüfung eingehender Befehle, Löschungen auswerten, Quittungen.</td></tr>
+  <tr><td>v247</td><td>Failsafe-Kennungen als Paare (bis 8 je Gerät), Freigabe nie mit 0 W, tote Verbindungsplätze derselben Gegenstelle räumen.</td></tr>
 </table>
 <p class="klein">Die vollständige Beschreibung jeder Änderung mit Fundstellen steht im Dateikopf von <code>tasmota/tasmota_xdrv_driver/xdrv_126_eebus_guard.ino</code>.</p>
 

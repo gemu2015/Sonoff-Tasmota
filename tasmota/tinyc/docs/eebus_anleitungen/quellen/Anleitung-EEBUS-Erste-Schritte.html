@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="author" content="meierchen006 mit Hilfe von Claude">
+<title>Erste Schritte – EEBUS-Steuerbox und EEBUS-SteuVE-Gateway auf Tasmota</title>
+<style>
+  @page {
+    size: A4; margin: 16mm 15mm 18mm 15mm;
+    @bottom-left { content: "Erste Schritte EEBUS-Steuerbox / SteuVE-Gateway · Stand 26.11.2026"; font-family: "Segoe UI", Arial, sans-serif; font-size: 8pt; color: #777; }
+    @bottom-right { content: "Seite " counter(page) " von " counter(pages); font-family: "Segoe UI", Arial, sans-serif; font-size: 8pt; color: #777; }
+  }
+  body { font-family: "Segoe UI", Arial, sans-serif; font-size: 10.5pt; line-height: 1.45; color: #1d1d1d; }
+  h1 { font-size: 20pt; margin: 0 0 4mm; color: #1d3f6e; }
+  h2 { font-size: 13.5pt; margin: 7mm 0 2mm; color: #1d3f6e; border-bottom: 1px solid #c9d3e0; padding-bottom: 1mm; page-break-after: avoid; }
+  h3 { font-size: 11pt; margin: 4mm 0 1mm; page-break-after: avoid; }
+  p, li { margin: 1mm 0; }
+  .hinweis { background: #fff6dc; border-left: 4px solid #e0a800; padding: 2mm 3mm; margin: 3mm 0; }
+  .warn { background: #fde7e7; border-left: 4px solid #c43c3c; padding: 2mm 3mm; margin: 3mm 0; }
+  .info { background: #eaf2fb; border-left: 4px solid #3c7cc4; padding: 2mm 3mm; margin: 3mm 0; }
+  .hinweis, .warn, .info { page-break-inside: avoid; }
+  figure { margin: 3mm 0 4mm; page-break-inside: avoid; text-align: center; }
+  figure img { width: 100%; border: 1px solid #b9c2cf; border-radius: 2mm; }
+  figcaption { font-size: 9pt; color: #555; margin-top: 1mm; text-align: left; }
+  table { border-collapse: collapse; width: 100%; margin: 2mm 0; font-size: 9.5pt; }
+  tr { page-break-inside: avoid; }
+  th, td { border: 1px solid #c9d3e0; padding: 1.2mm 2mm; line-height: 1.5; text-align: left; vertical-align: top; }
+  th { background: #eef2f7; }
+  code { font-family: Consolas, monospace; font-size: 9.5pt; background: #f1f3f5; padding: 0 1mm; border-radius: 1mm; }
+  .kopf { font-size: 9pt; color: #777; margin-bottom: 6mm; }
+  .klein { font-size: 9pt; color: #555; }
+  ol.schritte > li { margin: 2mm 0; }
+</style>
+</head>
+<body>
+
+<h1>Erste Schritte: EEBUS-Steuerbox und EEBUS-SteuVE-Gateway auf Tasmota</h1>
+<div class="kopf">Für Einsteiger ohne Vorkenntnisse zu ESP32 und Tasmota · Stand 26.11.2026 · Firmware Steuerbox v247, SteuVE v042 (Release „testing“ v1.6.84)<br>Erstellt von <b>meierchen006</b> mit Hilfe von Claude</div>
+
+<div class="warn"><b>Testgeräte, nicht zertifiziert.</b> Steuerbox und SteuVE-Gateway dienen dazu, die EEBUS-Steuerung nach § 14a EnWG an einem HEMS (Energiemanagementsystem im Haus) oder an steuerbaren Verbrauchseinrichtungen zu prüfen und auszuprobieren. Sie ersetzen weder die Steuerbox des Messstellenbetreibers noch ein geprüftes Gerät nach § 14a EnWG und sind nicht für den regulären Betrieb gedacht. Arbeiten an 230 V und am Steuereingang von Wärmepumpe oder Wallbox gehören in die Hände einer Elektrofachkraft.</div>
+
+<p>Diese Anleitung bringt einen fabrikneuen ESP32 bis zur laufenden Bedienseite. Danach geht es in der ausführlichen Anleitung des jeweiligen Geräts weiter. Für <b>eine</b> Steuerbox und <b>ein</b> SteuVE-Gateway braucht man <b>zwei</b> Geräte – auf einem Gerät läuft immer nur eines von beiden.</p>
+
+<table>
+  <tr><th style="width:24%">Was</th><th>Steuerbox</th><th>SteuVE-Gateway</th></tr>
+  <tr><td>Wozu</td><td>spielt die Steuerbox des Netzbetreibers: schickt einem HEMS oder Gerät eine § 14a-Grenze</td><td>meldet sich wie eine Wärmepumpe oder Wallbox an, nimmt eine § 14a-Grenze an und schaltet dahinter Shellys</td></tr>
+  <tr><td>Firmware (erster Flash)</td><td><code>tinyc32s3-eth-guard.factory.bin</code></td><td><code>tinyc32s3-eth-steuve.factory.bin</code></td></tr>
+  <tr><td>Firmware (Update)</td><td><code>tinyc32s3-eth-guard.bin</code></td><td><code>tinyc32s3-eth-steuve.bin</code></td></tr>
+  <tr><td>Bedienseite (SD-Karte)</td><td><code>steuerbox.html</code></td><td><code>steuve.html</code></td></tr>
+  <tr><td>Skript</td><td>keines nötig</td><td><code>SteuVE Verbraucher</code> in Slot 0</td></tr>
+  <tr><td>Ausführliche Anleitung</td><td><code>ANLEITUNG-EEBUS-Steuerbox.pdf</code></td><td><code>ANLEITUNG-SteuVE.pdf</code></td></tr>
+</table>
+<p class="klein">Alle Dateien: Firmware und Bedienseiten im Release „testing“ unter <code>github.com/gemu2015/Sonoff-Tasmota/releases/tag/testing</code>, die Anleitungen im Fork unter <code>tasmota/tinyc/docs/eebus_anleitungen/</code>.</p>
+
+<h2>1. Was man braucht</h2>
+<table>
+  <tr><th style="width:30%">Teil</th><th>Hinweis</th></tr>
+  <tr><td><b>Waveshare ESP32-S3-ETH</b></td><td>Die Firmware ist für genau diese Platine gebaut (ESP32-S3 mit 16 MB Flash, PSRAM und LAN-Chip W5500). Andere Platinen brauchen eigene Pin-Einstellungen – für Einsteiger nicht empfohlen.</td></tr>
+  <tr><td><b>microSD-Karte</b></td><td>klein reicht (z. B. 8–32 GB), formatiert mit FAT32. Darauf liegen Bedienseite, Protokolle und Verbraucherliste. <b>Am besten eine neue oder leere Karte</b> (siehe Abschnitt 5).</td></tr>
+  <tr><td><b>USB-C-Kabel mit Datenleitungen</b></td><td>für den ersten Flash am PC. Reine Ladekabel funktionieren nicht – wird die Platine am PC nicht erkannt, liegt es oft am Kabel.</td></tr>
+  <tr><td><b>Netzwerkkabel</b></td><td>vom Gerät zum Router oder Switch. Das Gerät arbeitet über LAN; WLAN wird nicht gebraucht.</td></tr>
+  <tr><td><b>Stromversorgung</b></td><td>5-V-USB-Netzteil an der USB-C-Buchse, oder PoE, falls die Platine mit PoE-Modul gekauft wurde und der Switch PoE liefert.</td></tr>
+  <tr><td><b>PC mit Chrome oder Edge</b></td><td>für das Flashen im Browser (Abschnitt 2) und für die Bedienung.</td></tr>
+  <tr><td>nur SteuVE: <b>Shelly-Geräte</b></td><td>die Verbraucher, die das Gateway schalten oder messen soll, bzw. ein Shelly 1 als Steuerkontakt. Details in der SteuVE-Anleitung, Abschnitte 5 und 6.</td></tr>
+</table>
+
+<h2>2. Firmware auf das Gerät bringen (erster Flash)</h2>
+<ol class="schritte">
+  <li>Im Release „testing“ die passende <b>.factory.bin</b> herunterladen (Tabelle oben). Für den ersten Flash immer die <b>factory</b>-Datei nehmen, sie enthält alles ab Adresse 0.</li>
+  <li>Die Platine per USB-C mit dem PC verbinden (noch ohne Netzteil, der USB-Anschluss versorgt sie).</li>
+  <li>In <b>Chrome oder Edge</b> die Seite <code>web.esphome.io</code> öffnen und <b>Connect</b> klicken. Im Fenster den seriellen Anschluss der Platine wählen (z. B. „USB JTAG/serial debug unit“ oder ein COM-Anschluss) und <b>Verbinden</b>.</li>
+  <li><b>Install</b> wählen, die heruntergeladene <code>.factory.bin</code> auswählen und den Vorgang starten. Das dauert etwa eine Minute.</li>
+  <li>Danach die Platine kurz vom USB trennen und wieder anstecken (oder den Reset-Knopf drücken).</li>
+</ol>
+<div class="hinweis"><b>Wird die Platine nicht gefunden?</b> Anderes USB-Kabel versuchen (Datenkabel). Hilft das nicht: den <b>BOOT</b>-Knopf der Platine gedrückt halten, dabei das USB-Kabel einstecken, dann loslassen – so startet der ESP32-S3 im Lademodus und erscheint am PC.</div>
+<div class="hinweis"><b>Mit dem ESPHome-Werkzeug hat es geklappt, mit dem Tasmota-Web-Installer nicht:</b> Bei einem Nutzer lief dort der Fortschritt in einer Sekunde auf 100 %, und die Platine blieb leer. Wer lieber auf der Kommandozeile arbeitet, schreibt die <code>.factory.bin</code> mit <code>esptool</code> ab Adresse <code>0x0</code>.</div>
+<div class="info"><b>Läuft schon Tasmota auf dem Gerät?</b> Dann kein USB nötig: auf der Tasmota-Hauptseite <i>Firmwareupdate</i> und die <b>.bin</b> (ohne „factory“) hochladen. Kommt das Gerät von einer anderen Firmware, gehen die Einstellungen verloren – vorher sichern.</div>
+
+<h2>3. Erster Start: das Gerät im Netz finden</h2>
+<ol class="schritte">
+  <li>Die <b>microSD-Karte</b> einstecken, das <b>Netzwerkkabel</b> anschließen, dann Strom geben (USB-Netzteil oder PoE). Die Karte immer <b>vor</b> dem Einschalten einstecken.</li>
+  <li>Das Gerät holt sich seine Adresse vom Router (DHCP). Die Vorlage für die Waveshare-Platine ist in der Firmware schon eingestellt – LAN und SD-Karte funktionieren ohne weitere Einstellung.</li>
+  <li>Die Adresse findet man in der <b>Geräteliste des Routers</b>: ein neues Gerät, dessen Name meist mit „tasmota“ beginnt.</li>
+  <li>Im Browser <code>http://&lt;Adresse&gt;</code> öffnen. Es erscheint die Tasmota-Hauptseite mit dem Knopf <b>Steuerbox</b> bzw. <b>SteuVE</b>.</li>
+</ol>
+<div class="hinweis"><b>Keine Adresse im Router?</b> Die Platine per USB am PC lassen, auf <code>web.esphome.io</code> verbinden und <b>Logs</b> wählen. Beim Start schreibt Tasmota seine Adresse in die Ausgabe (Zeile mit „ETH“ und der IP-Adresse). Erscheint dort keine Adresse, steckt meist das Netzwerkkabel nicht richtig oder der Router vergibt keine Adressen.</div>
+<div class="info"><b>Feste Adresse:</b> Steuerbox und Gateway sollten ihre Adresse behalten. Am einfachsten im Router für dieses Gerät „immer dieselbe Adresse vergeben“ einstellen.</div>
+
+<h2>4. Zwei Einstellungen in Tasmota</h2>
+<p>Auf der Tasmota-Hauptseite <b>Einstellungen → Erweitert</b>:</p>
+<table>
+  <tr><th style="width:30%">Einstellung</th><th>Warum</th></tr>
+  <tr><td><b>HTTP API aktivieren</b> – Haken setzen</td><td>Ohne den Haken bleibt die Bedienseite beim direkten Aufruf leer, und Befehle von außen werden abgewiesen (im Log <code>HTP: Referer '' denied</code>).</td></tr>
+  <tr><td><b>Passwort für Weboberfläche</b> setzen</td><td>Mit eingeschalteter HTTP API nimmt das Gerät sonst Befehle von jedem Rechner im Netz an. Benutzername ist <code>admin</code>.</td></tr>
+</table>
+<p><b>Speichern</b> – das Gerät startet neu. Zur Kontrolle unter <b>Werkzeuge → Konsole</b> nach einem Neustart: Dort steht <code>UFS: SDCard mounted (SDIO 1-bit)</code>. Fehlt die Zeile, wird die SD-Karte nicht erkannt (Karte prüfen, FAT32, neu einstecken bei ausgeschaltetem Gerät).</p>
+
+<h2>5. Bedienseite auf die SD-Karte</h2>
+<ol class="schritte">
+  <li>Im Release „testing“ die Bedienseite herunterladen: <code>steuerbox.html</code> (Steuerbox) bzw. <code>steuve.html</code> (SteuVE).</li>
+  <li>Auf der Tasmota-Hauptseite <b>Werkzeuge → Dateisystem verwalten</b>, Datei auswählen, <b>Upload</b>. Sie landet auf der SD-Karte.</li>
+  <li>Auf der Tasmota-Hauptseite den Knopf <b>Steuerbox</b> bzw. <b>SteuVE</b> klicken – die Bedienseite öffnet sich. Steht dort „… liegt nicht im Dateisystem – bitte hochladen“, fehlt die Datei noch.</li>
+</ol>
+<div class="warn"><b>Eine gebrauchte SD-Karte behält ihre Dateien.</b> Neues Flashen löscht die Karte nicht: alte Skripte (mit Autostart), Einstellungen und Seiten bleiben. Wandert eine Karte von einer SteuVE in eine Steuerbox (oder umgekehrt), startet dort das falsche Skript. Deshalb eine neue Karte nehmen oder die Karte vorher am PC leeren.</div>
+
+<h2>6. Nur SteuVE: das Skript laden</h2>
+<p>Das Gateway braucht das TinyC-Skript <b>SteuVE Verbraucher</b>. Ohne laufendes Skript nimmt es keine Grenze an.</p>
+<ol class="schritte">
+  <li>Auf der Tasmota-Hauptseite <b>TinyC</b> öffnen.</li>
+  <li>Im Kasten <b>Repository</b> in der Liste <b>SteuVE Verbraucher</b> wählen, daneben <b>Slot 0</b>, dann <b>Download &amp; Load</b>. Das Gerät holt das fertige Skript aus dem Fork.</li>
+  <li>In der Zeile von Slot 0 <b>Autostart</b> einschalten (Knopf <b>A</b> grün), damit das Skript nach jedem Start von selbst läuft, und das Skript starten.</li>
+  <li>Zurück auf der Hauptseite steht über dem Knopf „SteuVE“ jetzt ein Kurzstand des Skripts. Fehlt er, läuft das Skript nicht.</li>
+</ol>
+<p>Die Steuerbox braucht kein Skript.</p>
+
+<h2>7. Die Identität sichern</h2>
+<p>Beim ersten Start erzeugt das Gerät sein eigenes Zertifikat. Daran (genauer an der <b>SKI</b>, einer 40-stelligen Kennung) erkennen HEMS, Steuerbox und Gateway einander. Ein späteres Flashen <b>mit Löschen</b> erzeugt eine neue Kennung, und alle Kopplungen müssen neu gemacht werden.</p>
+<ul>
+  <li><b>Steuerbox:</b> Reiter „Eigene Steuerbox-Kennung“ → Sichern (Anleitung Abschnitt 4).</li>
+  <li><b>SteuVE:</b> Reiter „EEBus“ → Unterreiter „Eigene Kennung“ → Sichern (Anleitung Abschnitt 4).</li>
+</ul>
+<p>Es entstehen zwei Dateien. Die Schlüsseldatei ist geheim – sicher ablegen. Updates später nur noch über die Weboberfläche mit der <b>.bin</b> (ohne „factory“): Dabei bleibt die Kennung erhalten.</p>
+
+<h2>8. Wie es weitergeht</h2>
+<table>
+  <tr><th style="width:24%">Gerät</th><th>Nächster Schritt in der ausführlichen Anleitung</th></tr>
+  <tr><td><b>Steuerbox</b></td><td>Abschnitt 3 „Anlagen verbinden“: HEMS oder Gerät suchen und koppeln, danach Abschnitt 5 „Steuern § 14a“. Die Gegenstelle muss die Steuerbox meist in ihrem eigenen Portal freigeben.</td></tr>
+  <tr><td><b>SteuVE-Gateway</b></td><td>Abschnitt 5 „Verbraucher“: Shellys eintragen und ohne HEMS testen (Reiter „Test &amp; Einstellungen“, Grenze simulieren). Dann Abschnitt 4: <b>zuerst Vertrauen</b> zum HEMS (oder zur Steuerbox) setzen, <b>dann koppeln</b> – andersherum lässt das Gateway die Gegenstelle nicht herein.</td></tr>
+</table>
+
+<h2>9. Häufige Stolpersteine</h2>
+<table>
+  <tr><th style="width:36%">Was man sieht</th><th>Ursache und Abhilfe</th></tr>
+  <tr><td>Platine erscheint am PC nicht</td><td>Ladekabel statt Datenkabel, oder BOOT-Knopf beim Einstecken halten (Abschnitt 2).</td></tr>
+  <tr><td>Flash läuft in einer Sekunde auf 100 %, Platine bleibt leer</td><td>anderes Werkzeug nehmen (<code>web.esphome.io</code> oder <code>esptool</code>), immer die <code>.factory.bin</code>.</td></tr>
+  <tr><td>Keine Adresse im Router</td><td>Netzwerkkabel prüfen; Adresse im Log nachsehen (Abschnitt 3).</td></tr>
+  <tr><td>Bedienseite bleibt leer</td><td>HTTP API nicht aktiviert (Abschnitt 4).</td></tr>
+  <tr><td>„… liegt nicht im Dateisystem“</td><td>Bedienseite noch nicht hochgeladen, oder SD-Karte nicht erkannt (Abschnitte 4 und 5).</td></tr>
+  <tr><td>SteuVE lehnt jede Grenze ab, „Skript läuft nicht“</td><td>Skript nicht in Slot 0, nicht gestartet oder ohne Autostart (Abschnitt 6).</td></tr>
+  <tr><td>Befehle antworten mit „Unknown“</td><td>falsche Firmware für das Skript (z. B. SteuVE-Skript auf einer Steuerbox) – meist eine alte SD-Karte (Abschnitt 5).</td></tr>
+  <tr><td>HEMS kann das Gateway nicht erreichen</td><td>am Gateway zuerst Vertrauen setzen (<code>EEBusCsTrust</code>), erst dann koppeln (SteuVE-Anleitung Abschnitt 4).</td></tr>
+</table>
+
+<p class="klein">Was in dieser Anleitung am Gerät nachvollzogen ist: Vorlage, SD-Karte, Einstellungen, Bedienseiten und Skript laufen so auf unseren Geräten. Das Flashen einer fabrikneuen Platine im Browser ist nach Rückmeldung aus der Nutzergemeinde beschrieben (ESPHome-Werkzeug erfolgreich, Tasmota-Web-Installer bei einem Nutzer nicht); wir selbst flashen per Kommandozeile. Rückmeldungen und Ergänzungen gern im EEBUS-Thread im Photovoltaikforum.</p>
+
+</body>
+</html>
