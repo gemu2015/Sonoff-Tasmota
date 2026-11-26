@@ -6,7 +6,7 @@ public. Where the strings come from (each source is optional, a missing one is s
 
   1. WLAN credentials: STA_SSIDn / STA_PASSn from tasmota/user_config_override.h (gitignored; another file with $CREDS_HEADER).
      Passwords from 4 characters, SSIDs from 6 (a 4-letter SSID is an ordinary word and would match third-party sources).
-  2. A personal list, one entry per line, in the first of: $SECRETS_LIST, <repo>/.git/secrets.txt (inside .git: it can never be committed),
+  2. A personal list, one entry per line, in the first of: $SECRETS_LIST, <main repo>/.git/secrets.txt (also found from a linked worktree; inside .git: it can never be committed),
      ~/.tinyc_secrets. Format:      label|value      (the label is what the report shows; without a '|' the line number is the label)
      Lines starting with '#' and blank lines are ignored, entries shorter than 4 characters are ignored. Matching is case-insensitive
      (a MAC address written in capitals or small letters is found either way). Put in meter numbers, gateway IDs, MAC / IP addresses,
@@ -16,19 +16,40 @@ The report names the object path and the LABEL of the match, never a value. Bypa
 Install with scripts/install_pre_push.sh (see scripts/PRE_PUSH_SECRETS.md)."""
 import os, re, subprocess, sys
 
-top = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True).stdout.strip()
-gitdir = subprocess.run(["git", "rev-parse", "--absolute-git-dir"], capture_output=True, text=True).stdout.strip()
+def git(*args, **kw):
+    """Run git; a failing call stops the push - a hook that cannot look must not wave the push through (26.11.2026, Andreas)."""
+    r = subprocess.run(["git", *args], capture_output=True, **kw)
+    if r.returncode != 0:
+        err = (r.stderr.decode(errors="replace") if isinstance(r.stderr, bytes) else (r.stderr or "")).strip()
+        print(f"pre-push: 'git {' '.join(args[:2])}' failed ({err or 'no message'}) - cannot check, push REFUSED", file=sys.stderr)
+        print("pre-push: (a drive without ownership info needs 'git config --global --add safe.directory <folder>'; or push knowingly with --no-verify)", file=sys.stderr)
+        sys.exit(1)
+    return r
+
+top = git("rev-parse", "--show-toplevel").stdout.decode().strip()
+# --git-common-dir, not --absolute-git-dir: in a linked worktree the latter is .git/worktrees/<name>, but the list and the main
+# working folder live with the main repository.
+commondir = os.path.abspath(os.path.join(top, git("rev-parse", "--git-common-dir").stdout.decode().strip()))
+gitdir = commondir
+mainroot = os.path.dirname(commondir) if os.path.basename(commondir) == ".git" else top
 secrets = []          # (label, lowercase bytes)
 
 # 1. WLAN credentials
-hdr_path = os.environ.get("CREDS_HEADER") or os.path.join(top, "tasmota", "user_config_override.h")
+hdr_path = os.environ.get("CREDS_HEADER")
+if not hdr_path:
+    # the header is gitignored: in a linked worktree it only exists in the main working folder
+    for root in (top, mainroot):
+        cand = os.path.join(root, "tasmota", "user_config_override.h")
+        if os.path.isfile(cand):
+            hdr_path = cand
+            break
 try:
     hdr = open(hdr_path, errors="replace").read()
     for m in re.finditer(r'#define\s+(STA_SSID\d|STA_PASS\d)\s+"([^"]+)"', hdr):
         kind, val = m.group(1), m.group(2)
         if len(val) >= (4 if "PASS" in kind else 6):
             secrets.append((kind, val.lower().encode()))
-except OSError:
+except (OSError, TypeError):
     pass
 
 # 2. personal list
@@ -57,8 +78,7 @@ remote = sys.argv[1] if len(sys.argv) > 1 else "origin"
 tips = [l.split()[1] for l in sys.stdin.read().splitlines() if l.split() and not set(l.split()[1]) <= {"0"}]
 if not tips:
     sys.exit(0)
-objs = subprocess.run(["git", "rev-list", "--objects", *tips, "--not", f"--remotes={remote}"],
-                      capture_output=True, text=True).stdout.splitlines()
+objs = git("rev-list", "--objects", *tips, "--not", f"--remotes={remote}", text=True).stdout.splitlines()
 paths = {}
 for line in objs:
     sha, _, path = line.partition(" ")
@@ -66,7 +86,11 @@ for line in objs:
         paths[sha] = path
 if not paths:
     sys.exit(0)
-batch = subprocess.run(["git", "cat-file", "--batch"], input="\n".join(paths).encode() + b"\n", capture_output=True).stdout
+r = subprocess.run(["git", "cat-file", "--batch"], input="\n".join(paths).encode() + b"\n", capture_output=True)
+if r.returncode != 0:
+    print("pre-push: 'git cat-file' failed - cannot check, push REFUSED", file=sys.stderr)
+    sys.exit(1)
+batch = r.stdout
 hits, pos = [], 0
 while pos < len(batch):
     nl = batch.index(b"\n", pos)

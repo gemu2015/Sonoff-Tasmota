@@ -43,3 +43,11 @@ Ohne Liste und ohne `user_config_override.h` meldet der Hook "check skipped" und
 - Er sucht **exakte Zeichenketten aus Deiner Liste**. Er erkennt nicht von selbst, was ein Geheimnis ist (keine Muster wie "irgendeine MAC-Adresse": im Repository stehen absichtlich Beispiel-MACs).
 - Er prüft nur Textinhalt der **neuen** Objekte, nicht Dateinamen und nicht Binärdateien in Archiven (gzip-Dateien werden nicht entpackt). Release-Dateien prüft `creds_scan.py`.
 - Er läuft nur auf dem Rechner, auf dem er eingerichtet ist. Ein Push von einem anderen Rechner oder über die GitHub-Webseite wird nicht geprüft.
+
+## Zweiter Arbeitsordner (git worktree) und Fehler von git (26.11.2026, Andreas)
+
+- Aus einem **Worktree** gepusht, sucht der Hook `secrets.txt` im gemeinsamen `.git` des Hauptordners (`git rev-parse --git-common-dir`) und die
+  `user_config_override.h` auch im Hauptordner. Vorher fand er in einem Worktree beides nicht und meldete "check skipped".
+- **Antwortet `git` mit einem Fehler** (z. B. auf einem exFAT-Laufwerk ohne `safe.directory`), bricht der Hook den Push ab, statt ihn durchzulassen.
+  Abhilfe: `git config --global --add safe.directory <Ordner>`, oder bewusst `git push --no-verify`.
+- Weiterhin gilt: keine Liste und keine Kopfdatei gefunden -> Hinweis und Push erlaubt.
