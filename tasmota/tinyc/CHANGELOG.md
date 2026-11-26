@@ -68,6 +68,7 @@ with total size and `abi_rev`) arrived in 1.6.35; v2–v5 files still load.
 - **SMGW docs 1.2.2** (Andreas, 25.11.2026): guide with the one download `tinyc32s3-eth-smgw-dateien.zip` (the zip in this release carries it), connection sketch, notes on the IDE.
 - **Push check: `pre_push_secrets.py` now works from a git worktree** (Andreas, 25.11.2026): it found neither `secrets.txt` nor `user_config_override.h` there and skipped the check. It now looks in the common `.git` and in the main working folder, and **stops the push when git itself fails** (e.g. exFAT without `safe.directory`) instead of letting it through.
 - **New `scripts/check_push_full.py`** (Andreas): before a push it also checks author, committer, commit text, file names and the content of `.gz` / `.zip` / PDF streams against the same list, and lists images and PDFs to look at by hand. Read-only. See `scripts/PRE_PUSH_SECRETS.md`.
+- **SML family from ottelo (25.11.2026): gas/water flow in `/pwr` and over MQTT (issue #111), CT002 no longer aborts charging because of a full Venus and warns when the phase search hangs, Eco/Shelly shows the "last request" info.** Taken over unchanged (`ct002_common.tc`, `eco_shelly_common.tc`, `sml_chart_common.tc`, `sml_descriptor.tc`, the six SML programs); all examples compile, the six `.tcb` differ from his by 2–15 bytes as before (his compiler, IDE 1.6.80, is older than our latest compiler commits).
 
 ## 1.6.83 — 2026-11-24
 
