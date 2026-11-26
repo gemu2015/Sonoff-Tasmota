@@ -134,6 +134,7 @@ meter_pin_unlock.tcb
 mic_plugin_level.tcb
 mlx90614.tcb
 moritz_dash.tcb
+mpu9250_probe.tcb
 mqtt_push.tcb
 multipage_demo.tcb
 music_fft.tcb
