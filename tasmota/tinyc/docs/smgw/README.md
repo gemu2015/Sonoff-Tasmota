@@ -4,18 +4,20 @@ By Andreas (forum name meierchen006), taken over into the repository with his co
 readings (consumption 1.8.0, feed-in 2.8.0) from a PPC smart meter gateway over its HAN interface, keeps them as text on the SD card, shows day / month / year
 and offers CSV and an Excel query. Optional daily FTP backup. Optional electricity cost calculation from the same readings (slot 2 and `smgw_kosten.html`).
 
-**Version 1.2.2 (25.11.2026)** – replaces 1.2.1. The parts carry their own versions: slot 0 **1.1.6**, slot 1 **1.1.0**, slot 2 **1.1.1**, `smgw.html` **1.2.1**, `smgw_kosten.html` and the guide **1.2.2**.
+**Version 1.2.2 (25.11.2026)** – replaces 1.2.1. The parts carry their own versions: slot 0 **1.1.6**, slot 1 **1.1.0**, slot 2 **1.1.1**, `smgw.html` **1.2.2** (27.11.), `smgw_kosten.html` and the guide **1.2.2**.
 The scripts and the guide have the version in their file names, the two pages keep their names (the firmware serves them as `/smgw.html.gz` and `/smgw_kosten.html.gz`) and show it inside.
 `VERSION-1.2.2.txt` lists what goes where on the device and the md5 sums of all files.
 
 New in 1.2.2 (details in `VERSION-1.2.2.txt`):
+- **`smgw.html` 1.2.2** (27.11.2026): tab Status, row "Funkchip (WLAN)": on the ESP32-S3 (Wi-Fi built into the processor) it now says
+  "im Prozessor eingebaut (keine eigene Funk-Firmware)" instead of "–". Only the ESP32-P4 has a separate radio chip (ESP32-C6) with its own firmware version.
 - **One download for all files**: the release "testing" also has `tinyc32s3-eth-smgw-dateien.zip` with everything for the SD card (folder `1-SD-Karte`) and the slots
   (folder `2-TinyC-IDE-Slots`), plus README, VERSION, the guide and the Excel example. No more single downloads from GitHub, and Windows cannot append `.txt` to the `.tc` files.
 - **IDE** (release 1.6.83): shows "Close" also when opened via `smgw.local`, and after "Compile" says why no device answers ("Device requires a password (HTTP 401)",
   "No device address entered", "No device reachable at <address>") instead of always "No device reachable". `TinyCIde` / "IDE aktualisieren" now fetch the same IDE.
 - **Guide 1.2.2**: section 5.1 starts with the zip download; notes on the IDE updated (5.2, 5.3). The ready-made image was tested on 25.11.2026 on a fresh
   ESP32-S3-ETH, including a cold start after several minutes without power (SD card over SPI found at once, all slots started).
-- Scripts and pages unchanged.
+- Scripts and `smgw_kosten.html` unchanged.
 
 New in 1.2.1:
 - **Ready-made firmware** for the ESP32-S3-ETH: image `tinyc32s3-eth-smgw` in the release "testing" (`tinyc32s3-eth-smgw.factory.bin` for the first flash over USB,
@@ -46,7 +48,7 @@ New in 1.2.0:
 - `slot2-smgwkosten_1.1.1.tc` (optional, needs TinyC 1.6.78 or later): fetches the day-ahead exchange prices DE-LU (15 min) from api.energy-charts.info, one request per month file
   (`/smgw_boerse_JJJJ-MM.txt`), from the first year with readings (at most six years back, seven calendar years kept), the next day from 14:00;
   never while slot 0 talks to the gateway. Serves `/smgwkosten` and `/smgwb`.
-- `smgw.html` (+ `.gz`, version 1.2.1 inside): the reader page. Only `smgw.html.gz` belongs on the SD card (the device always serves the `.gz` and falls back to the
+- `smgw.html` (+ `.gz`, version 1.2.2 inside): the reader page. Only `smgw.html.gz` belongs on the SD card (the device always serves the `.gz` and falls back to the
   plain `.html` only when no `.gz` exists); `smgw.html` is the readable source (repack with `gzip -9 -k -n`). The switch "SMGW-Leser | Stromkosten" appears only when slot 2 answers.
   Day chart: the tooltip shows the whole quarter hour ("16:45 – 17:00 Uhr"); on the October DST day the stored quarter 02:45 covers 75 minutes
   (the gateway sends 02:00–02:45 twice, the first one is kept) and is shown as such. Button "Als PDF drucken" (one A4 page) in day, month, year and all years.

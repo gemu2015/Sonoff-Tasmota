@@ -1500,7 +1500,7 @@ async function cmJson(c){
   try { const r = await fetch('/cm?cmnd=' + encodeURIComponent(c), {cache:'no-store'}); return await r.json(); }
   catch(e){ return null; }
 }
-const SEITE_VERSION = '1.2.1';   // 1.2.1 (25.11.): LAN-Feld bei DHCP leer; 1.2.0: stand noch auf v076 (Andreas 21.11.)
+const SEITE_VERSION = '1.2.2';   // 1.2.2 (27.11.): Funkchip-Zeile beim S3 „im Prozessor eingebaut“ statt „–“; 1.2.1 (25.11.): LAN-Feld bei DHCP leer; 1.2.0: stand noch auf v076 (Andreas 21.11.)
 const gb = kb => (kb / 1048576).toLocaleString('de-DE', {maximumFractionDigits: 1}) + ' GB';
 const mb = kb => (kb / 1024).toLocaleString('de-DE', {maximumFractionDigits: 1}) + ' MB';
 const gr = kb => kb >= 1048576 ? gb(kb) : (kb >= 1024 ? mb(kb) : kb.toLocaleString('de-DE') + ' KB');   // passende Einheit
@@ -1514,7 +1514,9 @@ async function zeigeGeraet(){
   kv.push(['Tasmota-Firmware', F.Version ? `${F.Version} · Build ${String(F.BuildDateTime || '').replace('T', ' ')}` : '–']);
   kv.push(['Core / ESP-IDF', F.Core ? `${F.Core} / ${F.SDK}` : '–']);
   kv.push(['Prozessor', F.Hardware ? `${F.Hardware}, ${F.CpuFrequency} MHz` : '–']);
-  kv.push(['Funkchip (WLAN)', F.HostedMCU ? `${F.HostedMCU.Hardware} ${F.HostedMCU.Version}` : '–']);
+  // 1.2.2 (27.11., Andreas): HostedMCU gibt es nur beim P4 (WLAN über einen eigenen ESP32-C6). Beim S3/ESP32 ist das WLAN im Prozessor eingebaut.
+  kv.push(['Funkchip (WLAN)', F.HostedMCU ? `${F.HostedMCU.Hardware} ${F.HostedMCU.Version}`
+    : (F.Hardware && !/P4/i.test(F.Hardware) ? 'im Prozessor eingebaut (keine eigene Funk-Firmware)' : '–')]);
   const sl = (tc && tc.TinyC && tc.TinyC.Slots) || [];
   sl.forEach(x => kv.push([`Skript Slot ${x.Slot}`, `${String(x.File || '').replace(/^\//, '').replace(/\.tcb$/, '')} · ${x.Running ? 'läuft' : (x.Loaded ? 'geladen' : 'leer')}${x.Error && x.Error !== 'OK' ? ' · Fehler ' + x.Error : ''}`]));
   kv.push(['Seite', `smgw.html ${SEITE_VERSION}`]);

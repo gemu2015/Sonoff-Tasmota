@@ -1,7 +1,7 @@
 SMGW-Leser Version 1.2.2 (Stand 25.11.2026) - alle Dateien als ein Download (Zip im Release), IDE-Hinweise
 ========================================================================================
 Auf die SD-Karte (Hauptverzeichnis, GENAU diese Namen, ohne Versionsnummer):
-  smgw.html.gz           Leserseite                          Pflicht   (NEU 1.2.1: Feld "Leser im LAN" bei DHCP leer)
+  smgw.html.gz           Leserseite                          Pflicht   (NEU 1.2.2: Zeile "Funkchip (WLAN)" beim S3)
   smgw_kosten.html.gz    Kostenseite                         nur mit Stromkosten   (NEU 1.2.2: Preisplan)
   tinyc_ide.html.gz      TinyC-IDE (mit Webpasswort-Abfrage) Pflicht   (NEU Release 1.6.83: Schliessen bei smgw.local)
 
@@ -19,6 +19,11 @@ Firmware: FERTIG im Release "testing" (ESP32-S3-ETH): tinyc32s3-eth-smgw.factory
 Download  : am einfachsten tinyc32s3-eth-smgw-dateien.zip aus dem Release "testing" (Ordner 1-SD-Karte,
             2-TinyC-IDE-Slots). Einzeln von GitHub: Windows haengt an .tc oft .txt an -> entfernen (Anleitung 5.1).
 
+Nachtrag 27.11.2026:
+  Leserseite: smgw.html 1.2.2 - Reiter Status, Zeile "Funkchip (WLAN)": beim ESP32-S3 (WLAN im Prozessor
+              eingebaut) steht jetzt "im Prozessor eingebaut (keine eigene Funk-Firmware)" statt "-".
+              Nur der ESP32-P4 hat einen eigenen Funkchip (ESP32-C6) mit eigener Firmware-Version.
+
 Neu in 1.2.2 (25.11.2026):
   Download  : Zip tinyc32s3-eth-smgw-dateien.zip im Release (seit 1.6.83) mit allen Dateien fuer SD-Karte und Slots.
   IDE       : Release 1.6.83 - "Schliessen" auch bei smgw.local; nach Compile klare Meldung ("Device requires a
@@ -28,7 +33,7 @@ Neu in 1.2.2 (25.11.2026):
               TinyCIde nur noch fuer aeltere IDE; 5.3 "Schliessen"-Hinweis nur aeltere IDE, neue Meldungen erklaert.
   Firmware  : Image tinyc32s3-eth-smgw im Release getestet (25.11.), auch Kaltstart nach >3 min ohne Strom
               (SD-Karte per SPI sofort gefunden, alle Slots gestartet).
-  Slots, Seiten: unveraendert.
+  Slots, Seiten: unveraendert (smgw.html 1.2.2 siehe Nachtrag 27.11.).
 
 Neu in 1.2.1 (25.11.2026):
   Firmware  : fertiges Image tinyc32s3-eth-smgw (siehe oben).
@@ -92,8 +97,8 @@ md5:
   a97cee6dd04158165ca4af08963461e5 *slot0-smgw_1.1.6.tc
   a1c82ca5160692ae4b84baf103764abe *slot1-smgwweb_1.1.0.tc
   eadffb021ac72046282fa94fda8cb3d6 *slot2-smgwkosten_1.1.1.tc
-  b3633e62b8735d206edd387a74a40ba1 *smgw.html
-  9cef7596fd20ad1dac6bc88cab834d74 *smgw.html.gz
+  c099f2d0c6b45e9e88cb927da75d3461 *smgw.html
+  8bdb833eb52a0761a31fac12249ebebd *smgw.html.gz
   0425538fe4628dfe696041562a7151cf *smgw_kosten.html
   3f7c538a28b16f1a3b1fbe0af7928514 *smgw_kosten.html.gz
   f4da3fca13369c4e55a33ada86be7aaa *ANLEITUNG-SMGW-Leser_1.2.2.pdf
