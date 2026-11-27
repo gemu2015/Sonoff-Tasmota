@@ -1,6 +1,6 @@
 # SteuVE – steuerbare Verbrauchseinrichtung über EEBUS (`xdrv_128_eebus_steuve`)
 
-Stand: 26.11.2026 · **Firmware v043** (Treiber `xdrv_128` mit derselben Nummer) · Skript `steuve` v024
+Stand: 27.11.2026 · **Firmware v045** (Treiber `xdrv_128` mit derselben Nummer) · Skript `steuve` v024
 (`// @version: 20261122_2000`) · Seite `steuve.html`.
 Ausführliche Bedienungsanleitung mit Bildern: [`tasmota/tinyc/docs/eebus_anleitungen/ANLEITUNG-SteuVE.pdf`](../tasmota/tinyc/docs/eebus_anleitungen/ANLEITUNG-SteuVE.pdf).
 
@@ -109,6 +109,19 @@ Abos und Bindings (`nodeManagementSubscriptionData` / `BindingData`).
 - `delete` nur auf `timePeriod` (LPC-Testspezifikation Tab. 11), alles andere → errorNumber 8
   (SPINE PS 7.1.1.5.5 Z. 1962-1964).
 - `number`/`scale` werden auch mit Leerraum um den Doppelpunkt gelesen.
+
+### Empfangsdaten absichern (Firmware v044/v045)
+
+- Eingehende SPINE-Nachrichten mit Leerraum außerhalb von Texten werden vor der Auswertung einmal verdichtet
+  (JSON nach RFC 8259 Abschn. 2: Leerraum ist bedeutungslos). Ohne Leerraum ändert sich nichts.
+- Mitlesen des Zustands der Gegenstelle nur aus `reply`/`notify`, nicht aus einem an uns gerichteten Write.
+- Grenzen-Write mit mehreren Einträgen oder mit unlesbarer Dauer → NACK (bisher galt nur der erste Eintrag bzw. die
+  Grenze als unbefristet; LPC TS 3.1.3.3). `number`/`scale` nur aus dem eigenen `value`.
+- Antworten im LPC-Ablauf (Beschreibung, Daten, Failsafe-Werte, Rücklesen) sowie Quittungen auf Write und Binding
+  nur mit passender `msgCounterReference` (ohne Nummer wie bisher angenommen). Rücklesen sucht die eigene `limitId`
+  als Zahl (1 trifft nicht mehr 10…19).
+- Dauern (ISO 8601) in 64 Bit, Adressen nur im eigenen Adressblock, `scale` begrenzt, WebSocket-Längen ≥ 4 GB und
+  Nachrichten, die nicht binnen 5 s vollständig sind, gelten als Fehler.
 
 ### Grenze übernehmen und zusagen
 

@@ -6,6 +6,30 @@
   sie nach aussen (Tasmota-Ereignis/Befehl), damit z. B. ein Skript Verbraucher schaltet.
 
   Abgeleitet aus xdrv_126_eebus_guard.ino v184 (Steuerbox). Eigene Versionszaehlung ab SteuVE v001.
+  SteuVE Firmware v045 (27.11.2026, meierchen006): vollstaendiger Durchgang Empfangsdaten wie Steuerbox v249:
+  A Leerraum: jede eingehende SPINE-Nachricht mit Leerraum ausserhalb von Texten wird einmal verdichtet ausgewertet
+    (EebusJsonLeerraum/EebusJsonVerdichten am Anfang von EebusSpineHandle; RFC 8259 Abschn. 2) - deckt alle festen
+    Suchmuster ab. Ohne Leerraum (alle bisherigen Gegenstellen) unveraendert, kein malloc.
+  B/C Ruecklesen: Eintrag unserer limitId per Zahl (EebusLimBlk; 1 traf 10..19), ab den Daten (nicht im Auswahlfilter);
+    fehlt unser Eintrag, gilt kein Zustand (bisher die erste Grenze der Nachricht).
+  E Dauer (EebusIsoDurSecs) in 64 Bit, kein Ueberlauf ins Negative (-1 = "unbefristet").
+  H Adressen (EebusAddrParse) nur im eigenen Adressblock.
+  I/J WS-Laenge >= 4 GB = kaputt; Antwort-Zuordnung msgCounterReference per Zahl; EebusJsonInt-Ueberlauf = nicht deutbar.
+  K scale aus Nachrichten begrenzt gespeichert (EebusSc8, -12..12).
+  L measurementConstraintsListData nur lesen, wenn die Selbstauskunft ihn anbietet (sonst errorNumber 6).
+  N Antworten im LPC-Ablauf (Beschreibung, Daten, Failsafe-Werte, Ruecklesen) nur mit passender msgCounterReference
+    (EebusLpcRdRefOk; ohne Nummer wie bisher); SteuVE: auch Write/Binding (lpc_mc/bind_mc wie Steuerbox v231/v240).
+  G Grenzen-Write: number/scale nur aus dem eigenen value; mehrere Grenzen in einem Write -> NACK; unlesbare Dauer -> NACK.
+  M WS-Empfang: Gesamtfrist 5 s je Nachricht (vorher Frist je Byte - troepfelnde Gegenstelle hielt die Schleife fest).
+
+  SteuVE Firmware v044 (27.11.2026, meierchen006, gleiche Fehlerklasse wie Steuerbox v248, Bericht
+  Projekt eebus FNN-Steuerbox/2026-11-27--0930--NORMPRUEFUNG--Steuerbox-Writes-v247.md):
+  - Mitlesen (EebusHarvest) nicht bei Writes: ein an uns gerichteter Write (Grenze vom Energy Guard) ist kein Zustand
+    der Gegenstelle; Zustands-Bloecke (Messwerte, Kenngroessen, DeviceConfig, Grenzen) nur aus reply/notify.
+  - Mitlesen leerraumfest (SPINE erlaubt JSON-Leerraum, Befund C2 vom 22.11.): measurementId, scopeType, unit, value/
+    number/scale (scale nur aus demselben Wert, fehlt sie -> 0), characteristicType, keyId, keyName, scaledNumber,
+    duration, limitId, isLimitActive (vorher fest ap + 16), endTime, cmdClassifier.
+
   SteuVE Firmware v043 (26.11.2026, meierchen006, Normpruefung eingehender Writes, Bericht 2026-11-26--0920):
   (A) Write auf eine Funktion, die wir nicht als schreibbar melden (z. B. loadControlLimitDescriptionListData,
       deviceConfigurationKeyValueDescriptionListData) -> errorNumber 6 statt ACK 0. SPINE PS 5.2.5.2 Z. 1151-1153:
@@ -679,10 +703,12 @@ long EebusIsoDurSecs(const char *s) {
   if ((nullptr == s) || ('P' != s[0])) { return -1; }
   // Gegenpruefung 06.11.: auch Tage vor dem T ("P1D", "P1DT2H", ISO 8601), wie andere Energy Guards sie schreiben.
   // Bisher ergab "P1D" -1 und "P1DT0H" 0 - eine gueltige Failsafe-Mindestdauer von 24 h wurde dann abgelehnt.
-  long total = 0, num = 0; bool any = false, zeit = false;
+   // SteuVE v045: in 64 Bit rechnen - bis hier lief z. B. "P30000D" (30000 x 86400) in 32 Bit ueber und konnte NEGATIV
+   // werden (-1 = "unbefristet" bei den Aufrufern). Unsinnig lange Dauer -> Hoechstwert, die Aufrufer begrenzen auf 24 h.
+  int64_t total = 0, num = 0; bool any = false, zeit = false;
   for (const char *p = s + 1; *p; p++) {
     if ((*p >= '0') && (*p <= '9')) {
-      if (num > 10000000L) { return -1; }   // unsinnig gross -> kein Ueberlauf
+      if (num > 10000000L) { return -1; }   // unsinnig viele Ziffern -> nicht deutbar
       num = num * 10 + (*p - '0'); any = true;
     }
     else if (!zeit && ('T' == *p)) { zeit = true; num = 0; }
@@ -692,7 +718,8 @@ long EebusIsoDurSecs(const char *s) {
     else if (zeit && ('S' == *p)) { total += num;        num = 0; }
     else { return -1; }   // unbekanntes Zeichen (auch Jahr/Monat/Woche) -> lieber nichts behaupten
   }
-  return any ? total : -1;
+  if (!any) { return -1; }
+  return (total > 0x7FFFFFFFLL) ? 0x7FFFFFFFL : (long)total;
 }
 
 void EebusSecsToIso(long s, char *out, size_t n) {
@@ -1928,6 +1955,9 @@ typedef struct {
   bool     lpc_onboarded = false;   // Onboarding fertig (gebunden+gelesen, HB laeuft) -> Write via EEBusLpc
   uint32_t lpc_deadline = 0;   // Timeout der aktuellen LPC-Phase (millis)
   uint32_t lpc_verify_at = 0;   // millis() fuer verzoegerten/nachgepollten Read-Back (0=aus)
+  uint32_t lpc_rd_mc = 0;      // SteuVE v045: msgCounter der letzten LPC-Leseanfrage (Zuordnung der Antwort)
+  uint32_t lpc_mc = 0;         // SteuVE v045 (wie Steuerbox v231): msgCounter unseres letzten LPC-Writes
+  uint32_t bind_mc = 0;        // SteuVE v045 (wie Steuerbox v240): msgCounter unseres LoadControl-Bindings
   uint8_t  lpc_verify_tries = 0;   // Zaehler der bisherigen Read-Back-Versuche
    // Der Fehlschlag kam aus der RUECKLESUNG (nicht aus einer Ablehnung der Gegenstelle).
    // Nur dann darf eine spaeter eintreffende Meldung das Ergebnis noch richtigstellen. Belegt am
@@ -2138,11 +2168,20 @@ bool EebusKeyScalar(uint8_t *out32) {
 }
 
 // Genau n Bytes vom BearSSL-Stream lesen (mit Timeout). Rueckgabe: gelesene Bytes oder -1.
+// SteuVE v045 (Pruefung 27.11., Fund 5): Gesamtfrist fuer EINE WS-Nachricht. Die Frist in EebusStreamRead beginnt bei jedem
+// Byte neu - eine Gegenstelle, die troepfchenweise sendet (oder endlos Fragmente), hielt die Hauptschleife fest.
+// eebus_ws_t0 wird nur waehrend EebusWsRecv gesetzt (Huelle unten), der Verbindungsaufbau ist nicht betroffen.
+#define EEBUS_WS_GESAMT_MS 5000
+uint32_t eebus_ws_t0 = 0;
 int EebusStreamRead(uint8_t *buf, size_t n, uint32_t timeout_ms) {
   size_t got = 0;
   uint32_t start = millis();
   while (got < n) {
     if (!ESp->client) { return -1; }
+    if (eebus_ws_t0 && ((millis() - eebus_ws_t0) > EEBUS_WS_GESAMT_MS)) {   // SteuVE v045
+      AddLog(LOG_LEVEL_INFO, PSTR("EBG: WS-Nachricht von %s nicht in %u s vollstaendig - Abbruch"), ESp->peer_ip, EEBUS_WS_GESAMT_MS / 1000);
+      return -1;
+    }
     int avail = ESp->client->available();
     if (avail > 0) {
       int r = ESp->client->read(buf + got, n - got);
@@ -2254,7 +2293,15 @@ bool EebusWsSend(const uint8_t *payload, size_t len) {
 // ab dem 2. Fragment wurden NUTZDATEN als Frame-Header gelesen -> Stream-Desync (Pseudo-
 // Klassifizierer = ASCII-Zeichen, zerhackte JSONs). Jetzt: Fragmente zusammensetzen bis FIN.
 // Rueckgabe: Nachrichtenlaenge, 0 = Ping/Pong/verworfen, -1 = Fehler/Timeout, -2 = Close.
+// SteuVE v045: Huelle mit Gesamtfrist (s. EebusStreamRead)
+int EebusWsRecvKern(uint8_t *out, size_t max, uint32_t timeout_ms);
 int EebusWsRecv(uint8_t *out, size_t max, uint32_t timeout_ms) {
+  eebus_ws_t0 = millis(); if (0 == eebus_ws_t0) { eebus_ws_t0 = 1; }
+  const int r = EebusWsRecvKern(out, max, timeout_ms);
+  eebus_ws_t0 = 0;
+  return r;
+}
+int EebusWsRecvKern(uint8_t *out, size_t max, uint32_t timeout_ms) {
   size_t total = 0;
   bool in_msg = false;   // wir setzen gerade eine fragmentierte Nachricht zusammen
   bool drop = false;   // Nachricht unbrauchbar/zu gross -> nur noch abraeumen
@@ -2272,6 +2319,7 @@ int EebusWsRecv(uint8_t *out, size_t max, uint32_t timeout_ms) {
     } else if (127 == len) {   // 64-bit Laenge: nur die unteren 32 Bit nutzen (reicht)
       uint8_t ext[8];
       if (8 != EebusStreamRead(ext, 8, timeout_ms)) { return -1; }
+      if (ext[0] | ext[1] | ext[2] | ext[3]) { return -1; }   // SteuVE v045 (wie HEMS v030): >= 4 GB ist kein gueltiger SHIP-Frame
       len = ((size_t)ext[4] << 24) | ((size_t)ext[5] << 16) | ((size_t)ext[6] << 8) | ext[7];
     }
     uint8_t mask[4] = { 0, 0, 0, 0 };
@@ -2898,7 +2946,9 @@ bool EebusJsonInt(const char *json, const char *key, uint32_t *out) {
       q++;
       while ((' ' == *q) || ('\t' == *q) || ('\r' == *q) || ('\n' == *q)) { q++; }
       if ((*q < '0') || (*q > '9')) { return false; }
-      *out = (uint32_t)strtoul(q, nullptr, 10);
+      const unsigned long v = strtoul(q, nullptr, 10);
+      if (ULONG_MAX == v) { return false; }   // SteuVE v045: Ueberlauf -> nicht deutbar (war als int -1 = "unbekannt")
+      *out = (uint32_t)v;
       return true;
     }
     p += pl;
@@ -3199,6 +3249,9 @@ void EebusSpineSendAddr(const char *cmd_classifier, bool has_ref, uint32_t ref, 
     "]},{\"payload\":[{\"cmd\":[[%s]]}]}]}}]}",
     EEBUS_SPINE_VERSION, own, src_ent, src_feat, dest_dev, dst_ent_txt, dst_feat,
     ESp->spine_ctr++, ref_frag, cmd_classifier, ack, cmd_json);
+  if (!has_ref && (0 == strcmp(cmd_classifier, "write"))) {
+    ESp->lpc_mc = ESp->spine_ctr - 1;   // SteuVE v045 (wie Steuerbox v231): die Antwort muss diese Nummer tragen
+  }
 
   {   // SteuVE v009: fuer den Reiter Meldungen merken
     char mfn[40]; EebusMsgFn(cmd_json, mfn, sizeof(mfn));
@@ -3520,12 +3573,18 @@ void EebusSpineAnswerDestinationList(uint32_t ref) {
 }
 
 // Entity/Feature aus einem SPINE-Adressblock ziehen (frag zeigt AUF den Adress-Schluessel).
+const char *EebusAddrEnd(const char *frag);   // SteuVE v045: steht weiter unten (Prototyp fuer "const char *" noetig)
+// SteuVE v045 (Pruefung 27.11., Fund 3): nur im EIGENEN Adressblock lesen. Bisher suchten "entity" und "feature" ungebremst
+// weiter - fehlte z. B. feature in addressSource, kam die feature aus addressDestination oder dem Nutzteil. Fehlende Teile
+// lassen den Wert des Aufrufers stehen (wie bisher, meist 0).
 void EebusAddrParse(const char *frag, int *ent, int *feat) {
   if (nullptr == frag) { return; }
+  const char *end = EebusAddrEnd(frag);
   const char *e = strstr(frag, "\"entity\":[");
-  if (e) { *ent = atoi(e + 10); }
+  if (e && (e < end)) { *ent = atoi(e + 10); }
+  const char *fp = strstr(frag, "\"feature\"");
   uint32_t f = 0;
-  if (EebusJsonInt(frag, "feature", &f)) { *feat = (int)f; }
+  if (fp && (fp < end) && EebusJsonInt(fp, "feature", &f)) { *feat = (int)f; }
 }
 
 // HERSTELLERNEUTRAL — das SERVER-Feature eines bestimmten featureType auf einer bestimmten Entity
@@ -3745,13 +3804,17 @@ void EebusServeLimitBroadcast(void) {
 bool EebusCsScaledRaw(const char *frag, double *out_v) {
   if (nullptr == frag) { return false; }
    // SteuVE v043 (H): Leerraum um den Doppelpunkt erlauben ("number" : 5000), wie EebusJsonInt seit v036
+   // SteuVE v045: number/scale nur innerhalb DIESES Werts suchen (bis zur ersten "]") - bisher bis zum Ende der Nachricht,
+   // fehlte scale hier, kam die scale eines spaeteren Eintrags (4200 W wurde 4200 x 10^3).
+  const char *wend = strchr(frag, ']');
   const char *n = strstr(frag, "\"number\"");
-  if (nullptr == n) { return false; }
+  if ((nullptr == n) || (wend && (n > wend))) { return false; }
   n += 8; while ((' ' == *n) || ('\t' == *n)) { n++; }
   if (':' != *n) { return false; }
   long num = strtol(n + 1, nullptr, 10);
   long sc = 0;
   const char *s = strstr(frag, "\"scale\"");
+  if (s && wend && (s > wend)) { s = nullptr; }   // SteuVE v045
   if (s) { s += 7; while ((' ' == *s) || ('\t' == *s)) { s++; } if (':' == *s) { sc = strtol(s + 1, nullptr, 10); } }
   if (sc > 18) { sc = 18; }
   if (sc < -18) { sc = -18; }
@@ -3810,6 +3873,14 @@ bool eebus_cs_nack_unanwendbar = false;   // SteuVE v035: letzte Ablehnung, weil
 bool EebusCsSkriptLaeuft(void) {   // SteuVE v036: frische EEBusCsReady-Meldung des Skripts
   return eebus_cs_ready_at && ((millis() - eebus_cs_ready_at) < EEBUS_CS_READY_MAX_MS);
 }
+// HEMS FW v050 / SteuVE v045 / Steuerbox v249: Zahl der Eintraege in loadControlLimitData (nur ab den Daten zaehlen -
+// ein Auswahlfilter loadControlLimitListDataSelectors steht davor und hat ebenfalls eine limitId).
+int EebusLimEintraege(const char *json) {
+  const char *d = json ? strstr(json, "\"loadControlLimitData\"") : nullptr;
+  int n = 0;
+  for (const char *q = d; q && (nullptr != (q = strstr(q, "\"limitId\""))); q += 9) { n++; }
+  return n;
+}
 bool EebusCsLimitWriteOk(const char *json) {
    // SteuVE v043 (C): ohne cmdControl (weder partial noch delete) ist es ein VOLLSTAENDIGER Write - er ersetzt alles.
    // Pflichtelemente isLimitActive und value muessen dann dabei sein (LPC TS loadControlLimitData: M), sonst NACK.
@@ -3822,6 +3893,18 @@ bool EebusCsLimitWriteOk(const char *json) {
    // SteuVE v036 (LPC IG Z. 175-177, 187-189): Dauer 0 mit "aktiv" heisst sofort deaktivieren - wie eine Freigabe (ACK).
   char et0[24] = { 0 };
   const bool dauer0 = EebusJsonStr(json, "endTime", et0, sizeof(et0)) && (0 == EebusIsoDurSecs(et0));
+   // SteuVE v045 (Pruefung 27.11.): mehrere Grenzen in EINEM Write -> NACK (bisher nur die erste ausgewertet, Werte
+   // teils aus anderen Eintraegen); unlesbare Dauer -> NACK (bisher "unbefristet"). LPC TS 3.1.3.3.
+  if (EebusLimEintraege(json) > 1) {
+    AddLog(LOG_LEVEL_INFO, PSTR("EBG: SteuVE: Write von %s ABGELEHNT - mehrere Grenzen in einem Write"), ESp->peer_ip);
+    EebusMsgSetLast("abgelehnt - mehrere Grenzen in einem Write", 2);
+    return false;
+  }
+  if (et0[0] && (EebusIsoDurSecs(et0) < 0)) {
+    AddLog(LOG_LEVEL_INFO, PSTR("EBG: SteuVE: Write von %s ABGELEHNT - Dauer %s nicht lesbar"), ESp->peer_ip, et0);
+    EebusMsgSetLast("abgelehnt - Dauer nicht lesbar", 2);
+    return false;
+  }
   if (!dauer0 && EebusCsValueNegative(strstr(json, "\"value\""))) {   // SteuVE v030: LPC Z. 313, NACK [LPC-003/1]
     AddLog(LOG_LEVEL_INFO, PSTR("EBG: SteuVE: Grenze von %s ABGELEHNT - negativer Wert (LPC: unter 0 W ablehnen)"), ESp->peer_ip);
     EebusMsgSetLast("abgelehnt - Grenze unter 0 W", 2);
@@ -4943,6 +5026,7 @@ int EebusLpcSubscribeAll(const char *disco) {
         "{\"serverFeatureType\":\"%s\"}]}]}",
         own, EEBUS_LPC_CLIENT_ENT, cli, ESp->peer_dev, ent, feat, ftype);
       EebusSpineSendAddr("call", false, 0, cmd, 0, 0, 0, 0);
+      if (0 == strcmp(ftype, "LoadControl")) { ESp->bind_mc = ESp->spine_ctr - 1; }   // SteuVE v045 (wie Steuerbox v240)
     }
    // fuer ElectricalConnection/Measurement zusaetzlich die Beschreibungen lesen (fire-and-forget,
    // wie die Vergleichs-Steuerbox — nicht write-gatend). LoadControl/DeviceConfiguration werden gated gelesen
@@ -4989,7 +5073,14 @@ int EebusLpcSubscribeAll(const char *disco) {
         ESp->m_cli[ESp->m_n] = cli; ESp->m_n++;
       }
       EebusSpineSendAddr("read", false, 0, "{\"measurementDescriptionListData\":[]}",  EEBUS_LPC_CLIENT_ENT, cli, ent, feat);
-      EebusSpineSendAddr("read", false, 0, "{\"measurementConstraintsListData\":[]}",  EEBUS_LPC_CLIENT_ENT, cli, ent, feat);
+   // SteuVE v045 (wie Steuerbox v249): Constraints NUR lesen, wenn die Selbstauskunft sie fuer dieses Feature auffuehrt -
+   // sonst antwortet die Gegenstelle mit errorNumber 6.
+      {
+        const char *mc = strstr(fa, "measurementConstraintsListData");
+        if ((nullptr != mc) && ((nullptr == nextfa) || (mc < nextfa))) {
+          EebusSpineSendAddr("read", false, 0, "{\"measurementConstraintsListData\":[]}",  EEBUS_LPC_CLIENT_ENT, cli, ent, feat);
+        }
+      }
       if (eebus_hems_mode) {
    // auch die Messwerte lesen (Vergleichs-Steuerbox Schritt 34: measurementListData ent8/f11).
         EebusSpineSendAddr("read", false, 0, "{\"measurementListData\":[]}", EEBUS_LPC_CLIENT_ENT, cli, ent, feat);
@@ -5081,6 +5172,7 @@ void EebusLpcSendBind(void) {
       "]}]}", own, EEBUS_LPC_CLIENT_ENT, EEBUS_LPC_CLIENT_FEAT,
       ESp->peer_dev, ESp->lpc_peer_ent, ESp->lpc_peer_feat);
     EebusSpineSendAddr("call", false, 0, cmd, 0, 0, 0, 0);
+    ESp->bind_mc = ESp->spine_ctr - 1;   // SteuVE v045 (wie Steuerbox v240)
     AddLog(LOG_LEVEL_INFO, PSTR("EBG: LPC @ %s: Fallback LoadControl abo+bind (keine Discovery)"), ESp->peer_ip);
   }
   free(cmd);
@@ -5092,6 +5184,7 @@ void EebusLpcSendBind(void) {
 void EebusLpcReadDesc(void) {
   EebusSpineSendAddr("read", false, 0, "{\"loadControlLimitDescriptionListData\":[]}",
                      EEBUS_LPC_CLIENT_ENT, EEBUS_LPC_CLIENT_FEAT, ESp->lpc_peer_ent, ESp->lpc_peer_feat);
+  ESp->lpc_rd_mc = ESp->spine_ctr - 1;   // SteuVE v045
   ESp->lpc_deadline = millis() + EEBUS_LPC_PHASE_TIMEOUT_MS;
   EebusLpcSetResult(LPC_READDESC, "Limit-Beschreibung angefragt");
 }
@@ -5112,6 +5205,7 @@ void EebusLpcReadLimitSel(int limit_sel) {
     "{\"loadControlLimitListData\":[]}", limit_sel);
   EebusSpineSendAddr("read", false, 0, sel, EEBUS_LPC_CLIENT_ENT, EEBUS_LPC_CLIENT_FEAT,
                      ESp->lpc_peer_ent, ESp->lpc_peer_feat);
+  ESp->lpc_rd_mc = ESp->spine_ctr - 1;   // SteuVE v045
 }
 
 void EebusLpcReadData(void) {
@@ -5123,6 +5217,7 @@ void EebusLpcReadData(void) {
   } else {
     EebusSpineSendAddr("read", false, 0, "{\"loadControlLimitListData\":[]}",
                        EEBUS_LPC_CLIENT_ENT, EEBUS_LPC_CLIENT_FEAT, ESp->lpc_peer_ent, ESp->lpc_peer_feat);
+    ESp->lpc_rd_mc = ESp->spine_ctr - 1;   // SteuVE v045
     EebusLpcSetResult(LPC_READDATA, "Ist-LimitData angefragt");
   }
   ESp->lpc_deadline = millis() + EEBUS_LPC_PHASE_TIMEOUT_MS;
@@ -5174,6 +5269,7 @@ void EebusLpcReadCfg(void) {
   }
   EebusSpineSendAddr("read", false, 0, "{\"deviceConfigurationKeyValueDescriptionListData\":[]}",
                      EEBUS_LPC_CLIENT_ENT, 3, ESp->lpc_peer_ent, ESp->lpc_peer_dcfg_feat);
+  ESp->lpc_rd_mc = ESp->spine_ctr - 1;   // SteuVE v045
   ESp->lpc_deadline = millis() + EEBUS_LPC_PHASE_TIMEOUT_MS;
   EebusLpcSetResult(LPC_READCFG, "DeviceConfig-Beschreibung angefragt");
 }
@@ -5422,6 +5518,7 @@ void EebusLpcWriteRejected(void) {
 void EebusLpcVerify(void) {
   EebusSpineSendAddr("read", false, 0, "{\"loadControlLimitListData\":[]}",
                      EEBUS_LPC_CLIENT_ENT, EEBUS_LPC_CLIENT_FEAT, ESp->lpc_peer_ent, ESp->lpc_peer_feat);
+  ESp->lpc_rd_mc = ESp->spine_ctr - 1;   // SteuVE v045
   ESp->lpc_deadline = millis() + EEBUS_LPC_PHASE_TIMEOUT_MS;
   EebusLpcSetResult(LPC_VERIFY, "Read-Back angefragt");
 }
@@ -5563,8 +5660,35 @@ int EebusMoFind(int ent, uint8_t id, bool anlegen) {
   return i;
 }
 
+// SteuVE v044 (wie Steuerbox v246/v248): steht der Schluessel mit dem Wert true im Text? Leerraum erlaubt.
+bool EebusJsonTrue(const char *json, const char *key) {
+  char k[40]; snprintf(k, sizeof(k), "\"%s\"", key);
+  const size_t kl = strlen(k);
+  const char *p = json;
+  while (nullptr != (p = strstr(p, k))) {
+    const char *q = p + kl;
+    while ((' ' == *q) || ('\t' == *q) || ('\r' == *q) || ('\n' == *q)) { q++; }
+    if (':' == *q) {
+      q++;
+      while ((' ' == *q) || ('\t' == *q) || ('\r' == *q) || ('\n' == *q)) { q++; }
+      return (0 == strncmp(q, "true", 4));
+    }
+    p = q;
+  }
+  return false;
+}
+
+// v044/v049: Vorab-Deklaration - EebusSegKey steht weiter unten (Arduino legt fuer "const char *"-Funktionen keinen Prototyp an)
+const char *EebusSegKey(const char *from, const char *end, const char *k);
+// SteuVE v045 (Pruefung 27.11., Fund 10): Zehnerpotenz aus der Nachricht begrenzt speichern - bisher (int8_t)sca, aus
+// "scale":300 wurde 44 (Unsinn in Anzeige und Vergleichen). -12..12 wie EebusCsScaledSigned / EebusFsScaledW.
+int8_t EebusSc8(long s) { return (int8_t)((s > 12) ? 12 : ((s < -12) ? -12 : s)); }
 void EebusHarvest(const char *json, int src_ent) {
   const char *p, *q, *nx;
+   // SteuVE v044: Zustand der Gegenstelle nur aus reply/notify (nicht aus read/write/call an uns); Leerraum erlaubt
+  char h_cls[12] = { 0 };
+  EebusJsonStr(json, "cmdClassifier", h_cls, sizeof(h_cls));
+  const bool h_zustand = (0 == strcmp(h_cls, "reply")) || (0 == strcmp(h_cls, "notify"));
 
    // --- Herzschlag der GEGENSTELLE: Ankunft und Zusage merken --------------------------------
    // Diese Funktion laeuft VOR der Verzweigung nach cmdClassifier und damit auch fuer "notify" —
@@ -5595,7 +5719,7 @@ void EebusHarvest(const char *json, int src_ent) {
   }
 
    // --- Beschreibung der Messwerte: measurementId -> Bedeutung -------------------------------
-  if (nullptr != strstr(json, "\"measurementDescriptionData\"")) {
+  if (h_zustand && (nullptr != strstr(json, "\"measurementDescriptionData\""))) {   // SteuVE v044: nur reply/notify
    // Gehoert diese Beschreibung zum NETZANSCHLUSSPUNKT? Erkennungsmerkmal sind die Bedeutungen
    // gridFeedIn/gridConsumption — die fuehrt keine andere Einheit. Damit muss keine Entity-Nummer
    // fest verdrahtet werden, es bleibt geraeteunabhaengig.
@@ -5603,12 +5727,12 @@ void EebusHarvest(const char *json, int src_ent) {
                  || (nullptr != strstr(json, "\"gridConsumption\""));
     if (ist_netz) { ESp->meas_ent = src_ent; }
     q = json;
-    while (nullptr != (q = strstr(q, "\"measurementId\":"))) {
+    while (nullptr != (q = strstr(q, "\"measurementId\""))) {   // SteuVE v044: Leerraum erlaubt
       uint32_t id = 0;
-      EebusJsonInt(q, "measurementId", &id);
-      nx = strstr(q + 16, "\"measurementId\":");
-      const char *sc = strstr(q, "\"scopeType\":\"");
-      if (sc && (!nx || (sc < nx)) && (id < 24)) {
+      if (!EebusJsonInt(q, "measurementId", &id)) { q += 15; continue; }
+      nx = strstr(q + 15, "\"measurementId\"");
+      const char *sc = EebusSegKey(q, nx, "\"scopeType\"");
+      if (sc && (id < 24)) {
         char s[28] = { 0 };
         EebusJsonStr(sc, "scopeType", s, sizeof(s));
         if (ist_netz) {
@@ -5628,43 +5752,46 @@ void EebusHarvest(const char *json, int src_ent) {
           if (i >= 0) {
             strlcpy(ESp->mo_scope[i], s, sizeof(ESp->mo_scope[i]));
    // Einheit mitnehmen, solange sie zu DIESER Kennung gehoert (bis zur naechsten measurementId).
-            const char *up = strstr(q, "\"unit\":\"");
-            if (up && (!nx || (up < nx))) { EebusJsonStr(up, "unit", ESp->mo_unit[i], sizeof(ESp->mo_unit[i])); }
+            const char *up = EebusSegKey(q, nx, "\"unit\"");   // SteuVE v044: Leerraum erlaubt
+            if (up) { EebusJsonStr(up, "unit", ESp->mo_unit[i], sizeof(ESp->mo_unit[i])); }
           }
         }
       }
-      q += 16;
+      q += 15;   // SteuVE v044
     }
   }
 
    // --- Messwerte: je Kennung den letzten Wert behalten ---------------------------------------
-  if (nullptr != strstr(json, "\"measurementData\"")) {
+  if (h_zustand && (nullptr != strstr(json, "\"measurementData\""))) {   // SteuVE v044: nur reply/notify
    // Solange der Netzanschlusspunkt nicht erkannt ist, verhaelt sich alles wie bisher (sonst waere
    // die Anzeige vor der ersten Beschreibung leer). Ist er erkannt, gilt er ausschliesslich.
     bool ist_netz = (ESp->meas_ent < 0) || (src_ent == ESp->meas_ent);
     q = json;
-    while (nullptr != (q = strstr(q, "\"measurementId\":"))) {
+    while (nullptr != (q = strstr(q, "\"measurementId\""))) {   // SteuVE v044: Leerraum erlaubt
       uint32_t id = 0;
-      EebusJsonInt(q, "measurementId", &id);
-      nx = strstr(q + 16, "\"measurementId\":");
-      const char *vp = strstr(q, "\"value\":[{\"number\":");
-      if (vp && (!nx || (vp < nx)) && (id < 24)) {
+      if (!EebusJsonInt(q, "measurementId", &id)) { q += 15; continue; }
+      nx = strstr(q + 15, "\"measurementId\"");
+      const char *vk = EebusSegKey(q, nx, "\"value\"");   // SteuVE v044: number/scale nur aus diesem Wert
+      const char *ve = vk ? strchr(vk, ']') : nullptr;
+      const char *vp = vk ? EebusSegKey(vk, ve, "\"number\"") : nullptr;
+      const char *vs = vk ? EebusSegKey(vk, ve, "\"scale\"") : nullptr;
+      if (vp && (id < 24)) {
         long num = 0, sca = 0;
         EebusJsonLong(vp, "number", &num);
-        EebusJsonLong(vp, "scale",  &sca);
+        if (vs) { EebusJsonLong(vs, "scale", &sca); }
         if (ist_netz) {
           if (ESp->m_scope[id]) {
             int8_t c = ESp->m_scope[id];
             ESp->m_val[c]  = num;
-            ESp->m_sc[c]   = (int8_t)sca;
+            ESp->m_sc[c]   = EebusSc8(sca);
             ESp->m_have[c] = true;
           }
         } else {
           int i = EebusMoFind(src_ent, (uint8_t)id, true);
-          if (i >= 0) { ESp->mo_v[i] = num; ESp->mo_sc[i] = (int8_t)sca; ESp->mo_have[i] = true; }
+          if (i >= 0) { ESp->mo_v[i] = num; ESp->mo_sc[i] = EebusSc8(sca); ESp->mo_have[i] = true; }
         }
       }
-      q += 16;
+      q += 15;   // SteuVE v044
     }
   }
 
@@ -5673,45 +5800,48 @@ void EebusHarvest(const char *json, int src_ent) {
    // Uns interessieren powerProductionNominalMax (Nennleistung Erzeugung — Bezugsgroesse fuer eine
    // Prozent-Vorgabe nach Paragraf 9 EEG) und das Gegenstueck fuer den Bezug. Der Wert steht wie
    // ueberall als scaledNumber (Zahl + Zehnerexponent) daneben.
-  if (nullptr != strstr(json, "\"electricalConnectionCharacteristicData\"")) {
+  if (h_zustand && (nullptr != strstr(json, "\"electricalConnectionCharacteristicData\""))) {   // SteuVE v044: nur reply/notify
     q = json;
-    while (nullptr != (q = strstr(q, "\"characteristicType\":\""))) {
+    while (nullptr != (q = strstr(q, "\"characteristicType\""))) {   // SteuVE v044: Leerraum erlaubt
       char ct[40] = { 0 };
       EebusJsonStr(q, "characteristicType", ct, sizeof(ct));
-      nx = strstr(q + 22, "\"characteristicType\":\"");
-      const char *vp = strstr(q, "\"value\":[{\"number\":");
-      if (vp && (!nx || (vp < nx))) {
+      nx = strstr(q + 20, "\"characteristicType\"");
+      const char *vk = EebusSegKey(q, nx, "\"value\"");   // SteuVE v044: number/scale nur aus diesem Wert
+      const char *ve = vk ? strchr(vk, ']') : nullptr;
+      const char *vp = vk ? EebusSegKey(vk, ve, "\"number\"") : nullptr;
+      const char *vs = vk ? EebusSegKey(vk, ve, "\"scale\"") : nullptr;
+      if (vp) {
         long num = 0, sca = 0;
         EebusJsonLong(vp, "number", &num);
-        EebusJsonLong(vp, "scale",  &sca);
+        if (vs) { EebusJsonLong(vs, "scale", &sca); }
         if (0 == strcmp(ct, "powerProductionNominalMax")) {
-          ESp->pnom_prod = num; ESp->pnom_prod_sc = (int8_t)sca; ESp->pnom_prod_ok = true;
+          ESp->pnom_prod = num; ESp->pnom_prod_sc = EebusSc8(sca); ESp->pnom_prod_ok = true;
           ESp->pnom_prod_ent = src_ent;   // festhalten, WOHER sie kam
           AddLog(LOG_LEVEL_INFO, PSTR("EBG: Nennleistung Erzeugung von Entity %d: %ld (x10^%ld)"),
                  src_ent, num, sca);
         } else if (0 == strcmp(ct, "powerConsumptionNominalMax")) {
-          ESp->pnom_cons = num; ESp->pnom_cons_sc = (int8_t)sca; ESp->pnom_cons_ok = true;
+          ESp->pnom_cons = num; ESp->pnom_cons_sc = EebusSc8(sca); ESp->pnom_cons_ok = true;
         }
       }
-      q += 22;
+      q += 20;   // SteuVE v044
     }
   }
 
    // --- DeviceConfig: Bedeutung der Schluessel je QUELL-ENTITY lernen -------------------------
    // Failsafe-Werte und der PV-Begrenzungsfaktor kommen von VERSCHIEDENEN Entities, fuehren aber
    // beide keyId 0. Ohne die Entity-Zuordnung landete der Prozentwert im Failsafe-Feld.
-  if (nullptr != strstr(json, "\"deviceConfigurationKeyValueDescriptionData\"")) {
+  if (h_zustand && (nullptr != strstr(json, "\"deviceConfigurationKeyValueDescriptionData\""))) {   // SteuVE v044: nur reply/notify
     int b = -1;
     for (int i = 0; i < 2; i++) { if (ESp->cfg_ent[i] == src_ent) { b = i; break; } }
     if (b < 0) { for (int i = 0; i < 2; i++) { if (ESp->cfg_ent[i] < 0) { ESp->cfg_ent[i] = src_ent; b = i; break; } } }
     if (b >= 0) {
       q = json;
-      while (nullptr != (q = strstr(q, "\"keyId\":"))) {
+      while (nullptr != (q = strstr(q, "\"keyId\""))) {   // SteuVE v044: Leerraum erlaubt
         uint32_t kid = 0;
-        EebusJsonInt(q, "keyId", &kid);
-        nx = strstr(q + 8, "\"keyId\":");
-        const char *kn = strstr(q, "\"keyName\":\"");
-        if (kn && (!nx || (kn < nx))) {
+        if (!EebusJsonInt(q, "keyId", &kid)) { q += 7; continue; }
+        nx = strstr(q + 7, "\"keyId\"");
+        const char *kn = EebusSegKey(q, nx, "\"keyName\"");
+        if (kn) {
           char s[40] = { 0 };
           EebusJsonStr(kn, "keyName", s, sizeof(s));
           int8_t code = 0;
@@ -5729,53 +5859,56 @@ void EebusHarvest(const char *json, int src_ent) {
                    ESp->peer_ip, kid, s);
           }
         }
-        q += 8;
+        q += 7;   // SteuVE v044
       }
     }
   }
 
    // --- DeviceConfig: Werte einsortieren ------------------------------------------------------
-  if (nullptr != strstr(json, "\"deviceConfigurationKeyValueData\"")) {
+  if (h_zustand && (nullptr != strstr(json, "\"deviceConfigurationKeyValueData\""))) {   // SteuVE v044: nur reply/notify
     int b = -1;
     for (int i = 0; i < 2; i++) { if (ESp->cfg_ent[i] == src_ent) { b = i; break; } }
     if (b >= 0) {
       q = json;
-      while (nullptr != (q = strstr(q, "\"keyId\":"))) {
+      while (nullptr != (q = strstr(q, "\"keyId\""))) {   // SteuVE v044: Leerraum erlaubt
         uint32_t kid = 0;
-        EebusJsonInt(q, "keyId", &kid);
-        nx = strstr(q + 8, "\"keyId\":");
+        if (!EebusJsonInt(q, "keyId", &kid)) { q += 7; continue; }
+        nx = strstr(q + 7, "\"keyId\"");
         int8_t code = 0;   // SteuVE FW v041: Bedeutung aus der Paar-Liste
         for (int j = 0; j < ESp->cfg_n[b]; j++) { if (ESp->cfg_kid[b][j] == kid) { code = ESp->cfg_code[b][j]; break; } }
         if (code) {
-          const char *vp = strstr(q, "\"scaledNumber\":[{\"number\":");
-          const char *dp = strstr(q, "\"duration\":\"");
-          if ((2 == code) && dp && (!nx || (dp < nx))) {
+          const char *vk = EebusSegKey(q, nx, "\"scaledNumber\"");   // SteuVE v044: Leerraum erlaubt, scale nur aus diesem Wert
+          const char *ve = vk ? strchr(vk, ']') : nullptr;
+          const char *vp = vk ? EebusSegKey(vk, ve, "\"number\"") : nullptr;
+          const char *vs = vk ? EebusSegKey(vk, ve, "\"scale\"") : nullptr;
+          const char *dp = EebusSegKey(q, nx, "\"duration\"");
+          if ((2 == code) && dp) {
             EebusJsonStr(dp, "duration", ESp->fs_dur, sizeof(ESp->fs_dur));
-          } else if (vp && (!nx || (vp < nx))) {
+          } else if (vp) {
             long num = 0, sca = 0;
             EebusJsonLong(vp, "number", &num);
-            EebusJsonLong(vp, "scale",  &sca);
-            if      (1 == code) { ESp->fs_cons = num; ESp->fs_cons_sc = (int8_t)sca; ESp->fs_cons_ok = true; }
-            else if (3 == code) { ESp->fs_prod = num; ESp->fs_prod_sc = (int8_t)sca; ESp->fs_prod_ok = true; }
-            else if (4 == code) { ESp->plf     = num; ESp->plf_sc     = (int8_t)sca; ESp->plf_ok     = true; }
+            if (vs) { EebusJsonLong(vs, "scale", &sca); }
+            if      (1 == code) { ESp->fs_cons = num; ESp->fs_cons_sc = EebusSc8(sca); ESp->fs_cons_ok = true; }
+            else if (3 == code) { ESp->fs_prod = num; ESp->fs_prod_sc = EebusSc8(sca); ESp->fs_prod_ok = true; }
+            else if (4 == code) { ESp->plf     = num; ESp->plf_sc     = EebusSc8(sca); ESp->plf_ok     = true; }
           }
         }
-        q += 8;
+        q += 7;   // SteuVE v044
       }
     }
   }
 
    // --- Ist-Zustand der beiden Grenzen des Peers ----------------------------------------------
-  if (nullptr != strstr(json, "\"loadControlLimitData\"")) {
+  if (h_zustand && (nullptr != strstr(json, "\"loadControlLimitData\""))) {   // SteuVE v044: nur reply/notify
     q = json;
-    while (nullptr != (q = strstr(q, "\"limitId\":"))) {
+    while (nullptr != (q = strstr(q, "\"limitId\""))) {   // SteuVE v044: Leerraum erlaubt
       uint32_t lid = 0;
-      EebusJsonInt(q, "limitId", &lid);
-      nx = strstr(q + 10, "\"limitId\":");
+      if (!EebusJsonInt(q, "limitId", &lid)) { q += 9; continue; }
+      nx = strstr(q + 9, "\"limitId\"");
       if (lid < 2) {
-        const char *ap = strstr(q, "\"isLimitActive\":");
-        if (ap && (!nx || (ap < nx))) {
-          ESp->lim_act[lid] = (0 == strncmp(ap + 16, "true", 4)) ? 1 : 0;
+        const char *ap = EebusSegKey(q, nx, "\"isLimitActive\"");   // SteuVE v044: vorher fest ap + 16
+        if (ap) {
+          ESp->lim_act[lid] = EebusJsonTrue(ap, "isLimitActive") ? 1 : 0;
    // VERSPAETETE BESTAETIGUNG. Der Read-Back pollt nur wenige Sekunden nach; antwortet
    // die Gegenstelle spaeter (oder meldet sie den Zustand von sich aus per notify), stand das
    // Ergebnis frueher fuer immer auf "Fehler" — obwohl die Begrenzung laengst wirkte. Genau
@@ -5793,16 +5926,20 @@ void EebusHarvest(const char *json, int src_ent) {
             EebusLpcSetResult(LPC_DONE, t);
           }
         }
-        const char *vp = strstr(q, "\"value\":[{\"number\":");
+         // SteuVE v044: Leerraum erlaubt - number/scale nur aus diesem Wert (erste ])
+        const char *vk = EebusSegKey(q, nx, "\"value\"");
+        const char *ve = vk ? strchr(vk, ']') : nullptr;
+        const char *vp = vk ? EebusSegKey(vk, ve, "\"number\"") : nullptr;
+        const char *vs = vk ? EebusSegKey(vk, ve, "\"scale\"") : nullptr;
    // v179: nach err7 nachgelesen — umgesetzt, wenn Zustand UND (bei aktiv) Wert dem Auftrag entsprechen.
    // Der Wert wird geprueft, damit eine noch stehende alte Grenze nicht als Bestaetigung durchgeht.
         if (ESp->lpc_rej_late && (LPC_FAIL == ESp->lpc_state) && ((int)lid == ESp->lpc_limit_id) &&
             ap && (!nx || (ap < nx)) && ((1 == ESp->lim_act[lid]) == ESp->lpc_active_wish)) {
           bool wert_ok = !ESp->lpc_active_wish;
-          if (!wert_ok && vp && (!nx || (vp < nx))) {
+          if (!wert_ok && vp) {   // SteuVE v044: vp liegt schon in diesem Eintrag
             long num = 0, sca = 0;
             EebusJsonLong(vp, "number", &num);
-            EebusJsonLong(vp, "scale",  &sca);
+            if (vs) { EebusJsonLong(vs, "scale", &sca); }
             if (sca > 9) { sca = 9; }     // SteuVE v030: scale aus dem Frame begrenzen (bisher Schleife ohne Grenze)
             if (sca < -9) { sca = -9; }
             while (sca > 0) { num *= 10; sca--; }
@@ -5820,17 +5957,17 @@ void EebusHarvest(const char *json, int src_ent) {
             AddLog(LOG_LEVEL_INFO, PSTR("EBG: LPC @ %s: %s"), ESp->peer_ip, t);
           }
         }
-        if (vp && (!nx || (vp < nx))) {
+        if (vp) {   // SteuVE v044: vp liegt schon in diesem Eintrag
           long num = 0, sca = 0;
           EebusJsonLong(vp, "number", &num);
-          EebusJsonLong(vp, "scale",  &sca);
+          if (vs) { EebusJsonLong(vs, "scale", &sca); }
           ESp->lim_val[lid] = num;
-          ESp->lim_sc[lid]  = (int8_t)sca;
+          ESp->lim_sc[lid]  = EebusSc8(sca);
         }
    // Geltungsdauer mitlesen. Steht KEINE im Eintrag, wird der gemerkte Wert geloescht —
    // sonst zeigte die Anzeige noch eine Dauer, die der Peer laengst nicht mehr fuehrt.
-        const char *ep = strstr(q, "\"endTime\":\"");
-        if (ep && (!nx || (ep < nx))) {
+        const char *ep = EebusSegKey(q, nx, "\"endTime\"");   // SteuVE v044: Leerraum erlaubt
+        if (ep) {
           EebusJsonStr(ep, "endTime", ESp->lim_dur[lid], sizeof(ESp->lim_dur[lid]));
    // Restlaufzeit in Sekunden merken + Empfangszeitpunkt stempeln -> die Anzeige
    // rechnet ab hier selbst weiter, statt den Text einzufrieren. Laesst sich die Dauer nicht
@@ -5841,7 +5978,7 @@ void EebusHarvest(const char *json, int src_ent) {
           ESp->lim_dur[lid][0] = '\0';
         }
       }
-      q += 10;
+      q += 9;   // SteuVE v044
     }
   }
 }
@@ -5946,7 +6083,93 @@ void EebusGbAntwort(uint8_t typ, uint32_t ref, int peer_ent, int peer_feat) {
   free(cmd);
 }
 
+// SteuVE v045 (Pruefung 27.11.): Eintrag unserer limitId in einer Grenzen-Antwort - per ZAHL gesucht (vorher Text
+// "limitId":%d: limitId 1 traf auch 10..19) und erst ab den Daten (ein mitgesendeter Auswahlfilter hat auch eine limitId).
+// *nx = naechster limitId-Eintrag (Ende unseres Blocks) oder nullptr. Ergebnis nullptr = unser Eintrag fehlt.
+const char *EebusLimBlk(const char *json, int lid, const char **nx) {
+  if (nx) { *nx = nullptr; }
+  if ((nullptr == json) || (lid < 0)) { return nullptr; }
+  const char *d = strstr(json, "\"loadControlLimitData\"");
+  const char *hit = nullptr;
+  for (const char *q = d ? d : json; nullptr != (q = strstr(q, "\"limitId\"")); q += 9) {
+    if (hit) { if (nx) { *nx = q; } break; }
+    uint32_t v = 0;
+    if (EebusJsonInt(q, "limitId", &v) && (v < 0x7FFFFFFFUL) && ((int)v == lid)) { hit = q; }
+  }
+  return hit;
+}
+
+// SteuVE v045 (27.11.2026): EINGEHENDE SPINE-Nachricht verdichten. JSON (RFC 8259 Abschn. 2) erlaubt Leerraum um die
+// Strukturzeichen; er ist bedeutungslos. Die Auswertung sucht an ~40 Stellen feste Muster wie "limitId":, "errorNumber":0,
+// "featureType":"..." - mit Leerraum ("limitId" : 1) wuerden sie nicht greifen (Befund C2 22.11., Normpruefung 27.11.).
+// Statt jede Stelle einzeln umzubauen: enthaelt die Nachricht Leerraum AUSSERHALB von Texten, wird einmal eine
+// verdichtete Kopie verarbeitet. Ohne Leerraum (alle bisherigen Gegenstellen) aendert sich nichts, kein malloc.
+bool EebusJsonLeerraum(const char *s) {
+  bool txt = false;
+  for (; s && *s; s++) {
+    if (txt) {
+      if ('\\' == *s) { if (s[1]) { s++; } }
+      else if ('"' == *s) { txt = false; }
+    } else {
+      if ('"' == *s) { txt = true; }
+      else if ((' ' == *s) || ('\t' == *s) || ('\r' == *s) || ('\n' == *s)) { return true; }
+    }
+  }
+  return false;
+}
+// Kopie ohne Leerraum ausserhalb von Texten; out braucht strlen(s) + 1 Byte. Texte bleiben Zeichen fuer Zeichen gleich.
+void EebusJsonVerdichten(const char *s, char *out) {
+  bool txt = false;
+  for (; *s; s++) {
+    if (txt) {
+      *out++ = *s;
+      if ('\\' == *s) { if (s[1]) { s++; *out++ = *s; } }
+      else if ('"' == *s) { txt = false; }
+    } else {
+      if ((' ' == *s) || ('\t' == *s) || ('\r' == *s) || ('\n' == *s)) { continue; }
+      if ('"' == *s) { txt = true; }
+      *out++ = *s;
+    }
+  }
+  *out = '\0';
+}
+
+// SteuVE v045 (Pruefung 27.11., Fund 8): Antwort auf UNSERE letzte LPC-Leseanfrage? Ohne msgCounterReference (Notify,
+// tolerante Gegenstellen) wie bisher angenommen; mit Nummer muss sie passen - sonst konnte die Antwort auf eine andere
+// Leseanfrage (Abo-Lesen, doppelt gesendet) einen LPC-Schritt zu frueh weiterschalten oder mit alten Daten bestaetigen.
+bool EebusLpcRdRefOk(const char *json) {
+  uint32_t r = 0;
+  if (!ESp->lpc_rd_mc || !EebusJsonInt(json, "msgCounterReference", &r)) { return true; }
+  if (r == ESp->lpc_rd_mc) { return true; }
+  AddLog(LOG_LEVEL_DEBUG, PSTR("EBG: Antwort auf Nachricht %u @ %s gehoert nicht zur LPC-Leseanfrage (erwartet %u)"),
+         r, ESp->peer_ip, ESp->lpc_rd_mc);
+  return false;
+}
+// SteuVE v045 (wie Steuerbox v231/v240): Quittung auf UNSEREN Write bzw. UNSER LoadControl-Binding?
+bool Eebus128LpcRefOk(const char *json) {
+  uint32_t r = 0;
+  if (!ESp->lpc_mc || !EebusJsonInt(json, "msgCounterReference", &r)) { return true; }
+  if (r == ESp->lpc_mc) { return true; }
+  AddLog(LOG_LEVEL_DEBUG, PSTR("EBG: Antwort auf Nachricht %u @ %s gehoert nicht zum LPC-Schritt (erwartet %u)"), r, ESp->peer_ip, ESp->lpc_mc);
+  return false;
+}
+bool Eebus128BindRefOk(const char *json) {
+  uint32_t r = 0;
+  if (!ESp->bind_mc || !EebusJsonInt(json, "msgCounterReference", &r)) { return true; }
+  return (r == ESp->bind_mc);
+}
+
 void EebusSpineHandle(const char *json) {
+  if (json && EebusJsonLeerraum(json)) {   // SteuVE v045: mit Leerraum -> verdichtete Kopie auswerten (s. o.)
+    char *knapp = (char *)malloc(strlen(json) + 1);
+    if (knapp) {
+      EebusJsonVerdichten(json, knapp);
+      EebusSpineHandle(knapp);   // die Kopie enthaelt keinen Leerraum mehr -> kein zweiter Durchlauf
+      free(knapp);
+      return;
+    }
+    AddLog(LOG_LEVEL_INFO, PSTR("EBG: SPINE mit Leerraum - kein Speicher zum Verdichten, Auswertung ungekuerzt"));
+  }
   ESp->last_rx = millis();
    // Peer-Geraeteadresse aus addressSource merken (fuer unsere addressDestination)
   if (!ESp->peer_dev[0]) {
@@ -5982,7 +6205,8 @@ void EebusSpineHandle(const char *json) {
    // Nutzdaten mitlesen und behalten (Messwerte, Failsafe-Werte, Limit-Zustaende) — unabhaengig
    // von der Schreibkette, damit die Bedienoberflaeche etwas anzuzeigen hat. Bisher lief das alles
    // durch und wurde verworfen, obwohl der Peer die Messwerte im Sekundentakt schickt.
-  EebusHarvest(json, peer_ent);
+   // SteuVE v044: NICHT bei write - eine an uns geschriebene Grenze ist kein Zustand der Gegenstelle
+  if (0 != strcmp(cls, "write")) { EebusHarvest(json, peer_ent); }
 
   if (0 == strcmp(cls, "read")) {
     if (!nm_ziel && strstr(json, "\"nodeManagement")) {   // SteuVE v036 (TS FC_001)
@@ -6299,7 +6523,7 @@ void EebusSpineHandle(const char *json) {
       }
     }
    // LPC-Controller: Antwort auf unsere Limit-Beschreibung -> limitId der consume-Grenze
-    else if ((LPC_READDESC == ESp->lpc_state) && strstr(json, "loadControlLimitDescriptionData")) {
+    else if ((LPC_READDESC == ESp->lpc_state) && EebusLpcRdRefOk(json) && strstr(json, "loadControlLimitDescriptionData")) {
       int lid = -1;
       if (EebusLpcPickLimitId(json, ESp->lpc_dir, &lid)) {   // /Grenze der aktuellen Richtung waehlen
         ESp->lpc_limit_id = lid;
@@ -6319,7 +6543,7 @@ void EebusSpineHandle(const char *json) {
    // Antwort auf den Ist-LimitData-Read (VOR dem Write). isLimitChangeable pruefen wie Referenz-Umsetzung:
    // explizit false -> Grenze nicht beschreibbar (abbrechen, klare Diagnose). Fehlt das Feld oder true
    // -> weiter zum Write (der Energiemanager hat jetzt unsere LimitData-Anfrage gesehen = volle Referenz-Umsetzung-Sequenz).
-    else if ((LPC_READDATA == ESp->lpc_state) && strstr(json, "loadControlLimitListData")) {
+    else if ((LPC_READDATA == ESp->lpc_state) && EebusLpcRdRefOk(json) && strstr(json, "loadControlLimitListData")) {
    // Der Energiemanager hat jetzt unsere LimitData-Anfrage gesehen (= volle Referenz-Umsetzung-Sequenz). isLimitChangeable
    // NUR zur Diagnose; NICHT hart abbrechen (sonst Regressions-Risiko am funktionierenden Waermepumpen-Gateway-Pfad).
       bool ro = (nullptr != strstr(json, "\"isLimitChangeable\":false"));
@@ -6343,26 +6567,28 @@ void EebusSpineHandle(const char *json) {
    // EebusLpcSubscribeAll DeviceConfig zusaetzlich auf ent8 (Bauplan B, fire-and-forget); deren Antworten
    // duerfen den Write NICHT vorzeitig ausloesen -> peer_ent-Guard. In Modus 0 kommt nur die ent7-Antwort
    // (kein ent8-Read) -> Guard neutral.
-    else if ((LPC_READCFG == ESp->lpc_state) && (peer_ent == ESp->lpc_peer_ent) &&
+    else if ((LPC_READCFG == ESp->lpc_state) && EebusLpcRdRefOk(json) && (peer_ent == ESp->lpc_peer_ent) &&
              strstr(json, "deviceConfigurationKeyValueDescriptionData")) {
       EebusLpcLearnFailsafeKeys(json);   // keyIds der Failsafe-Keys aus der Beschreibung merken (Schreibziele)
       EebusSpineSendAddr("read", false, 0, "{\"deviceConfigurationKeyValueListData\":[]}",
                          EEBUS_LPC_CLIENT_ENT, 3, ESp->lpc_peer_ent, ESp->lpc_peer_dcfg_feat);   // gelernte Adresse statt feat24
+      ESp->lpc_rd_mc = ESp->spine_ctr - 1;   // SteuVE v045
       ESp->lpc_deadline = millis() + EEBUS_LPC_PHASE_TIMEOUT_MS;
       EebusLpcSetResult(LPC_READCFG, "DeviceConfig-Werte angefragt");
     }
-    else if ((LPC_READCFG == ESp->lpc_state) && (peer_ent == ESp->lpc_peer_ent) &&
+    else if ((LPC_READCFG == ESp->lpc_state) && EebusLpcRdRefOk(json) && (peer_ent == ESp->lpc_peer_ent) &&
              strstr(json, "deviceConfigurationKeyValueListData")) {
       EebusLpcSetResult(LPC_READCFG, "DeviceConfig gelesen -> schreibe");
       EebusLpcWrite();
     }
    // LPC-Controller: Read-Back des Limit-Zustands -> verifizieren
-    else if ((LPC_VERIFY == ESp->lpc_state) && strstr(json, "loadControlLimitData")) {
+    else if ((LPC_VERIFY == ESp->lpc_state) && EebusLpcRdRefOk(json) && strstr(json, "loadControlLimitData")) {
    // den Zustand UNSERER limitId pruefen — nicht blind das erste isLimitActive. Fremde CS liefern
    // in EINER Antwort mehrere Limits (consume + produce); das erste kann das falsche sein -> Fehlalarm
    // "Limit NICHT aktiv" (am Referenz-Umsetzung-HEMS live gesehen). Ab unserem limitId-Block auslesen.
-      char idkey[24]; snprintf(idkey, sizeof(idkey), "\"limitId\":%d", ESp->lpc_limit_id);
-      const char *blk = strstr(json, idkey);
+      const char *blk_nx = nullptr;   // SteuVE v045: Eintrag per Zahl, nicht per Text (s. EebusLimBlk)
+      const char *blk = EebusLimBlk(json, ESp->lpc_limit_id, &blk_nx);
+      const bool ohne_ids = (nullptr == strstr(json, "\"limitId\""));   // gar keine limitId -> wie bisher ganze Nachricht
    // WAHRHEITSWERT RICHTIG LESEN — das war die Wurzel des Anzeigefehlers inzwischen.
    // Bis hierher stand hier EebusJsonStr(..., "isLimitActive", ...). Dieser Extraktor sucht
    // das Muster "key":"…" — also einen Wert IN ANFUEHRUNGSZEICHEN. Im Frame steht aber ein
@@ -6375,8 +6601,10 @@ void EebusSpineHandle(const char *json) {
    // ~100 ms, die Pruefung erkannte trotzdem nichts — waehrend EEBusData aus denselben Frames
    // den richtigen Zustand las. Der Datenteil nutzt seit jeher den direkten Vergleich; genau
    // den verwenden wir jetzt auch hier, auf UNSEREN limitId-Block begrenzt.
-      const char *nb2 = blk ? strstr(blk + 1, "\"limitId\":") : nullptr;
-      const char *ap2 = strstr(blk ? blk : json, "\"isLimitActive\":");
+      const char *nb2 = blk_nx;
+       // SteuVE v045: fehlt UNSER Eintrag, gilt KEIN Zustand (weiter nachlesen) - bisher wurde dann die erste Grenze der
+       // Nachricht genommen (z. B. die Einspeise- statt der Bezugsgrenze)
+      const char *ap2 = blk ? strstr(blk, "\"isLimitActive\":") : (ohne_ids ? strstr(json, "\"isLimitActive\":") : nullptr);
       const bool have_state = (nullptr != ap2) && (!nb2 || (ap2 < nb2));
       const bool is_active  = have_state && (0 == strncmp(ap2 + 16, "true", 4));
    // Fehlt die Angabe ganz, ist das KEINE Antwort — dann weiter nachpollen statt zu raten.
@@ -6401,7 +6629,7 @@ void EebusSpineHandle(const char *json) {
    // ueber den resultData-Zweig und heisst dort weiterhin "Write abgelehnt".
         ESp->lpc_verify_failed = true;
         char endt[16] = { 0 };
-        const char *nb = blk ? strstr(blk + 1, "\"limitId\":") : nullptr;
+        const char *nb = blk_nx;   // SteuVE v045
         const char *ep2 = blk ? strstr(blk, "\"endTime\":\"") : nullptr;
         if (ep2 && (!nb || (ep2 < nb))) { EebusJsonStr(ep2, "endTime", endt, sizeof(endt)); }
         const long restsec = EebusIsoDurSecs(endt);
@@ -6416,7 +6644,8 @@ void EebusSpineHandle(const char *json) {
     }
    // Ladestation quittiert unser Binding/Write als "reply" mit resultData (NICHT als "result") ->
    // hier abfangen, sonst haengt die LPC-Sequenz im Timeout (bewiesen : errorNumber:0 "Binding request was successful").
-    else if (((LPC_BIND == ESp->lpc_state) || (LPC_FAILSAFE == ESp->lpc_state) || (LPC_WRITE == ESp->lpc_state)) && strstr(json, "resultData")) {
+    else if (((LPC_BIND == ESp->lpc_state) || (LPC_FAILSAFE == ESp->lpc_state) || (LPC_WRITE == ESp->lpc_state)) && strstr(json, "resultData") &&
+             ((LPC_BIND == ESp->lpc_state) ? Eebus128BindRefOk(json) : Eebus128LpcRefOk(json))) {   // SteuVE v045 (wie Steuerbox v231/v240)
       bool ok = (nullptr != strstr(json, "\"errorNumber\":0")) || (nullptr == strstr(json, "errorNumber"));
       if (LPC_BIND == ESp->lpc_state) {
         if (ok) { ESp->lpc_bound = true; EebusLpcSetResult(LPC_BIND, "Binding bestaetigt"); EebusLpcReadDesc(); }
@@ -6447,8 +6676,8 @@ void EebusSpineHandle(const char *json) {
    // Aussage "die Gegenstelle liefert dort nichts". Eine Ablehnung muss man sehen koennen.
    // Zuordnung ueber die Nachrichtennummer, nicht ueber "irgendein Fehler kam herein" — sonst
    // schluckt die Leseanzeige die Ablehnung eines Limit-Writes, der zufaellig gleichzeitig laeuft.
-    char rd_ref[40]; snprintf_P(rd_ref, sizeof(rd_ref), PSTR("\"msgCounterReference\":%u"), ESp->rd_mc);
-    if ((ESp->rd_ent >= 0) && ESp->rd_mc && (nullptr != strstr(json, rd_ref))
+    uint32_t rd_ref = 0;   // SteuVE v045: per Zahl - der Text "msgCounterReference":12 traf auch 123 und 1200
+    if ((ESp->rd_ent >= 0) && ESp->rd_mc && EebusJsonInt(json, "msgCounterReference", &rd_ref) && (rd_ref == ESp->rd_mc)
         && (nullptr != strstr(json, "errorNumber"))
         && (nullptr == strstr(json, "\"errorNumber\":0"))) {
       if (ESp->rd_buf) { free(ESp->rd_buf); ESp->rd_buf = nullptr; }
@@ -6461,7 +6690,9 @@ void EebusSpineHandle(const char *json) {
     }
    // LPC-Controller: Ergebnis (errorNumber) auf unser Binding (call) bzw. Write.
     bool ok = (nullptr != strstr(json, "\"errorNumber\":0")) || (nullptr == strstr(json, "errorNumber"));
-    if (LPC_BIND == ESp->lpc_state) {
+    if (!((LPC_BIND == ESp->lpc_state) ? Eebus128BindRefOk(json) : Eebus128LpcRefOk(json))) {
+       // SteuVE v045 (wie Steuerbox v231/v240): Quittung einer anderen Nachricht - nicht unser LPC-Schritt
+    } else if (LPC_BIND == ESp->lpc_state) {
       if (ok) { ESp->lpc_bound = true; EebusLpcSetResult(LPC_BIND, "Binding bestaetigt"); EebusLpcReadDesc(); }
       else    { EebusLpcSetResult(LPC_FAIL, "Binding abgelehnt"); }
     } else if (LPC_FAILSAFE == ESp->lpc_state) {   // Failsafe-Write quittiert -> Dauer bzw. Limit
@@ -9028,6 +9259,7 @@ void EebusSrvAppData(void) {
     } else if (127 == len) {
       if (ESrv.abuf_len < 10) { return; }
       len = ((size_t)p[6] << 24) | ((size_t)p[7] << 16) | ((size_t)p[8] << 8) | p[9];
+      if (p[2] | p[3] | p[4] | p[5]) { len = (size_t)-1; }   // SteuVE v045 (wie HEMS v030): >= 4 GB -> unten als "passt nie" beendet
       ho = 10;
     }
     uint8_t mask[4] = { 0, 0, 0, 0 };
